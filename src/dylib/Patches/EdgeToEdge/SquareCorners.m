@@ -94,6 +94,14 @@ BOOL DPBesideSidebar(NSView *container) {
     return NSMinX(container.frame) > DPWindowPadding + 1 && !DPChatCard(container);
 }
 
+// With Sidebar on Right, the page meets the sidebar on its right.
+BOOL DPSidebarOnRightOf(NSView *container) {
+    static DPPatch *onRight;
+    onRight = onRight ?: DPPatchNamed(@"sidebarOnRight");
+    NSView *superview = container.superview;
+    return onRight && onRight->on && superview && NSMaxX(superview.bounds) - NSMaxX(container.frame) > DPWindowPadding + 1 && !DPChatCard(container);
+}
+
 // A full screen window has square corners, so the page squares the ones it shares with the screen.
 BOOL DPFullScreen(NSView *container) {
     return (container.window.styleMask & NSWindowStyleMaskFullScreen) && !DPChatCard(container);
@@ -103,11 +111,13 @@ BOOL DPFullScreen(NSView *container) {
 static CALayer *DPCornerShape(NSView *container, CGFloat *base, CGFloat *grow, CGFloat *left, CGFloat *right) {
     CALayer *layer = DPRoundedContent(container).layer;
     if (!layer) return nil;
-    *right = DPFullScreen(container) ? DPEdgeToEdge.progress : 0;
-    *left = DPBesideSidebar(container) ? DPSquareSidebarCorners.progress * DPEdgeToEdge.progress : *right;
+    CGFloat screen = DPFullScreen(container) ? DPEdgeToEdge.progress : 0, square = DPSquareSidebarCorners.progress * DPEdgeToEdge.progress;
+    BOOL onLeft = DPBesideSidebar(container), onRight = !onLeft && DPSidebarOnRightOf(container);
+    *left = onLeft ? square : screen;
+    *right = onRight ? square : screen;
     // Rounder window corners don't reach the corners by the sidebar.
-    CGFloat growth = DPWindowCornerGrowth(container.window);
-    if (growth > 0 && layer.cornerRadius > 0 && DPBesideSidebar(container)) *left = 1 - (1 - *left) * (layer.cornerRadius - growth) / layer.cornerRadius;
+    CGFloat growth = DPWindowCornerGrowth(container.window), *side = onLeft ? left : onRight ? right : NULL;
+    if (growth > 0 && layer.cornerRadius > 0 && side) *side = 1 - (1 - *side) * (layer.cornerRadius - growth) / layer.cornerRadius;
     *base = DPBaseCornerRadius(container) ?: layer.cornerRadius;
     *grow = *base > 0 ? layer.cornerRadius / *base : 1;
     return layer;
@@ -179,9 +189,10 @@ static NSString *DPVerifySquareCorners(DPPatch *patch) {
     for (NSView *container in DPFindViews(DPDiaContentContainer)) {
         CALayer *layer = DPRoundedContent(container).layer;
         if (!layer) return @"no rounded web content found";
-        if (!DPBesideSidebar(container)) continue;
+        BOOL onLeft = DPBesideSidebar(container);
+        if (!onLeft && !DPSidebarOnRightOf(container)) continue;
         BOOL square = patch->on && DPEdgeToEdge.on;
-        if (DPCornersRound(layer, NO) == square) return square ? @"corners by the sidebar are round" : @"corners by the sidebar are square";
+        if (DPCornersRound(layer, !onLeft) == square) return square ? @"corners by the sidebar are round" : @"corners by the sidebar are square";
     }
     return nil;
 }

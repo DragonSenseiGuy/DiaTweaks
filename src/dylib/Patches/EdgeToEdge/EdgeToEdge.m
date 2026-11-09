@@ -96,16 +96,17 @@ static NSString *DPVerifyEdgeToEdge(DPPatch *patch) {
         NSValue *requested = DPRequestedFrame(container);
         if (!requested) return @"never saw Dia place the web content";
         CALayer *layer = DPRoundedContent(container).layer;
-        BOOL square = patch->on && DPFullScreen(container);
-        if (layer && (DPCornersRound(layer, YES) == square || (!DPBesideSidebar(container) && DPCornersRound(layer, NO) == square)))
+        BOOL square = patch->on && DPFullScreen(container), onRight = DPSidebarOnRightOf(container);
+        if (layer && ((!onRight && DPCornersRound(layer, YES) == square) || (!DPBesideSidebar(container) && DPCornersRound(layer, NO) == square)))
             return square ? @"corners stay round in full screen" : @"corners are square out of full screen";
         if (!patch->on || DPChatCard(container)) {
             if (!NSEqualRects(container.frame, requested.rectValue)) return @"web content isn't where Dia put it";
             continue;
         }
         NSEdgeInsets gaps = DPGaps(container.superview, container.frame);
-        if (fabs(gaps.right) > 0.5 || fabs(gaps.bottom) > 0.5) return @"web content doesn't reach the window's edge";
-        if (fabs(gaps.top - DPWindowPadding) < 0.5 || fabs(gaps.left - DPWindowPadding) < 0.5) return @"padding left around web content";
+        CGFloat outer = onRight ? gaps.left : gaps.right, inner = onRight ? gaps.right : gaps.left;
+        if (fabs(outer) > 0.5 || fabs(gaps.bottom) > 0.5) return @"web content doesn't reach the window's edge";
+        if (fabs(gaps.top - DPWindowPadding) < 0.5 || fabs(inner - DPWindowPadding) < 0.5) return @"padding left around web content";
     }
     return nil;
 }

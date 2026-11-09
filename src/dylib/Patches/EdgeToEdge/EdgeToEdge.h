@@ -19,6 +19,7 @@ void DPRoundCornerControls(NSView *container);
 CGPathRef DPReshapeSetPath(CALayer *layer, BOOL shadow, CGPathRef path);
 CAAnimation *DPReshapeDiaAnimation(CALayer *layer, CAAnimation *animation);
 BOOL DPBesideSidebar(NSView *container);
+BOOL DPSidebarOnRightOf(NSView *container);
 BOOL DPCornersRound(CALayer *layer, BOOL right);
 BOOL DPFullScreen(NSView *container);
 CGFloat DPWindowCornerGrowth(NSWindow *window);

@@ -25,7 +25,7 @@ NSView *DPBookmarksUnder(NSView *pane, NSView *bar) {
 // Only a docked sidebar moves the content container; one floating at the window's edge leaves it.
 static BOOL DPSidebarDocked(NSView *pane) {
     for (NSView *view = pane.superview; view; view = view.superview)
-        if (DPIsKind(view, DPDiaContentContainer)) return DPBesideSidebar(view);
+        if (DPIsKind(view, DPDiaContentContainer)) return DPBesideSidebar(view) || DPSidebarOnRightOf(view);
     return NO;
 }
 

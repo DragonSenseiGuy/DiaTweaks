@@ -79,7 +79,9 @@ static NSString *DPVerifyCompactSidebarHeader(DPPatch *patch) {
         NSRect close = lights ? DPCloseButtonInWindow(lights) : NSZeroRect;
         BOOL cornered = fabs(NSMinX(close) - DPTopTabsButtonInset) < 0.5 && fabs(NSMinY(close) - DPTopTabsButtonInset) < 0.5;
         BOOL fullScreen = (header.window.styleMask & NSWindowStyleMaskFullScreen) != 0;
-        if (patch->on && !fullScreen && !NSIsEmptyRect(close) && !cornered) return @"window buttons aren't where top tabs put them";
+        // With Sidebar on Right the buttons are far from the corner, and stay where Dia puts them.
+        BOOL onRight = NSMinX([header convertRect:header.bounds toView:nil]) > NSWidth(header.window.frame) / 2;
+        if (patch->on && !fullScreen && !onRight && !NSIsEmptyRect(close) && !cornered) return @"window buttons aren't where top tabs put them";
     }
     return nil;
 }
