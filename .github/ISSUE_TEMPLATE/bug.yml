@@ -69,6 +69,7 @@ body:
         - Keep Windows Active
         - Drag Window from Page
         - Window Corners
+        - App Icon
         - Hide Window Controls
         - Allow 1Password
         - Allow iCloud Passkeys

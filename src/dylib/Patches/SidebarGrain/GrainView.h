@@ -3,6 +3,7 @@
 @interface DPSidebarGrainView : NSView
 @property BOOL tracksWindowActivity;
 - (void)setGrainAmount:(double)amount softness:(double)softness scale:(double)scale;
+- (void)reloadSettings;
 @end
 
 // Every texture tile has this average tone and spread, so one opacity gives each texture the same contrast.

@@ -20,12 +20,14 @@ static NSString *DPTestDomain(void) {
 
 int main(void) { @autoreleasepool {
     [NSApplication sharedApplication];
+    DPSidebarGrain.key = @"sidebarGrain";
+    DPSidebarGrain.choice = @"sidebarGrainMaterial";
     method_exchangeImplementations(class_getInstanceMethod(NSUserDefaults.class, @selector(initWithSuiteName:)),
         class_getInstanceMethod(NSUserDefaults.class, @selector(dp_grainTestSuite:)));
     NSUserDefaults *defaults = [[NSUserDefaults alloc] initWithSuiteName:@"com.diapatches"];
     [defaults removePersistentDomainForName:DPTestDomain()];
     DPTestTextureHosts();
-    assert(DPGrainAmount() == 50 && DPGrainSoftness() == 0 && DPGrainScale() == 100);
+    assert(DPGrainAmount(nil) == 50 && DPGrainSoftness(nil) == 0 && DPGrainScale(nil) == 100);
     NSUInteger renders = 0;
     for (NSString *name in @[NSAppearanceNameAqua, NSAppearanceNameDarkAqua]) {
         NSAppearance *appearance = [NSAppearance appearanceNamed:name];
@@ -59,14 +61,14 @@ int main(void) { @autoreleasepool {
     [defaults setInteger:23 forKey:@"sidebarGrainSoftness"];
     [defaults setInteger:170 forKey:@"sidebarGrainScale"];
     for (NSString *texture in DPGrainMaterialKeys()) {
-        DPTestTexture = texture; assert(DPGrainAmount() == 61 && DPGrainSoftness() == 23 && DPGrainScale() == 170);
+        DPTestTexture = texture; assert(DPGrainAmount(nil) == 61 && DPGrainSoftness(nil) == 23 && DPGrainScale(nil) == 170);
     }
     [defaults setInteger:200 forKey:@"sidebarGrainAmount"];
     [defaults setInteger:-50 forKey:@"sidebarGrainSoftness"];
     [defaults setInteger:20 forKey:@"sidebarGrainScale"];
-    assert(DPGrainAmount() == 100 && DPGrainSoftness() == 0 && DPGrainScale() == 50);
+    assert(DPGrainAmount(nil) == 100 && DPGrainSoftness(nil) == 0 && DPGrainScale(nil) == 50);
     [defaults setInteger:900 forKey:@"sidebarGrainScale"];
-    assert(DPGrainScale() == 300);
+    assert(DPGrainScale(nil) == 300);
     [defaults setInteger:61 forKey:@"sidebarGrainAmount"];
     [defaults setInteger:23 forKey:@"sidebarGrainSoftness"];
     [defaults setInteger:170 forKey:@"sidebarGrainScale"];
@@ -81,12 +83,50 @@ int main(void) { @autoreleasepool {
     assert(scale.minValue == 50 && scale.maxValue == 300);
     scale.integerValue = 220;
     [scale sendAction:scale.action to:scale.target];
-    assert(DPGrainScale() == 220);
+    assert(DPGrainScale(nil) == 220);
     NSButton *reset = (id)DPFindView(rows[3], ^BOOL(NSView *view) { return [view isKindOfClass:NSButton.class]; });
     DPTestTexture = @"tweed";
     [reset performClick:nil];
-    assert(DPGrainAmount() == 50 && DPGrainSoftness() == 0 && DPGrainScale() == 100 && scale.integerValue == 100);
+    assert(DPGrainAmount(nil) == 50 && DPGrainSoftness(nil) == 0 && DPGrainScale(nil) == 100 && scale.integerValue == 100);
     assert([DPChoice(&DPSidebarGrain) isEqual:@"tweed"]);
+    [defaults removeObjectForKey:@"sidebarGrainAmount"];
+    [defaults removeObjectForKey:@"sidebarGrainSoftness"];
+    [defaults setInteger:130 forKey:@"sidebarGrainScale"];
+    DPTestTexture = @"sand";
+    // A profile with nothing of its own uses the global values; its own values win, one by one, and only for it.
+    assert(!DPGrainHasOverrides(@"A") && DPGrainShown(@"A") && DPGrainAmount(@"A") == 50 && DPGrainScale(@"A") == 130);
+    DPGrainSave(@"sidebarGrainAmount", @80, @"A");
+    DPGrainSave(@"sidebarGrainMaterial", @"tweed", @"A");
+    assert(DPGrainHasOverrides(@"A") && DPGrainAmount(@"A") == 80 && DPGrainSoftness(@"A") == 0 && DPGrainScale(@"A") == 130);
+    assert(DPGrainAmount(@"B") == 50 && DPGrainAmount(nil) == 50 && !DPGrainHasOverrides(@"B"));
+    assert([DPGrainMaterial(@"A") isEqual:@"tweed"] && [DPGrainMaterial(@"B") isEqual:@"sand"] && [DPGrainMaterial(nil) isEqual:@"sand"]);
+    DPGrainSave(@"sidebarGrainScale", @900, @"A");
+    assert(DPGrainScale(@"A") == 300);
+    DPGrainSave(@"sidebarGrain", @NO, @"A");
+    assert(!DPGrainShown(@"A") && DPGrainShown(@"B") && DPGrainShown(nil));
+    [defaults setInteger:30 forKey:@"sidebarGrainAmount"];
+    assert(DPGrainAmount(@"A") == 80 && DPGrainAmount(@"B") == 30);
+    DPGrainSave(@"sidebarGrainMaterial", @"nope", @"B");
+    assert([DPGrainMaterial(@"B") isEqual:@"sand"]);
+    [defaults setObject:@{ @"C" : @"junk" } forKey:@"sidebarGrainProfiles"];
+    assert(DPGrainAmount(@"C") == 30 && DPGrainShown(@"C") && !DPGrainHasOverrides(@"C"));
+    [defaults setObject:@{ @"C" : @{ @"sidebarGrainAmount" : @"100" } } forKey:@"sidebarGrainProfiles"];
+    assert(DPGrainAmount(@"C") == 30);
+    [defaults removeObjectForKey:@"sidebarGrainProfiles"];
+    DPGrainSave(@"sidebarGrainAmount", @80, @"A");
+    DPGrainSave(@"sidebarGrainAmount", @10, @"B");
+    // The sliders edit the profile they're pointed at, and reset clears only that one.
+    DPGrainRowsFor(rows, @"A", nil);
+    NSSlider *amount = (id)DPFindView(rows[0], ^BOOL(NSView *view) { return [view isKindOfClass:NSSlider.class]; });
+    assert(amount.integerValue == 80);
+    amount.integerValue = 65;
+    [amount sendAction:amount.action to:amount.target];
+    assert(DPGrainAmount(@"A") == 65 && DPGrainAmount(@"B") == 10 && DPGrainAmount(nil) == 30);
+    [reset performClick:nil];
+    assert(!DPGrainHasOverrides(@"A") && DPGrainAmount(@"A") == 30 && DPGrainAmount(@"B") == 10 && amount.integerValue == 30);
+    assert(DPGrainScale(nil) == 130 && [defaults objectForKey:@"sidebarGrainScale"]);
+    DPGrainRowsFor(rows, nil, nil);
+    assert(amount.integerValue == 30);
     [defaults removePersistentDomainForName:DPTestDomain()];
-    printf("PASS: %lu light/dark renders; six textures at equal contrast across amount, softness and scale; native active-window hooks; settings rows; defaults/reset; saved settings\n", renders);
+    printf("PASS: %lu light/dark renders; six textures at equal contrast across amount, softness and scale; native active-window hooks; settings rows; defaults/reset; saved settings; per-profile fallback, overrides and reset\n", renders);
 } }

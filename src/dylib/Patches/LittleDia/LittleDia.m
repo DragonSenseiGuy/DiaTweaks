@@ -8,10 +8,13 @@ static void DPInstallLittleDia(void) {
     DPInstallLittleDiaExtension();
     DPInstallLittleDiaRoute();
     DPInstallLittleDiaWindows();
+    DPInstallLittleDiaLinkMenu();
+    DPInstallLittleDiaNewWindow();
 }
 
 static void DPApplyLittleDia(DPPatch *patch) {
     DPRefreshLittleDiaWindows();
+    DPRefreshLittleDiaNewWindow();
     if (patch->on && !gLoadedOn) DPWriteLittleDiaExtension(YES);
     if (!patch->on || gLoadedOn || patch->on != DPSavedOn(patch) || DPLittleDiaExtensionProblem()) return;  // the self-test flips patches without saving
     NSAlert *alert = [NSAlert new];
@@ -33,7 +36,7 @@ static NSString *DPVerifyLittleDia(DPPatch *patch) {
         if (!patch->on && button) return @"Open in Dia button still showing";
         if (patch->on && little && bar.window.titleVisibility != NSWindowTitleHidden) return @"title bar still showing";
     }
-    return nil;
+    return DPLittleDiaNewWindowProblem() ?: (patch->on ? DPLittleDiaLinkMenuProblem() : nil);
 }
 
 DP_PATCH(DPLittleDia) {
@@ -41,7 +44,7 @@ DP_PATCH(DPLittleDia) {
     .order = 104,
     .section = @"Links",
     .title = @"Little Dia",
-    .detail = @"Opens links from other apps, like Slack, Discord or Mail, in a small window instead of a new tab, with back, forward, reload and an address you can edit. Click Open in Dia, or press ⌘O, to keep the page as a tab. Hold Option as you click a link to open it in a tab as usual.",
+    .detail = @"Opens links from other apps, like Slack or Mail, in a small window instead of a tab, and so does right-clicking a link and choosing Open Link in Little Dia. It has back, forward, reload and an editable address. Open in Dia or ⌘O keeps it as a tab. Option-click opens a tab.",
     .symbol = @"macwindow.on.rectangle rectangle.on.rectangle",
     .tint = @"systemMintColor",
     .classes = DPClasses(DPDiaOpenURLEvents, DPDiaPopupWindow, DPDiaPopupBar, DPDiaPopupTitle),

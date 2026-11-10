@@ -295,6 +295,14 @@ static BOOL DPTabList_perform(NSView *self, SEL _cmd, id<NSDraggingInfo> info) {
     return dia && DPCallOriginal(DPTabList_perform, self, dia);
 }
 
+// Dia opens a new tab on two quick clicks on the list's background, and the header isn't one of its rows, so folding and
+// unfolding in a hurry would open one.
+static void DPTabList_backgroundDoubleClick(NSView *self, SEL _cmd, NSGestureRecognizer *click) {
+    DPPinnedHeader *header = DPGet(DPListIn(self), &DPHeaderKey);
+    if (header.shown && !header.hidden && NSPointInRect([click locationInView:header.superview], header.frame)) return;
+    DPCallOriginal(DPTabList_backgroundDoubleClick, self, click);
+}
+
 static NSArray<NSCollectionView *> *DPListsOf(NSString *space) {
     return (NSArray<NSCollectionView *> *)[DPFindViews(DPDiaTabListCollection) filteredArrayUsingPredicate:[NSPredicate predicateWithBlock:^BOOL(NSView *list, id _) {
         return !space || [[DPGet(list, &DPHeaderKey) space] isEqual:space];
@@ -356,6 +364,7 @@ static void DPInstallCollapsePinned(void) {
     DPHook(DPDiaTabList, @selector(draggingUpdated:), (IMP)DPTabList_updated);
     DPHook(DPDiaTabList, @selector(prepareForDragOperation:), (IMP)DPTabList_prepare);
     DPHook(DPDiaTabList, @selector(performDragOperation:), (IMP)DPTabList_perform);
+    DPHook(DPDiaTabList, @selector(handleBackgroundDoubleClick:), (IMP)DPTabList_backgroundDoubleClick);
 }
 
 DP_PATCH(DPCollapsePinned) {

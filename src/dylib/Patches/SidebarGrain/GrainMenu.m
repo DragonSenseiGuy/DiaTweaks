@@ -1,15 +1,43 @@
-#import "SidebarGrain.h"
+#import "GrainSettings.h"
 
 @interface DPGrainMenu : NSObject
 @property (weak) NSView *sidebar;
 @property NSPoint anchor;
+@property NSString *profile, *space;  // The profile of this window, and the one the popover edits: nil edits all profiles.
+@property NSPopUpButton *picker;
+@property NSButton *shown;
+@property NSArray<NSView *> *rows;
 - (void)editGrain:(NSMenuItem *)item;
+- (void)chooseScope:(NSPopUpButton *)picker;
 - (void)chooseTexture:(NSPopUpButton *)picker;
+- (void)toggleShown:(NSButton *)button;
 @end
 
 @implementation DPGrainMenu
 - (void)chooseTexture:(NSPopUpButton *)picker {
-    DPSetChoice(&DPSidebarGrain, picker.selectedItem.representedObject);
+    NSString *material = picker.selectedItem.representedObject;
+    if (self.space) DPGrainSave(DPSidebarGrain.choice, material, self.space);
+    else DPSetChoice(&DPSidebarGrain, material);
+    DPRefreshSidebarGrain();
+}
+
+- (void)toggleShown:(NSButton *)button {
+    DPGrainSave(DPSidebarGrain.key, @(button.state == NSControlStateValueOn), self.space);
+    DPRefreshSidebarGrain();
+}
+
+- (void)reload {
+    __weak DPGrainMenu *menu = self;
+    DPGrainRowsFor(self.rows, self.space, ^{ [menu reload]; });
+    NSString *material = DPGrainMaterial(self.space);
+    for (NSMenuItem *texture in self.picker.menu.itemArray) if ([texture.representedObject isEqual:material]) [self.picker selectItem:texture];
+    self.shown.hidden = !self.space;
+    self.shown.state = DPGrainShown(self.space) ? NSControlStateValueOn : NSControlStateValueOff;
+}
+
+- (void)chooseScope:(NSPopUpButton *)picker {
+    self.space = picker.indexOfSelectedItem ? self.profile : nil;
+    [self reload];
 }
 
 - (void)editGrain:(NSMenuItem *)item {
@@ -19,17 +47,35 @@
     [popover close];
     popover = [NSPopover new];
     popover.behavior = NSPopoverBehaviorTransient;
-    NSPopUpButton *picker = [NSPopUpButton new];
-    picker.menu = DPGrainTextureMenu();
-    picker.controlSize = NSControlSizeSmall;
-    picker.target = self;
-    picker.action = @selector(chooseTexture:);
-    for (NSMenuItem *texture in picker.menu.itemArray) if ([texture.representedObject isEqual:DPChoice(&DPSidebarGrain)]) [picker selectItem:texture];
+    self.profile = DPGrainSpaceOf(sidebar);
+    self.space = DPGrainHasOverrides(self.profile) ? self.profile : nil;
+    self.picker = [NSPopUpButton new];
+    self.picker.menu = DPGrainTextureMenu();
+    self.picker.controlSize = NSControlSizeSmall;
+    self.picker.target = self;
+    self.picker.action = @selector(chooseTexture:);
     NSTextField *label = [NSTextField labelWithString:@"Texture"];
     [label setContentHuggingPriority:NSLayoutPriorityDefaultLow forOrientation:NSLayoutConstraintOrientationHorizontal];
-    NSStackView *texture = [NSStackView stackViewWithViews:@[ label, picker ]];
+    NSStackView *texture = [NSStackView stackViewWithViews:@[ label, self.picker ]];
     texture.distribution = NSStackViewDistributionFill;
-    NSStackView *rows = [NSStackView stackViewWithViews:[@[ texture ] arrayByAddingObjectsFromArray:DPGrainRows()]];
+    self.shown = [NSButton checkboxWithTitle:@"Show grain in this profile" target:self action:@selector(toggleShown:)];
+    self.rows = DPGrainRows();
+    NSMutableArray<NSView *> *views = [@[ texture, self.shown ] arrayByAddingObjectsFromArray:self.rows].mutableCopy;
+    if (self.profile) {
+        NSPopUpButton *scope = [NSPopUpButton new];
+        [scope addItemsWithTitles:@[ @"All Profiles", @"This Profile" ]];
+        [scope selectItemAtIndex:self.space != nil];
+        scope.controlSize = NSControlSizeSmall;
+        scope.target = self;
+        scope.action = @selector(chooseScope:);
+        NSTextField *applies = [NSTextField labelWithString:@"Apply to"];
+        [applies setContentHuggingPriority:NSLayoutPriorityDefaultLow forOrientation:NSLayoutConstraintOrientationHorizontal];
+        NSStackView *row = [NSStackView stackViewWithViews:@[ applies, scope ]];
+        row.distribution = NSStackViewDistributionFill;
+        [views insertObject:row atIndex:0];
+    }
+    [self reload];
+    NSStackView *rows = [NSStackView stackViewWithViews:views];
     rows.orientation = NSUserInterfaceLayoutOrientationVertical;
     rows.alignment = NSLayoutAttributeLeading;
     rows.spacing = 12;
@@ -38,6 +84,7 @@
     [rows.widthAnchor constraintEqualToConstant:300].active = YES;
     NSViewController *controller = [NSViewController new];
     controller.view = rows;
+    controller.representedObject = self;  // The popover's controls only point at this.
     popover.contentViewController = controller;
     BOOL horizontal = DPIsKind(sidebar, DPDiaTabStrip);
     NSRect anchor = horizontal ? NSMakeRect(self.anchor.x, self.anchor.y, 1, 1) :

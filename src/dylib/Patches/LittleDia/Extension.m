@@ -109,7 +109,7 @@ BOOL DPLittleDiaStarting(void) {
 }
 
 // Chromium crashes on input for an extension that isn't loaded and on, as after it's turned off in Extensions.
-static BOOL DPLittleDiaReady(void) {
+BOOL DPLittleDiaReady(void) {
     id browser = DPCommandBrowser();
     id extensions = DPExtensions(browser);
     SEL trigger = @selector(triggerExtensionOmniboxInput:inputText:disposition:);

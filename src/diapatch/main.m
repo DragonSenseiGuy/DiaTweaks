@@ -1,3 +1,4 @@
+#import "AppIcon.h"
 #import <CommonCrypto/CommonDigest.h>
 #import <Foundation/Foundation.h>
 #import <sys/xattr.h>
@@ -304,6 +305,16 @@ static BOOL stagedReady(void) {
 
 static BOOL unstage(void) { return discard(gStaged) && removeTree(gReady); }
 
+static BOOL switchIcon(void) {
+    NSString *problem = DPSwitchIcon(gApp, gHome);
+    return !problem || fail(@"%@", problem);
+}
+
+static BOOL noteIcon(NSString *outcome) {
+    if (outcome) note(@"%@", outcome);
+    return YES;
+}
+
 static BOOL build(NSString *source) {
     NSString *executable = infoOf(source)[@"CFBundleExecutable"], *dylib = inHome(@DYLIB);
     if (!executable) return fail(@"no official Dia at %@; reinstall Dia from https://www.diabrowser.com", source);
@@ -313,7 +324,7 @@ static BOOL build(NSString *source) {
     BOOL ok = removeTree(work) && makeDir(gStaged.stringByDeletingLastPathComponent) && clone(source, work)
         && addLoadCommand([contents stringByAppendingPathComponent:[@"MacOS" stringByAppendingPathComponent:executable]], dylib)
         && configureInfo(work) && removeTree([contents stringByAppendingPathComponent:@"embedded.provisionprofile"])
-        && sign(work) && moveBundle(work, gStaged) && (DPForgetApp(gStaged), YES)
+        && noteIcon(DPPrepareIcons(work, gApp, gHome)) && sign(work) && moveBundle(work, gStaged) && (DPForgetApp(gStaged), YES)
         && ([stagedID() writeToFile:gReady atomically:YES encoding:NSUTF8StringEncoding error:NULL] || fail(@"cannot write %@", gReady));
     if (!ok) removeTree(work);
     return ok;
@@ -394,7 +405,7 @@ static NSDictionary *stagedRelease(void) {
 
 static NSDictionary<NSString *, NSString *> *tweaksTargets(void) {
     return @{ @"diapatch" : inHome(@"bin/diapatch"), @"diatweaks" : inHome(@"bin/diatweaks"), @DYLIB : inHome(@DYLIB),
-              @"patches.json" : inHome(@"patches.json") };
+              @"patches.json" : inHome(@"patches.json"), @"app-icons" : inHome(@"app-icons") };
 }
 
 static NSString *sha256(NSString *file) {
@@ -602,7 +613,7 @@ static BOOL purge(void) {
         say(@"deleted %@", link);
     }
     for (NSString *name in @[ @"bin", @DYLIB, @"patches.json", @"release.plist", @"pristine", @"staged", @"identity", @"diapatch.log", @"safe-mode.plist",
-                              @".diatweaks.lock", @".incoming", @"passwords-helper", @"passwords.sock", @"onepassword.sock", @"passwords-launch" ])
+                              @".diatweaks.lock", @".incoming", @"icons", @"app-icons", @"passwords-helper", @"passwords.sock", @"onepassword.sock", @"passwords-launch" ])
         if (!discard(inHome(name))) return NO;
     for (NSString *name in [NSFileManager.defaultManager contentsOfDirectoryAtPath:gHome error:NULL])
         if ([name hasPrefix:@".update-"] && !removeTree(inHome(name))) return NO;  // checkouts left by an interrupted diatweaks update
@@ -693,6 +704,7 @@ static const char kUsage[] =
     "  apply [--wait PID] [--relaunch] [--dia] [--tweaks]\n"
     "                   install what's staged once PID and Dia have quit, then reopen Dia; --dia or --tweaks limits it\n"
     "  check --json     what's installed, available and staged for Dia and DiaTweaks\n"
+    "  set-icon         use the icon chosen in the App Icon tweak\n"
     "  uninstall [--wait PID] [--relaunch] [--purge]\n"
     "                   put the official Dia back; --purge also deletes DiaPatches' files and the diatweaks command\n"
     "  status [--json]  official, installed, staged and offered versions, and the update channel\n"
@@ -722,7 +734,7 @@ int main(int argc, const char *argv[]) {
 
         NSString *command = argc > 1 ? @(argv[1]) : @"";
         NSArray<NSString *> *allowed = @{
-            @"install" : @[ @"--relaunch" ], @"build" : @[], @"update" : @[], @"self-update" : @[], @"status" : @[ @"--json" ],
+            @"install" : @[ @"--relaunch" ], @"build" : @[], @"set-icon" : @[], @"update" : @[], @"self-update" : @[], @"status" : @[ @"--json" ],
             @"apply" : @[ @"--wait", @"--relaunch", @"--dia", @"--tweaks" ], @"check" : @[ @"--json" ], @"uninstall" : @[ @"--wait", @"--relaunch", @"--purge" ],
         }[command];
         NSMutableSet<NSString *> *flags = [NSMutableSet set];
@@ -755,6 +767,7 @@ int main(int argc, const char *argv[]) {
         }
         removeTree(inHome(@".trash"));  // what a run stopped mid-delete left
         BOOL ok = [command isEqualToString:@"install"] ? install([flags containsObject:@"--relaunch"]) && installAgent()
+            : [command isEqualToString:@"set-icon"]    ? switchIcon()
             : [command isEqualToString:@"build"]       ? build(gPristine) && say(@"staged patched Dia %@", versionOf(gStaged))
             : [command isEqualToString:@"update"]      ? update()
             : [command isEqualToString:@"self-update"] ? stageTweaks()

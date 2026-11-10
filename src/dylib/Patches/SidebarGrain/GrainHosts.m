@@ -54,7 +54,7 @@ static void DPUpdateGrainHost(NSView *host, BOOL settings) {
         settings = YES;
     }
     if (!NSEqualRects(grain.frame, bounds)) grain.frame = bounds;
-    if (settings) [grain setGrainAmount:DPGrainAmount() softness:DPGrainSoftness() scale:DPGrainScale()];
+    if (settings) [grain reloadSettings];
 }
 
 static void DPUpdateGrainHosts(BOOL settings) {

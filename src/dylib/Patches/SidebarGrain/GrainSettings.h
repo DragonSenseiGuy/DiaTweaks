@@ -8,4 +8,6 @@ typedef struct {
 extern const DPGrainSetting DPGrainAmountSetting, DPGrainSoftnessSetting, DPGrainScaleSetting;
 
 NSUserDefaults *DPGrainDefaults(void);
-NSInteger DPGrainValue(const DPGrainSetting *setting);
+NSInteger DPGrainValue(const DPGrainSetting *setting, NSString *space);
+void DPGrainSave(NSString *key, id value, NSString *space);
+void DPGrainClear(NSString *space);

@@ -9,8 +9,9 @@ static NSMutableArray<NSDictionary *> *DPExpected;
 static NSMutableArray *DPPendingPages;                     // Pages that came before their window.
 static NSPointerArray *DPWindowsAwaitingPage;              // Windows that came before their page.
 
-void DPExpectLittleDiaWindow(NSRect frame, void (^missed)(void)) {
-    NSDictionary *link = @{@"frame" : [NSValue valueWithRect:frame], @"missed" : [missed copy]};
+void DPExpectLittleDiaWindow(NSRect frame, void (^missed)(void), void (^claimed)(NSWindow *window)) {
+    NSMutableDictionary *link = [@{@"frame" : [NSValue valueWithRect:frame], @"missed" : [missed copy]} mutableCopy];
+    if (claimed) link[@"claimed"] = [claimed copy];
     [DPExpected addObject:link];
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 3 * NSEC_PER_SEC), dispatch_get_main_queue(), ^{
         if ([DPExpected indexOfObjectIdenticalTo:link] == NSNotFound) return;
@@ -68,6 +69,7 @@ static void DPClaim(NSWindow *window) {
         DPFinishStack();
     });
     DPRefreshLittleDiaWindows();
+    if (link[@"claimed"]) ((void (^)(NSWindow *))link[@"claimed"])(window);
 }
 
 // Chromium hands Dia each popup's page here, with the popup's own browser.

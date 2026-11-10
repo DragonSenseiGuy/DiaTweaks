@@ -9,7 +9,7 @@
 
 @implementation DPSidebarGrainView {
     CGFloat _grainOpacity, _softness, _scale;
-    NSString *_material;
+    NSString *_material, *_space;
     BOOL _darkAppearance;
 }
 
@@ -44,9 +44,13 @@
     }
 }
 
-- (void)refreshActivity:(NSNotification *)notification {
-    [self setGrainAmount:DPGrainAmount() softness:DPGrainSoftness() scale:DPGrainScale()];
+// Takes the settings of the profile this view's sidebar or strip is showing.
+- (void)reloadSettings {
+    _space = DPGrainSpaceOf(self.superview);
+    [self setGrainAmount:DPGrainShown(_space) ? DPGrainAmount(_space) : 0 softness:DPGrainSoftness(_space) scale:DPGrainScale(_space)];
 }
+
+- (void)refreshActivity:(NSNotification *)notification { [self reloadSettings]; }
 
 - (void)viewDidChangeEffectiveAppearance {
     [super viewDidChangeEffectiveAppearance];
@@ -63,7 +67,7 @@
 // Fine's black and white specks go over the page rather than into it, so they take less opacity for the same contrast.
 // A sharp tile mixed with a soft one has less contrast than either, as they only partly agree, so the mix is boosted.
 - (void)setGrainAmount:(double)amount softness:(double)softness scale:(double)scale {
-    NSString *material = DPChoice(&DPSidebarGrain);
+    NSString *material = DPGrainMaterial(_space);
     if (![DPGrainMaterialKeys() containsObject:material]) material = @"sand";
     CGFloat soft = MAX(0, MIN(100, softness)) / 100, zoom = MAX(50, MIN(300, scale)) / 100;
     BOOL fine = [material isEqual:@"fine"];

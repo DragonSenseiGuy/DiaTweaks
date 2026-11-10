@@ -5,6 +5,7 @@ static NSHashTable<NSView *> *DPGrainSliders;
 
 @interface DPGrainSliderRow : NSStackView <NSTextFieldDelegate>
 @property const DPGrainSetting *setting;
+@property (nonatomic) NSString *space;  // The profile it edits; nil edits the global values.
 @property NSSlider *slider;
 @property NSTextField *field;
 @end
@@ -12,12 +13,17 @@ static NSHashTable<NSView *> *DPGrainSliders;
 @implementation DPGrainSliderRow
 
 - (void)sync {
-    self.slider.integerValue = self.field.integerValue = DPGrainValue(self.setting);
+    self.slider.integerValue = self.field.integerValue = DPGrainValue(self.setting, self.space);
+}
+
+- (void)setSpace:(NSString *)space {
+    _space = space;
+    [self sync];
 }
 
 - (void)tune:(NSControl *)control {
     NSInteger value = MAX(self.setting->min, MIN(self.setting->max, lround(control.doubleValue)));
-    [DPGrainDefaults() setInteger:value forKey:self.setting->key];
+    DPGrainSave(self.setting->key, @(value), self.space);
     [self sync];
     DPRefreshSidebarGrain();
 }
@@ -58,13 +64,23 @@ static NSView *DPGrainSliderRowFor(const DPGrainSetting *setting) {
 }
 
 @interface DPGrainResetRow : NSStackView
+@property (nonatomic) NSString *space;
+@property (copy) void (^afterReset)(void);
+@property NSTextField *label;
 @end
 
 @implementation DPGrainResetRow
+- (void)setSpace:(NSString *)space {
+    _space = space;
+    self.label.stringValue = space ? @"Reset this profile to the defaults" : @"Reset Grain, Softness and Scale";
+}
+
 - (void)reset:(NSButton *)button {
-    for (NSUInteger i = 0; i < 3; i++) [DPGrainDefaults() removeObjectForKey:DPGrainSettings[i]->key];
+    if (self.space) DPGrainClear(self.space);
+    else for (NSUInteger i = 0; i < 3; i++) [DPGrainDefaults() removeObjectForKey:DPGrainSettings[i]->key];
     for (DPGrainSliderRow *row in DPGrainSliders) [row sync];
     DPRefreshSidebarGrain();
+    if (self.afterReset) self.afterReset();
 }
 @end
 
@@ -74,12 +90,23 @@ NSArray<NSView *> *DPGrainRows(void) {
     button.controlSize = NSControlSizeSmall;
     [button setContentHuggingPriority:NSLayoutPriorityRequired forOrientation:NSLayoutConstraintOrientationHorizontal];
     button.accessibilityLabel = @"Reset grain settings";
-    NSTextField *label = [NSTextField labelWithString:@"Reset Grain, Softness and Scale"];
-    [label setContentHuggingPriority:NSLayoutPriorityDefaultLow forOrientation:NSLayoutConstraintOrientationHorizontal];
+    reset.label = [NSTextField labelWithString:@"Reset Grain, Softness and Scale"];
+    [reset.label setContentHuggingPriority:NSLayoutPriorityDefaultLow forOrientation:NSLayoutConstraintOrientationHorizontal];
     reset.distribution = NSStackViewDistributionFill;
-    [reset setViews:@[ label, button ] inGravity:NSStackViewGravityLeading];
+    [reset setViews:@[ reset.label, button ] inGravity:NSStackViewGravityLeading];
     NSMutableArray<NSView *> *rows = [NSMutableArray new];
     for (NSUInteger i = 0; i < 3; i++) [rows addObject:DPGrainSliderRowFor(DPGrainSettings[i])];
     [rows addObject:reset];
     return rows;
+}
+
+// Points the rows at a profile, or at the global values with a nil space. `reset` runs after the reset button.
+void DPGrainRowsFor(NSArray<NSView *> *rows, NSString *space, void (^reset)(void)) {
+    for (NSView *row in rows) {
+        if ([row isKindOfClass:DPGrainSliderRow.class]) ((DPGrainSliderRow *)row).space = space;
+        else if ([row isKindOfClass:DPGrainResetRow.class]) {
+            ((DPGrainResetRow *)row).space = space;
+            ((DPGrainResetRow *)row).afterReset = reset;
+        }
+    }
 }

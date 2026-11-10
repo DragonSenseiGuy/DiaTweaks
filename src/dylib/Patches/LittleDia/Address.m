@@ -98,7 +98,8 @@
         [self.window makeFirstResponder:self.field];
         return;
     }
-    NSTextField *field = [NSTextField textFieldWithString:self.url.absoluteString ?: self.label.stringValue];
+    NSString *shown = [self.url.absoluteString isEqual:@"about:blank"] ? @"" : self.url.absoluteString;
+    NSTextField *field = [NSTextField textFieldWithString:shown ?: self.label.stringValue];
     field.bezeled = NO;
     field.drawsBackground = NO;
     field.focusRingType = NSFocusRingTypeNone;
@@ -155,4 +156,18 @@ NSView *DPMakeAddressView(NSView *title) {
 
 void DPRefreshAddressView(NSView *view) {
     if ([view isKindOfClass:DPAddressView.class]) [(DPAddressView *)view refresh];
+}
+
+// Chromium focuses the new window's page a moment after it opens, which would end the typing, so this starts after that,
+// and waits for the bar to be laid out.
+static void DPEditAddressSoon(NSWindow *window, int tries) {
+    NSView *address = DPFindView(window.contentView.superview, ^BOOL(NSView *view) { return [view isKindOfClass:DPAddressView.class]; });
+    if (address && window.isKeyWindow) return [(DPAddressView *)address begin];
+    if (tries > 0 && window.visible)
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 100 * NSEC_PER_MSEC), dispatch_get_main_queue(), ^{ DPEditAddressSoon(window, tries - 1); });
+}
+
+void DPEditLittleDiaAddress(NSWindow *window) {
+    __weak NSWindow *weak = window;
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 400 * NSEC_PER_MSEC), dispatch_get_main_queue(), ^{ if (weak) DPEditAddressSoon(weak, 20); });
 }
