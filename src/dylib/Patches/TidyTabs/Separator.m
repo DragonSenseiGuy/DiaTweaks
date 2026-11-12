@@ -52,8 +52,10 @@ NSInteger DPTidyTabsBelowLine(NSView *list) {
     for (NSInteger section = 0; section < collection.numberOfSections; section++)
         for (NSInteger item = 0; item < [collection numberOfItemsInSection:section]; item++) {
             NSIndexPath *path = [NSIndexPath indexPathForItem:item inSection:section];
-            NSRect frame = [collection.collectionViewLayout layoutAttributesForItemAtIndexPath:path].frame;
-            if (NSMinY(frame) < line || NSHeight(frame) <= 0) continue;
+            NSCollectionViewLayoutAttributes *attrs = [collection.collectionViewLayout layoutAttributesForItemAtIndexPath:path];
+            NSRect frame = attrs.frame;
+            // Folded, Collapse Pinned Tabs moves pinned rows below the line and hides them (fading first).
+            if (attrs.hidden || attrs.alpha < 1 || NSMinY(frame) < line || NSHeight(frame) <= 0) continue;
             NSView *cell = [collection itemAtIndexPath:path].view;
             BOOL tab = cell && strstr(object_getClassName(cell), "TabUI7TabView");
             // The New Tab row is last. Off screen it would pass for a tab.

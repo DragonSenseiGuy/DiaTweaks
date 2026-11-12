@@ -52,7 +52,9 @@ static void DPLayout_prepareLayout(NSCollectionViewLayout *self, SEL _cmd) {
     id source = ivar ? object_getIvar(diffable, ivar) : nil;
     void *height = DPIvar(self, "contentHeight");  // Dia's layout hands out the attributes it keeps, so changing them changes it.
     if (![source respondsToSelector:@selector(itemIdentifierForIndexPath:)] || !height) return;
-    NSArray<NSCollectionViewLayoutAttributes *> *all = [self layoutAttributesForElementsInRect:NSMakeRect(-1e5, -1e5, 2e5, 1e7)];
+    // The attributes Dia keeps: Collapse Pinned Tabs hands out moved copies, and changing those changes nothing.
+    NSArray *(*elements)(id, SEL, NSRect) = (void *)DPDiaIMP(objc_getClass(DPDiaTabListLayout), @selector(layoutAttributesForElementsInRect:));
+    NSArray<NSCollectionViewLayoutAttributes *> *all = elements(self, @selector(layoutAttributesForElementsInRect:), NSMakeRect(-1e5, -1e5, 2e5, 1e7));
     NSMutableArray<NSCollectionViewLayoutAttributes *> *tall = [NSMutableArray new];
     for (NSCollectionViewLayoutAttributes *a in all)
         if (a.representedElementCategory == NSCollectionElementCategoryItem && [DPTallTabs containsObject:DPTabAt(source, a.indexPath)]) [tall addObject:a];

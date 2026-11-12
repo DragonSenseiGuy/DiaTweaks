@@ -14,7 +14,8 @@ static NSInteger DPTidyPinnedRows(NSWindow *window) {
             for (NSInteger item = 0; item < [collection numberOfItemsInSection:section]; item++) {
                 NSIndexPath *path = [NSIndexPath indexPathForItem:item inSection:section];
                 NSCollectionViewLayoutAttributes *attrs = [collection.collectionViewLayout layoutAttributesForItemAtIndexPath:path];
-                if (attrs && NSMaxY(attrs.frame) <= line + 0.5) above++;
+                // Folded, Collapse Pinned Tabs moves pinned rows below the line and hides them.
+                if (attrs && (attrs.hidden || attrs.alpha < 1 || NSMaxY(attrs.frame) <= line + 0.5)) above++;
             }
         return above;
     }

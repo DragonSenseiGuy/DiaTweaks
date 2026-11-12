@@ -1,5 +1,6 @@
 #import "Patches/UnloadTab/Recent.h"
 #import "Patches/PinnedTabCloseButton/PinnedTabs.h"
+#import "Commands/GroupTabs/GroupTabs.h"
 #import <objc/message.h>
 
 enum { DPPageVisible = 2 };  // content::Visibility: hidden, occluded, visible.
@@ -24,6 +25,20 @@ static id DPPageAt(NSURL *url) {
         found = page;
     }
     return found;
+}
+
+// A tab with no page of its own (never loaded, or a pinned tab that was closed) would be taken for another tab's page, so
+// the page is only offered for the one tab, in any window, that shows its address.
+static id DPPageOf(id content) {
+    NSURL *url = DPSwiftValue(content, @"webContentURL");
+    NSString *tabID = DPUUIDsIn([DPSwiftValue(content, @"tabID") description]).firstObject;
+    NSMutableArray<NSString *> *sharing = [NSMutableArray array];
+    for (id window in [(id)NSApp.delegate valueForKey:@"appleScriptWindows"])
+        for (id tab in [window valueForKey:@"appleScriptTabs"]) {
+            NSString *text = [tab respondsToSelector:@selector(URL)] ? DPText(DPMsg(tab, @selector(URL))) : nil;
+            if (text && [[NSURL URLWithString:text] isEqual:url]) [sharing addObject:DPTabID(tab)];
+        }
+    return sharing.count == 1 && [sharing.firstObject isEqual:tabID] ? DPPageAt(url) : nil;
 }
 
 static BOOL DPTabOpen(NSView *tab) {
@@ -55,7 +70,7 @@ static NSMenu *DPTab_menuForEvent(NSView *self, SEL _cmd, NSEvent *event) {
     NSView *pane = content ? DPFindView(self, ^BOOL(NSView *view) { return DPIsKind(view, DPDiaTabContentView); }) : nil;
     // An open pinned tab closes its page and stays pinned, as its minus button does, so Dia knows it has no page.
     BOOL pinned = pane && DPIsOpenPinned(pane) && [pane respondsToSelector:NSSelectorFromString(@"closeButtonClicked")];
-    id page = content && !pinned ? DPPageAt(DPSwiftValue(content, @"webContentURL")) : nil;
+    id page = content && !pinned ? DPPageOf(content) : nil;
     if (!pinned && (!page || [DPDiscarded containsObject:page])) return menu;
     // Chromium won't unload a page on screen, so for the tab in front the window goes back to the one before it first.
     BOOL open = DPTabOpen(self);
