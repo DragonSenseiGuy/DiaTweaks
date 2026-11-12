@@ -16,3 +16,10 @@ void DPInstallMirror(void);
 NSEvent *DPMirroredEvent(NSEvent *event);  // The pointer across the window, as if the sidebar were on the left.
 void DPInstallResize(void);
 void DPInstallHover(void);
+// Dia's window buttons leave the sidebar for a strip in the window's top left corner that shows on hover.
+BOOL DPSidebarOnRightTakesLights(NSWindow *window);
+NSView *DPLightsStripIn(NSWindow *window);
+BOOL DPDiaLightsShowIn(NSWindow *window);  // Dia's own buttons show somewhere in the window.
+void DPUpdateLights(NSWindow *window);
+void DPScheduleLights(NSWindow *window);
+void DPInstallLights(void);

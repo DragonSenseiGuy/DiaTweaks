@@ -1,10 +1,14 @@
 #import "StdPatch/Hide.h"
+#import "Patches/SidebarOnRight/SidebarOnRight.h"
 
 extern DPPatch DPHideTrafficLights;
 static const CGFloat DPPinnedTabsInset = 6;
 static char DPLightsKey, DPStackFrameKey;
 
 static BOOL DPIsTrafficLights(NSView *view) { return DPIsKind(view, DPDiaTrafficLights); }
+
+// Sidebar on Right moves the buttons out of the sidebar to the window's corner, so the header lays out without them too.
+static BOOL DPLightsOut(NSView *header) { return DPHideTrafficLights.on || DPSidebarOnRightTakesLights(header.window); }
 
 static NSRect DPLaidOutStack(NSView *stack) { return [DPDiaValue(stack, &DPStackFrameKey, @(stack.frame)) rectValue]; }
 
@@ -16,11 +20,11 @@ static void DPSidebarHeader_layout(NSView *self, SEL _cmd) {
     NSArray *held = DPGet(self, &DPLightsKey);
     NSStackView *stack = held.lastObject;
     if (![stack isKindOfClass:NSStackView.class]) return DPCallOriginal(DPSidebarHeader_layout, self);
-    [stack setVisibilityPriority:DPHideTrafficLights.on ? NSStackViewVisibilityPriorityNotVisible : NSStackViewVisibilityPriorityMustHold forView:held.firstObject];
+    [stack setVisibilityPriority:DPLightsOut(self) ? NSStackViewVisibilityPriorityNotVisible : NSStackViewVisibilityPriorityMustHold forView:held.firstObject];
     DPCallOriginal(DPSidebarHeader_layout, self);
     if (!DPMayAdjust(stack)) return;
     NSRect laidOut = DPLaidOutStack(stack), frame = laidOut;
-    if (DPHideTrafficLights.on && NSMinX(laidOut) > DPPinnedTabsInset) {
+    if (DPLightsOut(self) && NSMinX(laidOut) > DPPinnedTabsInset) {
         frame.origin.x = DPPinnedTabsInset;
         frame.size.width = NSMaxX(laidOut) - DPPinnedTabsInset;
     }
@@ -37,8 +41,9 @@ static NSString *DPVerifyHideTrafficLights(DPPatch *patch) {
         NSStackView *stack = [DPGet(header, &DPLightsKey) lastObject];
         if (![stack isKindOfClass:NSStackView.class] || header.hiddenOrHasHiddenAncestor) continue;
         NSRect laidOut = DPLaidOutStack(stack);
-        CGFloat left = patch->on ? MIN(NSMinX(laidOut), DPPinnedTabsInset) : NSMinX(laidOut);
-        if (fabs(NSMinX(stack.frame) - left) > 0.5) return patch->on ? @"profile button isn't in line with the pinned tabs" : @"profile button moved";
+        BOOL out = patch->on || DPSidebarOnRightTakesLights(header.window);
+        CGFloat left = out ? MIN(NSMinX(laidOut), DPPinnedTabsInset) : NSMinX(laidOut);
+        if (fabs(NSMinX(stack.frame) - left) > 0.5) return out ? @"profile button isn't in line with the pinned tabs" : @"profile button moved";
         if (fabs(NSMaxX(stack.frame) - NSMaxX(laidOut)) > 0.5) return @"header buttons moved";
     }
     return nil;
