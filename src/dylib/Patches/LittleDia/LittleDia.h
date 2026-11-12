@@ -37,7 +37,8 @@ void DPRefreshLittleDiaNewWindow(void);
 NSString *DPLittleDiaNewWindowProblem(void);
 
 // Window.m: which popups are Little Dia's, their page, and their title bar.
-void DPExpectLittleDiaWindow(NSRect frame, void (^missed)(void), void (^claimed)(NSWindow *window));  // A popup in the next 3 seconds is this link's, and `claimed` gets it; else `missed` runs.
+#define DPLittleDiaWait 3  // Seconds a link waits for its window.
+void DPExpectLittleDiaWindow(NSRect frame, NSDictionary *noted, void (^missed)(void), void (^claimed)(NSWindow *window));  // A popup in the next DPLittleDiaWait seconds is this link's, and `claimed` gets it; else `missed` runs. `noted`: what DPNoteStackForLink gave as it arrived.
 BOOL DPIsLittleDiaWindow(NSWindow *window);  // Opened by Little Dia, whether or not it's still on.
 id DPLittleDiaPage(NSWindow *window);        // Its ArcWebContents, once Chromium has handed it over.
 void DPInstallLittleDiaWindows(void);
@@ -46,10 +47,8 @@ void DPPromoteLittleDiaWindow(NSWindow *window);  // Open in Dia: when it closes
 
 // Stack.m: the small window comes up over the app the link was clicked in; Dia's other windows stay behind that app.
 void DPInstallLittleDiaStack(void);
-void DPNoteStackForLink(void);
-void DPRestoreStack(NSWindow *little);
-void DPFinishStack(void);
-pid_t DPLinkSource(void);            // The app the last link came from, or 0.
+NSDictionary *DPNoteStackForLink(void);  // Where Dia's windows stood and which app the link came from, kept with that link.
+void DPRestoreStack(NSWindow *little, NSDictionary *noted);
 void DPReturnToSource(pid_t pid);
 void DPBringBackPutAway(NSWindow *little);  // Dia's windows put away because it was hidden when the link came.
 void DPLinkArrived(void);                   // A link for Little Dia came in.

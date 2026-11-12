@@ -2,7 +2,7 @@
 #import <Carbon/Carbon.h>
 
 static const NSEventModifierFlags DPShortcutModifiers = NSEventModifierFlagControl | NSEventModifierFlagOption | NSEventModifierFlagShift | NSEventModifierFlagCommand;
-static NSUInteger DPRecording;
+static NSHashTable<NSView *> *DPRecorders;  // fields recording, whichever window is key
 
 static NSUserDefaults *DPShortcutDefaults(void) {
     static NSUserDefaults *defaults;
@@ -34,9 +34,16 @@ static NSDictionary *DPPatchShortcut(DPPatch *patch) {
     return [saved isKindOfClass:NSDictionary.class] ? saved : patch->defaultShortcut ? patch->defaultShortcut() : nil;
 }
 
+BOOL DPShortcutRecording(void) {
+    // A window that loses key keeps its first responder, so only a field in the key window takes keys from Dia.
+    for (NSView *field in DPRecorders)
+        if (field.window.isKeyWindow) return YES;
+    return NO;
+}
+
 BOOL DPShortcutMatches(NSEvent *event, DPPatch *patch) {
     NSDictionary *shortcut = DPPatchShortcut(patch);
-    return !DPRecording && shortcut[@"keyCode"] && [shortcut[@"keyCode"] integerValue] == event.keyCode &&
+    return !DPShortcutRecording() && shortcut[@"keyCode"] && [shortcut[@"keyCode"] integerValue] == event.keyCode &&
            [shortcut[@"modifiers"] unsignedIntegerValue] == (event.modifierFlags & DPShortcutModifiers);
 }
 
@@ -143,7 +150,8 @@ static NSArray<NSString *> *DPShortcutClashes(DPPatch *patch) {
 // Recording takes every key before Dia's menus and other shortcuts see it.
 - (BOOL)becomeFirstResponder {
     if (![super becomeFirstResponder]) return NO;
-    DPRecording++;
+    DPRecorders = DPRecorders ?: [NSHashTable weakObjectsHashTable];
+    [DPRecorders addObject:self];
     __weak typeof(self) weak = self;
     _monitor = [NSEvent addLocalMonitorForEventsMatchingMask:NSEventMaskKeyDown handler:^NSEvent *(NSEvent *event) {
         DPShortcutButton *field = weak;
@@ -154,13 +162,24 @@ static NSArray<NSString *> *DPShortcutClashes(DPPatch *patch) {
     return YES;
 }
 
+- (void)stopRecording {
+    if (_monitor) [NSEvent removeMonitor:_monitor];
+    _monitor = nil;
+    [DPRecorders removeObject:self];
+}
+
 - (BOOL)resignFirstResponder {
-    if (_monitor) {
-        [NSEvent removeMonitor:_monitor];
-        _monitor = nil;
-        DPRecording--;
-    }
+    [self stopRecording];
     return [super resignFirstResponder];
+}
+
+- (void)viewDidMoveToWindow {
+    [super viewDidMoveToWindow];
+    if (!self.window) [self stopRecording];
+}
+
+- (void)dealloc {
+    if (_monitor) [NSEvent removeMonitor:_monitor];
 }
 
 - (void)record:(NSEvent *)event {

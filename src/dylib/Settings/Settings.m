@@ -1,4 +1,5 @@
 #import "Settings.h"
+#import <Carbon/Carbon.h>
 
 static char DPSettingsKey, DPSearchItemKey;
 
@@ -242,6 +243,20 @@ static void DPSettings_handleBack(id self, SEL _cmd) {
     DPCallOriginal(DPSettings_handleBack, self);
 }
 
+// ⌘F goes to the shown pane's search field, as in most apps' settings. The key's letter, so it follows the layout; where that isn't ASCII, the key's place on a US keyboard.
+static NSEvent *DPSettings_findKey(NSEvent *event) {
+    DPPaneView *pane = DPShownPane;
+    NSSearchToolbarItem *item = pane.searchItem;
+    if (!item || pane.hidden || event.window != pane.window || !event.window.isKeyWindow) return event;
+    NSEventModifierFlags mods = event.modifierFlags & NSEventModifierFlagDeviceIndependentFlagsMask & ~(NSEventModifierFlagCapsLock | NSEventModifierFlagNumericPad);
+    NSString *key = event.charactersIgnoringModifiers.lowercaseString;
+    BOOL f = key.length == 1 && [key characterAtIndex:0] < 128 ? [key characterAtIndex:0] == 'f' : event.keyCode == kVK_ANSI_F;
+    if (mods != NSEventModifierFlagCommand || !f) return event;
+    [item beginSearchInteraction];
+    [item.searchField selectText:nil];
+    return nil;
+}
+
 // Dia's sidebar implements neither, so there's nothing to hook or call through to.
 static void DPAddSidebarMethod(SEL sel, IMP imp) {
     const char *types = protocol_getMethodDescription(@protocol(NSTableViewDelegate), sel, NO, YES).types;
@@ -258,4 +273,5 @@ void DPInstallSettings(void) {
     DPAddSidebarMethod(@selector(tableView:shouldSelectRow:), (IMP)DPSidebar_shouldSelectRow);
     DPAddSidebarMethod(@selector(tableView:heightOfRow:), (IMP)DPSidebar_heightOfRow);
     DPHook(DPDiaSettingsController, @selector(toolbar:itemForItemIdentifier:willBeInsertedIntoToolbar:), (IMP)DPSettings_toolbarItem);
+    [NSEvent addLocalMonitorForEventsMatchingMask:NSEventMaskKeyDown handler:^NSEvent *(NSEvent *event) { return DPSettings_findKey(event); }];
 }

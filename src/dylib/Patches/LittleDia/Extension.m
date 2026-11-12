@@ -15,8 +15,9 @@ static NSString *const kManifest = @"{\n"
     @"  \"background\": { \"service_worker\": \"worker.js\" }\n"
     @"}\n";
 
-// open: a popup with the link. The others name a popup by its tab's ID, or failing that its URL. search: the words, with
-// the profile's search engine, in that popup. promote: its page becomes a tab in the last normal window, which comes forward.
+// open: a popup with the link, unless `until` has passed: a worker that wakes late finds the link has fallen back to a
+// tab. The others name a popup by its tab's ID, or failing that its URL. search: the words, with the profile's search
+// engine, in that popup. promote: its page becomes a tab in the last normal window, which comes forward.
 static NSString *const kWorker = @"const popupTab = async ({ tabId, url }) => {\n"
     @"  const byId = tabId ? await chrome.tabs.get(tabId).catch(() => null) : null;\n"
     @"  if (byId) return byId;\n"
@@ -26,7 +27,8 @@ static NSString *const kWorker = @"const popupTab = async ({ tabId, url }) => {\
     @"chrome.omnibox.onInputEntered.addListener(async (text) => {\n"
     @"  const request = JSON.parse(text);\n"
     @"  if (request.action === 'open') {\n"
-    @"    const { url, left, top, width, height } = request;\n"
+    @"    const { url, left, top, width, height, until } = request;\n"
+    @"    if (Date.now() > until) return;\n"
     @"    return chrome.windows.create({ url, type: 'popup', focused: true, left, top, width, height });\n"
     @"  }\n"
     @"  const tab = await popupTab(request);\n"

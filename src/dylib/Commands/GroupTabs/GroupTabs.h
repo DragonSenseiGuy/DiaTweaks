@@ -20,7 +20,7 @@ NSString *DPGroupTitle(NSString *domain);
 NSArray<NSDictionary *> *DPOps(NSArray<NSDictionary *> *tabs, NSArray *groups);
 NSString *DPRegistrableDomain(NSString *host);
 
-void DPMoveTab(id delegate, id browser, NSNumber *sid, NSInteger index, void (^done)(void));
+void DPMoveTab(id delegate, id browser, NSNumber *sid, NSInteger index, void (^done)(void), void (^failed)(void));
 NSDictionary *DPTabPlaces(NSDictionary<NSNumber *, NSString *> *urls);
 void DPRestorePlaces(id delegate, id browser, NSDictionary *places);
 

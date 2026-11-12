@@ -49,8 +49,11 @@
 - (void)mouseExited:(NSEvent *)event { self.hovered = NO; [self refresh]; }
 
 - (BOOL)performKeyEquivalent:(NSEvent *)event {
-    NSEventModifierFlags mods = event.modifierFlags & NSEventModifierFlagDeviceIndependentFlagsMask;
-    if (mods != NSEventModifierFlagCommand || ![event.charactersIgnoringModifiers isEqual:@"l"] || self.window != NSApp.keyWindow) return NO;
+    NSEventModifierFlags mods = event.modifierFlags & NSEventModifierFlagDeviceIndependentFlagsMask & ~(NSEventModifierFlagCapsLock | NSEventModifierFlagNumericPad | NSEventModifierFlagFunction);
+    NSString *key = event.charactersIgnoringModifiers;
+    // On a layout without a Latin L, the key in L's place (code 37) is ⌘L, as it is in Dia's own menu.
+    BOOL isL = [key caseInsensitiveCompare:@"l"] == NSOrderedSame || (event.keyCode == 37 && !(key.length == 1 && [key characterAtIndex:0] < 128 && isalpha([key characterAtIndex:0])));
+    if (mods != NSEventModifierFlagCommand || !isL || self.window != NSApp.keyWindow) return NO;
     [self begin];
     return YES;
 }

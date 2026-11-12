@@ -129,8 +129,10 @@ static void DPFetchPreview(NSArray<NSString *> *names, void (^done)(NSURL *file,
     if ([file.lastPathComponent hasSuffix:@"-onoff.webp"]) {
         CGImageRef image = [[[NSImage alloc] initWithContentsOfURL:file] CGImageForProposedRect:NULL context:nil hints:nil];
         size_t width = CGImageGetWidth(image), half = CGImageGetHeight(image) / 2;
-        _states = @[ (__bridge_transfer id)CGImageCreateWithImageInRect(image, CGRectMake(0, 0, width, half)),
-                     (__bridge_transfer id)CGImageCreateWithImageInRect(image, CGRectMake(0, half, width, half)) ];
+        id off = (__bridge_transfer id)CGImageCreateWithImageInRect(image, CGRectMake(0, 0, width, half));
+        id on = (__bridge_transfer id)CGImageCreateWithImageInRect(image, CGRectMake(0, half, width, half));
+        if (!off || !on) return [self show:nil];  // a file that didn't download whole, or isn't an image
+        _states = @[ off, on ];
         [self showState];
         [self updatePlayback];
         return;
