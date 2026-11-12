@@ -13,7 +13,6 @@ struct DPPatch {
     __unsafe_unretained NSString *symbol, *tint;  // symbol: space-separated fallbacks for older macOS. tint: an NSColor class property.
     __unsafe_unretained NSString *section;
     const char *const *classes;
-    const char *const *builtIn;
     __unsafe_unretained NSString *requires;
     __unsafe_unretained NSString *disabledBy;
     __unsafe_unretained NSString *coveredBy;
@@ -29,7 +28,7 @@ struct DPPatch {
     // nil if Dia's views match `on`, else what's wrong. Use DPFindViews, not your hooks, so a hook that never ran fails.
     NSString *(*verify)(DPPatch *patch);
     NSString *(*ready)(DPPatch *patch);
-    BOOL on, unavailable, inDia;
+    BOOL on, unavailable;
     CGFloat progress;
 };
 

@@ -148,11 +148,8 @@ void DPLoadPatches(void) {
     DPDefaults = [[NSUserDefaults alloc] initWithSuiteName:@"com.diapatches"];
     DPReadPatches();
 
-    for (NSUInteger i = 0; i < DPPatchCount; i++) {
+    for (NSUInteger i = 0; i < DPPatchCount; i++)
         for (const char *const *name = DPPatches[i]->classes; name && *name; name++) DPPatches[i]->unavailable |= !objc_getClass(*name);
-        for (const char *const *name = DPPatches[i]->builtIn; name && *name; name++) DPPatches[i]->inDia |= objc_getClass(*name) != nil;
-        DPPatches[i]->unavailable |= DPPatches[i]->inDia;
-    }
     for (NSUInteger i = 0; i < DPPatchCount; i++) {
         DPPatch *patch = DPPatches[i];
         for (DPPatch *required = DPRequired(patch); required; required = DPRequired(required)) patch->unavailable |= required->unavailable;

@@ -2,20 +2,18 @@
 #include <simd/simd.h>
 
 extern DPPatch DPHideToolbar, DPRevealToolbarOnHover, DPShowToolbarWithSidebar, DPShowToolbarOnNewTab, DPShowToolbarWithTopTabs, DPPlainSelectedTab;
-extern DPPatch DPPeekToolbarOnCopy, DPCopyToast, DPShowLoadingProgress;
+extern DPPatch DPShowLoadingProgress;
 extern NSHashTable<NSView *> *DPPanes;
 
 @interface DPToolbarHover : NSObject
 @property (nonatomic, weak) NSView *pane, *bar, *bookmarks;
 @property (nonatomic, strong) NSTrackingArea *tracking;
-@property (nonatomic, strong) NSTimer *animation, *hideTimer, *inPlaceAnimation, *peekTimer;
-@property (nonatomic) BOOL revealed, inPlace, peeking;
+@property (nonatomic, strong) NSTimer *animation, *hideTimer, *inPlaceAnimation;
+@property (nonatomic) BOOL revealed, inPlace;
 @property (nonatomic) CGFloat progress, inPlaceProgress;
 + (DPToolbarHover *)forPane:(NSView *)pane;
 + (DPToolbarHover *)attachToPane:(NSView *)pane;
 - (void)updateForBar:(NSView *)bar bookmarks:(NSView *)bookmarks;
-- (void)peek;
-- (void)endPeek;
 @end
 
 NSRect DPLaidOutFrame(NSView *view);
@@ -31,8 +29,6 @@ void DPApplyRelayoutPanes(DPPatch *patch);
 void DPRepaintTabs(NSWindow *window);
 
 void DPShowCopyToast(NSView *pane, NSString *message);
-void DPRemoveCopyToasts(void);
-NSString *DPVerifyNoCopyToast(DPPatch *patch);
 
 void DPShowProgressLine(NSView *pane, CGFloat fraction);
 void DPFinishProgressLine(NSView *pane);
