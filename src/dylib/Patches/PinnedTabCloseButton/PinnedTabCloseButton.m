@@ -32,8 +32,15 @@ static void DPApplyPinnedTabCloseButton(DPPatch *patch) {
         for (NSView *tab in DPFindViews(DPDiaTabView)) DPAllowClose(tab);
         return;
     }
+    // A tab unpinned since has Dia's own setting, which shows the button.
+    NSMutableSet *unpinned = [NSMutableSet set];
+    for (NSView *content in DPFindViews(DPDiaTabContentView)) {
+        BOOL *pinned = DPIvar(DPAttributes(content), "isInFavoritesOrPinnedContainer");
+        id controller = pinned && !*pinned ? DPViewModelDelegate(DPEnclosingTab(content)) : nil;
+        if (controller) [unpinned addObject:controller];
+    }
     for (id controller in DPCleared.allObjects) {
-        BOOL *suppress = DPIvar(controller, "suppressesCloseButton");
+        BOOL *suppress = [unpinned containsObject:controller] ? NULL : DPIvar(controller, "suppressesCloseButton");
         if (suppress) *suppress = YES;
     }
     [DPCleared removeAllObjects];

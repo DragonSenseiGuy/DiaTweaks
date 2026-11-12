@@ -1,4 +1,5 @@
 #import "PullRequestRepo.h"
+#import "Patches/CompactTabRows/CompactTabRows.h"
 #import <objc/message.h>
 
 // A pull request with a review status shows it on a third line, so its row is a line taller. Dia's list gives every tab
@@ -6,7 +7,7 @@
 
 static const CGFloat DPExtra = 14, DPTabHeight = 37;
 static NSMutableSet<NSString *> *DPTallTabs;
-static char DPStatusKey, DPLineKey, DPAdjustedKey;
+static char DPStatusKey, DPLineKey, DPAdjustedKey, DPEditsKey;
 
 @implementation DPPRStatusLine
 @end
@@ -46,7 +47,7 @@ static NSString *DPTabAt(id source, NSIndexPath *path) {
 
 static void DPLayout_prepareLayout(NSCollectionViewLayout *self, SEL _cmd) {
     DPCallOriginal(DPLayout_prepareLayout, self);
-    if (!DPPullRequestRepo.on || !DPTallTabs.count) return;
+    if (!DPPullRequestRepo.on || !DPTallTabs.count) return DPSet(self, &DPEditsKey, nil);
     id diffable = self.collectionView.dataSource;
     Ivar ivar = class_getInstanceVariable(object_getClass(diffable), "_impl");
     id source = ivar ? object_getIvar(diffable, ivar) : nil;
@@ -60,9 +61,11 @@ static void DPLayout_prepareLayout(NSCollectionViewLayout *self, SEL _cmd) {
         if (a.representedElementCategory == NSCollectionElementCategoryItem && [DPTallTabs containsObject:DPTabAt(source, a.indexPath)]) [tall addObject:a];
     // A prepare that kept the last geometry still has our heights in it.
     NSArray *last = DPGet(self, &DPAdjustedKey);
-    if (!tall.count || (last[0] == tall[0] && NSEqualRects([last[1] rectValue], tall[0].frame))) return;
+    if (!tall.count) return DPSet(self, &DPEditsKey, nil);
+    if (last[0] == tall[0] && NSEqualRects([last[1] rectValue], tall[0].frame)) return;
     NSMutableArray<NSValue *> *rows = [NSMutableArray new];
     for (NSCollectionViewLayoutAttributes *a in tall) [rows addObject:[NSValue valueWithRect:a.frame]];
+    NSMutableArray *edits = [NSMutableArray new];  // Each item, and how far its top and its height moved.
     for (NSCollectionViewLayoutAttributes *a in all) {
         NSRect frame = a.frame;
         for (NSValue *value in rows) {
@@ -70,11 +73,46 @@ static void DPLayout_prepareLayout(NSCollectionViewLayout *self, SEL _cmd) {
             if (NSMinY(a.frame) >= NSMaxY(row) - 0.5) frame.origin.y += DPExtra;
             else if (NSMinY(a.frame) <= NSMinY(row) + 0.5 && NSMaxY(a.frame) >= NSMaxY(row) - 0.5) frame.size.height += DPExtra;  // it, or a folder around it
         }
+        if (a.representedElementCategory == NSCollectionElementCategoryItem)
+            [edits addObject:@[a, @(frame.origin.y - a.frame.origin.y), @(frame.size.height - a.frame.size.height)]];
         a.frame = frame;
     }
+    DPSet(self, &DPEditsKey, edits);
     *(double *)height += DPExtra * rows.count;
     DPSet(self, &DPAdjustedKey, @[tall[0], [NSValue valueWithRect:tall[0].frame]]);
 }
+
+#pragma mark Dragging
+
+// Dia works out where a dragged tab lands from the rows as it laid them out, without the lines added here, so the pointer
+// goes back to the same spot in those. It arrives as the list shows it, Collapse Pinned Tabs' header included (its hooks
+// install before these, so they run after), so each row is taken as the list shows it too.
+static NSArray<NSArray<NSValue *> *> *DPMoves(NSCollectionViewLayout *layout) {
+    NSMutableArray *moves = [NSMutableArray new];
+    for (NSArray *edit in DPGet(layout, &DPEditsKey)) {
+        NSCollectionViewLayoutAttributes *shown = [layout layoutAttributesForItemAtIndexPath:[edit[0] indexPath]];
+        if (!shown || shown.hidden || shown.alpha < 1) continue;  // A folded pinned row sits under the rows that follow.
+        NSRect now = shown.frame, then = now;
+        then.origin.y -= [edit[1] doubleValue];
+        then.size.height -= [edit[2] doubleValue];
+        [moves addObject:@[ [NSValue valueWithRect:now], [NSValue valueWithRect:then] ]];
+    }
+    return moves;
+}
+
+static id<NSDraggingInfo> DPDiaDrag(NSView *tabList, id<NSDraggingInfo> info) {
+    NSCollectionView *list = (NSCollectionView *)DPFindView(tabList, ^BOOL(NSView *view) { return DPIsKind(view, DPDiaTabListCollection); });
+    NSArray *moves = DPPullRequestRepo.on ? DPMoves(list.collectionViewLayout) : nil;
+    if (!moves.count) return info;
+    NSPoint point = [list convertPoint:info.draggingLocation fromView:nil];
+    point.y = DPTabListDiaY(moves, point.y);
+    return DPDraggingInfoAt(info, [list convertPoint:point toView:nil]);
+}
+
+static NSDragOperation DPTabList_entered(NSView *self, SEL _cmd, id<NSDraggingInfo> info) { return DPCallOriginal(DPTabList_entered, self, DPDiaDrag(self, info)); }
+static NSDragOperation DPTabList_updated(NSView *self, SEL _cmd, id<NSDraggingInfo> info) { return DPCallOriginal(DPTabList_updated, self, DPDiaDrag(self, info)); }
+static BOOL DPTabList_prepare(NSView *self, SEL _cmd, id<NSDraggingInfo> info) { return DPCallOriginal(DPTabList_prepare, self, DPDiaDrag(self, info)); }
+static BOOL DPTabList_perform(NSView *self, SEL _cmd, id<NSDraggingInfo> info) { return DPCallOriginal(DPTabList_perform, self, DPDiaDrag(self, info)); }
 
 static NSView *DPPart(NSView *content, const char *name) {
     Ivar ivar = class_getInstanceVariable(object_getClass(content), name);
@@ -111,4 +149,8 @@ void DPInstallPRRows(void) {
     DPTallTabs = [NSMutableSet new];
     DPHook(DPDiaTabListLayout, @selector(prepareLayout), (IMP)DPLayout_prepareLayout);
     DPHook(DPDiaTabContentView, @selector(layout), (IMP)DPContent_layout);
+    DPHook(DPDiaTabList, @selector(draggingEntered:), (IMP)DPTabList_entered);
+    DPHook(DPDiaTabList, @selector(draggingUpdated:), (IMP)DPTabList_updated);
+    DPHook(DPDiaTabList, @selector(prepareForDragOperation:), (IMP)DPTabList_prepare);
+    DPHook(DPDiaTabList, @selector(performDragOperation:), (IMP)DPTabList_perform);
 }

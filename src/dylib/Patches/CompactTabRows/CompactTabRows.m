@@ -1,4 +1,4 @@
-#import "StdPatch/StdPatch.h"
+#import "Patches/CompactTabRows/CompactTabRows.h"
 
 // Dia 1.57 made the sidebar's rows 41 pt tall, from 37. After Dia lays the list out, each row of the usual height gives
 // back the difference: the rows below move up, and a folder shrinks by its own header and the rows inside it.
@@ -63,7 +63,7 @@ static void DPLayout_prepareLayout(NSCollectionViewLayout *self, SEL _cmd) {
 // Dia works out where a dragged tab lands from the rows as it laid them out, so the pointer goes back to the same spot
 // in those: through the innermost item under it, or past the nearest one above it. Collapse Pinned Tabs, whose hooks
 // install after these and so run first, has already taken its header out of the point.
-static CGFloat DPDiaY(NSArray<NSArray<NSValue *> *> *moves, CGFloat y) {
+CGFloat DPTabListDiaY(NSArray<NSArray<NSValue *> *> *moves, CGFloat y) {
     NSArray<NSValue *> *inside = nil, *above = nil;
     for (NSArray<NSValue *> *move in moves) {
         NSRect now = move[0].rectValue;
@@ -91,16 +91,20 @@ static CGFloat DPDiaY(NSArray<NSArray<NSValue *> *> *moves, CGFloat y) {
 - (BOOL)isKindOfClass:(Class)cls { return [(NSObject *)self.info isKindOfClass:cls]; }
 @end
 
+id<NSDraggingInfo> DPDraggingInfoAt(id<NSDraggingInfo> info, NSPoint location) {
+    DPCompactDrag *drag = [DPCompactDrag alloc];
+    drag.info = info;
+    drag.location = location;
+    return (id<NSDraggingInfo>)drag;
+}
+
 static id<NSDraggingInfo> DPDiaDrag(NSView *tabList, id<NSDraggingInfo> info) {
     NSCollectionView *list = (NSCollectionView *)DPFindView(tabList, ^BOOL(NSView *view) { return DPIsKind(view, DPDiaTabListCollection); });
     NSArray *moves = DPGet(list.collectionViewLayout, &DPMovesKey);
     if (!moves) return info;
     NSPoint point = [list convertPoint:info.draggingLocation fromView:nil];
-    point.y = DPDiaY(moves, point.y);
-    DPCompactDrag *drag = [DPCompactDrag alloc];
-    drag.info = info;
-    drag.location = [list convertPoint:point toView:nil];
-    return (id<NSDraggingInfo>)drag;
+    point.y = DPTabListDiaY(moves, point.y);
+    return DPDraggingInfoAt(info, [list convertPoint:point toView:nil]);
 }
 
 static NSDragOperation DPTabList_entered(NSView *self, SEL _cmd, id<NSDraggingInfo> info) { return DPCallOriginal(DPTabList_entered, self, DPDiaDrag(self, info)); }

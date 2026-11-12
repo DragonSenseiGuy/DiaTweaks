@@ -21,7 +21,7 @@ static BOOL DPIsCollapsed(NSString *space) { return space && [[DPCollapseDefault
 @property (nonatomic) BOOL shown, collapsed, hovered, folding;
 @property (nonatomic, strong) NSDate *springSince;
 @property (nonatomic) NSInteger rows;    // Pinned rows, above Dia's line.
-@property (nonatomic) CGFloat top, end, below;  // Where Dia puts the first of them, its line, and what follows the line.
+@property (nonatomic) CGFloat top, end, below, row;  // Where Dia puts the first of them, its line, and what follows the line; and a tab's height.
 @property (nonatomic, strong) NSImageView *pin, *chevron;
 @property (nonatomic, strong) NSTextField *title;
 @property (nonatomic, strong) CALayer *line;
@@ -109,10 +109,18 @@ static void DPMeasure(NSCollectionViewLayout *layout) {
     NSInteger rows = list.numberOfSections ? [list numberOfItemsInSection:0] - 1 : 0;
     BOOL shown = DPCollapsePinned.on && rows > 0;
     NSRect first = NSZeroRect, line = NSZeroRect;
+    CGFloat row = DPRowHeight;
     if (shown) {
         DPRaw = YES;
         first = [layout layoutAttributesForItemAtIndexPath:[NSIndexPath indexPathForItem:0 inSection:0]].frame;
         line = [layout layoutAttributesForItemAtIndexPath:[NSIndexPath indexPathForItem:rows inSection:0]].frame;
+        // Rows are 41 pt from Dia 1.57, and 37 with Compact Tab Rows; the most common height is a tab's.
+        NSCountedSet<NSNumber *> *heights = [NSCountedSet set];
+        for (NSCollectionViewLayoutAttributes *a in [layout layoutAttributesForElementsInRect:NSMakeRect(-1e5, -1e5, 2e5, 1e7)])
+            if (a.representedElementCategory == NSCollectionElementCategoryItem && NSHeight(a.frame) >= 20) [heights addObject:@(round(NSHeight(a.frame) * 2) / 2)];
+        NSNumber *common = nil;
+        for (NSNumber *each in heights) if (!common || [heights countForObject:each] > [heights countForObject:common]) common = each;
+        if (common) row = common.doubleValue;
         DPRaw = NO;
         shown = NSHeight(line) > 0 && NSHeight(line) < 20;
     }
@@ -134,6 +142,7 @@ static void DPMeasure(NSCollectionViewLayout *layout) {
     header.top = NSMinY(first);
     header.end = NSMinY(line);
     header.below = NSMaxY(line);
+    header.row = row;
     header.frame = NSMakeRect(0, header.top, NSWidth(list.bounds), DPHeaderHeight);
     header.needsLayout = YES;
 }
@@ -214,7 +223,7 @@ static BOOL DPDiaPoint(NSCollectionView *list, NSPoint *inWindow) {
     BOOL onHeader = point.y >= header.top && point.y < header.top + DPHeaderHeight;
     if (onHeader && !header.collapsed) point.y = header.top;
     else if (point.y >= header.top) point.y -= DPShift(header, NO);
-    if (header.collapsed && (onHeader || (point.y >= header.end && point.y < header.below + DPRowHeight / 2))) return NO;
+    if (header.collapsed && (onHeader || (point.y >= header.end && point.y < header.below + header.row / 2))) return NO;
     *inWindow = [list convertPoint:point toView:nil];
     return YES;
 }
@@ -365,6 +374,10 @@ static void DPInstallCollapsePinned(void) {
     DPHook(DPDiaTabList, @selector(prepareForDragOperation:), (IMP)DPTabList_prepare);
     DPHook(DPDiaTabList, @selector(performDragOperation:), (IMP)DPTabList_perform);
     DPHook(DPDiaTabList, @selector(handleBackgroundDoubleClick:), (IMP)DPTabList_backgroundDoubleClick);
+    // A minimized window misses a fold made in another window of its profile, so its list is laid out again as it returns.
+    [NSNotificationCenter.defaultCenter addObserverForName:NSWindowDidDeminiaturizeNotification object:nil queue:nil usingBlock:^(NSNotification *note) {
+        if (DPCollapsePinned.on) for (NSCollectionView *list in DPListsOf(nil)) [list.collectionViewLayout invalidateLayout];
+    }];
 }
 
 DP_PATCH(DPCollapsePinned) {

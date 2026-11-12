@@ -34,7 +34,7 @@ DP_PATCH(DPPullRequestRepo) {
     .symbol = @"arrow.triangle.pull",
     .tint = @"systemTealColor",
     .section = @"Sidebar & Tab Bar",
-    .classes = DPClasses(DPDiaTabContentView, DPDiaFeatheredLabel, DPDiaTransitioningLabel, DPDiaTabListLayout, DPDiaTabListCollection),
+    .classes = DPClasses(DPDiaTabContentView, DPDiaFeatheredLabel, DPDiaTransitioningLabel, DPDiaTabListLayout, DPDiaTabListCollection, DPDiaTabList),
     .install = DPInstallPullRequestRepo,
     .apply = DPApplyPullRequestRepo,
     .verify = DPVerifyPullRequestRepo,

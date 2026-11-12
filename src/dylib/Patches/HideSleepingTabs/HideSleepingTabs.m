@@ -110,25 +110,36 @@ static void DPWatchSwitcherSize(id list) {
     }
 }
 
-static void DPStepPastSleeping(int tries);
+static int DPStepsLeft;  // Ticks left in the one chain stepping past sleeping tabs; 0 while none runs. Only a ⌃⇥ the user presses refills it.
+static const int64_t DPOwnKey = 0x44505353;  // Set as the user data of the ⌃⇥ the chain posts, which the monitor sees too.
 
-static void DPStepSoon(int tries) {
-    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 20 * NSEC_PER_MSEC), dispatch_get_main_queue(), ^{ DPStepPastSleeping(tries); });
+static void DPStepPastSleeping(void);
+
+static void DPStepSoon(void) {
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 20 * NSEC_PER_MSEC), dispatch_get_main_queue(), ^{ DPStepPastSleeping(); });
 }
 
 // The switcher opens a moment after the first ⌃⇥, then moves its highlight on each ⌃⇥ until it rests on a loaded tab.
-static void DPStepPastSleeping(int tries) {
-    if (!tries) return;
+static void DPStepPastSleeping(void) {
+    if (!DPHideSleepingTabs.on) {
+        DPStepsLeft = 0;
+        return;
+    }
     NSWindowController *switcher = DPOpenTabSwitcher();
     id viewModel = DPSwiftValue(switcher, @"viewModel");
     NSString *focused = [DPSwiftValue(DPState(viewModel), @"focusedItemID") description];
-    if (!focused) return DPStepSoon(tries - 1);
-    if (![DPSleepingTabs(viewModel) containsObject:focused]) return;
-    NSEventModifierFlags mods = NSEventModifierFlagControl | (NSEvent.modifierFlags & NSEventModifierFlagShift);
-    [NSApp postEvent:[NSEvent keyEventWithType:NSEventTypeKeyDown location:NSZeroPoint modifierFlags:mods timestamp:NSProcessInfo.processInfo.systemUptime
-                                  windowNumber:switcher.window.windowNumber context:nil characters:@"\t" charactersIgnoringModifiers:@"\t" isARepeat:NO keyCode:48]
-             atStart:NO];
-    DPStepSoon(tries - 1);
+    BOOL sleeping = focused && [DPSleepingTabs(viewModel) containsObject:focused];
+    if (sleeping) {
+        NSEventModifierFlags mods = NSEventModifierFlagControl | (NSEvent.modifierFlags & NSEventModifierFlagShift);
+        NSEvent *key = [NSEvent keyEventWithType:NSEventTypeKeyDown location:NSZeroPoint modifierFlags:mods timestamp:NSProcessInfo.processInfo.systemUptime
+                                    windowNumber:switcher.window.windowNumber context:nil characters:@"\t" charactersIgnoringModifiers:@"\t" isARepeat:NO keyCode:48];
+        CGEventRef tagged = key.CGEvent ? CGEventCreateCopy(key.CGEvent) : NULL;
+        if (tagged) CGEventSetIntegerValueField(tagged, kCGEventSourceUserData, DPOwnKey);
+        [NSApp postEvent:tagged ? [NSEvent eventWithCGEvent:tagged] : key atStart:NO];
+        if (tagged) CFRelease(tagged);
+    }
+    DPStepsLeft = focused && !sleeping ? 0 : DPStepsLeft - 1;
+    if (DPStepsLeft) DPStepSoon();
 }
 
 static void DPInstallHideSleepingTabs(void) {
@@ -138,7 +149,12 @@ static void DPInstallHideSleepingTabs(void) {
     DPHook(DPDiaTabSwitcherList, @selector(collectionView:didSelectItemsAtIndexPaths:), (IMP)DPList_select);
     DPHookClass(NSCollectionView.class, @selector(makeItemWithIdentifier:forIndexPath:), (IMP)DPGrid_makeItem);
     [NSEvent addLocalMonitorForEventsMatchingMask:NSEventMaskKeyDown handler:^NSEvent *(NSEvent *event) {
-        if (DPHideSleepingTabs.on && event.keyCode == 48 && (event.modifierFlags & NSEventModifierFlagControl)) DPStepSoon(20);
+        BOOL own = event.CGEvent && CGEventGetIntegerValueField(event.CGEvent, kCGEventSourceUserData) == DPOwnKey;
+        if (!own && DPHideSleepingTabs.on && event.keyCode == 48 && (event.modifierFlags & NSEventModifierFlagControl)) {
+            BOOL running = DPStepsLeft > 0;
+            DPStepsLeft = 20;
+            if (!running) DPStepSoon();
+        }
         return event;
     }];
 }
