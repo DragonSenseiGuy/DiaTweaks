@@ -48,9 +48,10 @@ static void DPOpenURLEvents_handle(id self, SEL _cmd, NSAppleEventDescriptor *ev
     NSURL *url = DPLittleDia.on ? DPLittleDiaLink(event) : nil;
     if (!url) return DPCallOriginal(DPOpenURLEvents_handle, self, event, reply);
     DPLinkArrived();
+    NSAppleEventDescriptor *kept = [event copy];  // The event is the system's and is gone once this returns.
     DPOpenWhenReady(url, DPNoteStackForLink(), ^{
         DPBringBackPutAway(nil);  // Not taken by Little Dia, so the tab opens in a window that must be showing.
-        DPCallOriginal(DPOpenURLEvents_handle, self, event, [NSAppleEventDescriptor nullDescriptor]);
+        DPCallOriginal(DPOpenURLEvents_handle, self, kept, [NSAppleEventDescriptor nullDescriptor]);
     }, 40);
 }
 
