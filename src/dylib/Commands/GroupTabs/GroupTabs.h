@@ -29,6 +29,7 @@ void DPGroupSelectedTabsOnce(void);
 NSSet<NSNumber *> *DPSelectedSessions(id browser);
 BOOL DPCanReadSelection(id browser);
 void DPSetAllGroupsCollapsed(BOOL collapsed);
+extern CFTimeInterval DPFoldedAt;  // When Collapse All Tab Groups last asked Dia to fold a group.
 void DPUngroupDomain(void);
 void DPUngroupAllDomains(void);
 // An op is {op: create, title, ids} or {op: add, group, ids}. A create without a title lets Dia's AI name the group.
