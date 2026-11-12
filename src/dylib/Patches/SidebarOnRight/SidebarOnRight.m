@@ -3,6 +3,7 @@
 static void DPSidebar_viewDidLayout(NSViewController *self, SEL _cmd) {
     DPCallOriginal(DPSidebar_viewDidLayout, self);
     if (DPSidebarOnRight.on) DPRegisterSidebar(self.view, NO);
+    DPScheduleLights(self.view.window);
 }
 
 static void DPInstallSidebarOnRight(void) {
@@ -10,6 +11,7 @@ static void DPInstallSidebarOnRight(void) {
     DPInstallMirror();
     DPInstallResize();
     DPInstallHover();
+    DPInstallLights();
 }
 
 // The sidebar slides across instead of jumping.
@@ -20,6 +22,9 @@ static void DPApplySidebarOnRight(DPPatch *patch) {
         if (!patch->on) return DPUnmirrorWindows();
         for (NSView *header in DPFindViews(DPDiaSidebarHeader)) DPRegisterSidebar(header.superview, YES);
     }];
+    // Hide Window Controls lays the header out without the window's buttons while they're in the corner.
+    for (NSView *header in DPFindViews(DPDiaSidebarHeader)) header.needsLayout = YES;
+    for (NSWindow *window in NSApp.windows) DPScheduleLights(window);
 }
 
 static BOOL DPFloating(NSView *view) {
@@ -33,6 +38,8 @@ static NSString *DPVerifySidebarOnRight(DPPatch *patch) {
         NSView *sidebar = header.superview;
         NSWindow *window = sidebar.window;
         if (!window || sidebar.hiddenOrHasHiddenAncestor) continue;
+        NSView *lights = DPFindView(header, ^BOOL(NSView *v) { return DPIsKind(v, DPDiaTrafficLights); });
+        if (patch->on && DPSidebarOnRightTakesLights(window) && lights && !lights.hiddenOrHasHiddenAncestor) return @"the window buttons are in the sidebar";
         NSRect s = [sidebar convertRect:sidebar.bounds toView:nil];
         CGFloat width = NSWidth(window.frame), left = NSMinX(s), right = width - NSMaxX(s);
         if (NSWidth(s) < 1 || NSMaxX(s) <= 0 || NSMinX(s) >= width) continue;
@@ -44,6 +51,13 @@ static NSString *DPVerifySidebarOnRight(DPPatch *patch) {
             NSRect c = [container convertRect:container.bounds toView:nil];
             if (patch->on ? NSMaxX(c) > NSMinX(s) + 0.5 : NSMinX(c) < NSMaxX(s) - 0.5) return @"the page overlaps the sidebar";
         }
+    }
+    // Dia's buttons may show elsewhere, such as in the toolbar while the sidebar is closed; then there's no strip.
+    for (NSWindow *window in NSApp.windows) {
+        NSView *strip = DPLightsStripIn(window);
+        BOOL wanted = patch->on && window.isVisible && DPSidebarOnRightTakesLights(window) && DPHasSidebarIn(window) && !DPDiaLightsShowIn(window);
+        if (wanted && (!strip || strip.hidden || strip.window != window)) return @"no window buttons in the top left corner";
+        if (!patch->on && strip && !strip.hidden) return @"window buttons still in the top left corner";
     }
     return nil;
 }

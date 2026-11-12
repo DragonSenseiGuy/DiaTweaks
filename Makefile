@@ -49,12 +49,16 @@ build/mouse-back-forward: tests/mouse-back-forward.m src/dylib/Patches/MouseBack
 build/vertical-tab-glow: tests/vertical-tab-glow.m $(wildcard src/dylib/Patches/HideVerticalTabGlow/*.[hm]) | build
 	clang $(CFLAGS) -Isrc/dylib -framework AppKit -framework QuartzCore -o $@ $<
 
-# Checks that need no Dia: grouping, the DiaTweaks update decision, mouse navigation, Hide Vertical Tab Glow, the Sidebar Grain textures, and that Settings shows each tweak like its neighbours.
-check: build/diapatch build/group-tabs build/mouse-back-forward build/vertical-tab-glow build/patches.json
+build/sidebar-on-right-lights: tests/sidebar-on-right-lights.m $(wildcard src/dylib/Patches/SidebarOnRight/*.[hm]) | build
+	clang $(CFLAGS) -Isrc/dylib -framework AppKit -framework QuartzCore -o $@ $<
+
+# Checks that need no Dia: grouping, the DiaTweaks update decision, mouse navigation, Hide Vertical Tab Glow, Sidebar on Right's window buttons, the Sidebar Grain textures, and that Settings shows each tweak like its neighbours.
+check: build/diapatch build/group-tabs build/mouse-back-forward build/vertical-tab-glow build/sidebar-on-right-lights build/patches.json
 	tests/tweaks-update
 	build/group-tabs
 	build/mouse-back-forward
 	build/vertical-tab-glow
+	build/sidebar-on-right-lights
 	tests/sidebar-grain
 	scripts/check-patches
 
