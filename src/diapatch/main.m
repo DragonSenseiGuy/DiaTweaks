@@ -720,12 +720,15 @@ static BOOL purge(void) {
     }
     for (NSString *name in @[ @"bin", @DYLIB, @"patches.json", @"release.plist", @"pristine", @"staged", @"identity", @"diapatch.log", @"safe-mode.plist",
                               @".diatweaks.lock", @".incoming", @"icons", @"app-icons", @"passwords-helper", @"passwords.sock", @"onepassword.sock", @"passwords-launch",
-                              @"passkey-helper", @"passkey-helper.lock", @"passkeys-extension", @"unpatchable.plist" ])
+                              @"passkey-helper", @"passkey-helper.lock", @"passkeys-extension", @"unpatchable.plist",
+                              @"methods.txt", @"views.txt", @"layout-loops.txt" ])  // the last three are what developer tools write
         if (!discard(inHome(name))) return NO;
     for (NSString *name in [NSFileManager.defaultManager contentsOfDirectoryAtPath:gHome error:NULL])
-        if ([name hasPrefix:@".update-"] && !removeTree(inHome(name))) return NO;  // checkouts left by an interrupted diatweaks update
+        // .update- is a checkout left by an interrupted diatweaks update, little-dia- the folder of Little Dia's extension
+        if (([name hasPrefix:@".update-"] || [name hasPrefix:@"little-dia-"]) && !removeTree(inHome(name))) return NO;
     removeSetAside();
-    if (!removeTree([gCache stringByAppendingPathComponent:@"download"]) || !removeTree([gCache stringByAppendingPathComponent:@"release"])) return NO;
+    for (NSString *name in @[ @"download", @"release", @"previews" ])
+        if (!removeTree([gCache stringByAppendingPathComponent:name])) return NO;
     rmdir(gCache.fileSystemRepresentation);
     if (rmdir(gHome.fileSystemRepresentation) == 0) return say(@"deleted %@", gHome);
     return say(@"kept %@: it holds files DiaPatches did not create", gHome);
