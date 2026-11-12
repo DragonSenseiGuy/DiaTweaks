@@ -8,7 +8,7 @@ BOOL DPChatLocked(NSView *view) {
     return DPFindView(view, ^BOOL(NSView *v) { return [v.accessibilityLabel hasSuffix:@"only available when you have chat usage"]; }) != nil;
 }
 
-// Dia labels the buttons a moment after the command bar shows, so until then the last label decides.
+// Dia labels the buttons a moment after the bar shows, so until then the last label decides.
 static NSString *const DPChatLockedKey = @"commandBarChatLocked";
 
 static NSUserDefaults *DPCommandBarDefaults(void) {
@@ -25,7 +25,7 @@ static BOOL DPCompacts(NSView *toolbar) {
     return DPCompactWithChat.on || DPChatLocked(toolbar);
 }
 
-// The chat's composer uses the same views, so a bar compacts only in ⌘L's popover, the new tab page or Command bar's overlay.
+// The chat composer uses the same views and must not compact.
 static BOOL DPOnCommandBarSurface(NSView *view) {
     for (; view; view = view.superview)
         if (DPIsKind(view, DPDiaPopover) || DPIsKind(view, DPDiaNewTabPage) || DPIsKind(view, "DPCommandBarOverlay")) return YES;

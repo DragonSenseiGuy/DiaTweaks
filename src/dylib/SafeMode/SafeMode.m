@@ -2,7 +2,7 @@
 #import <dlfcn.h>
 #import <mach-o/loader.h>
 
-// Shorter-lived launches that don't quit normally count as crashes. Long, since patches often crash on a first resize or new tab.
+// Long on purpose: patches often crash only on a first resize or new tab.
 static const int64_t DPSurviveSeconds = 180;
 
 NSInteger DPSafeMode;
@@ -16,7 +16,7 @@ static NSString *DPBuildUUID(const struct mach_header_64 *header) {
     return @"";
 }
 
-// A launch that never got to survive only counts if macOS wrote a crash report for it. A kill, from a force quit or a script, leaves none.
+// A force quit or a script kill leaves no crash report, so it doesn't count.
 static BOOL DPCrashed(NSDictionary *state) {
     NSDate *launched = state[@"launched"];
     if (!launched) return YES;
@@ -35,8 +35,7 @@ static BOOL DPCrashed(NSDictionary *state) {
 static void DPSurvived(void) {
     if (![DPState[@"launching"] boolValue]) return;
     DPState[@"launching"] = @NO;
-    // Level 2 loads no Settings, so nothing in Dia can turn patches back on. A launch that survives it steps down to level 1, which can.
-    // Once per build: if level 1 crashes its way back to 2, that is where it stays.
+    // Level 2 loads no Settings to leave it from, so one surviving launch steps down to 1, once per build.
     if (DPSafeMode == 2 && ![DPState[@"steppedDown"] boolValue]) {
         DPState[@"level"] = @1;
         DPState[@"steppedDown"] = @YES;
@@ -48,7 +47,6 @@ void DPBeginLaunch(void) {
     Dl_info info;
     dladdr((const void *)DPBeginLaunch, &info);
     DPStateURL = [NSURL fileURLWithPath:[@(info.dli_fname).stringByDeletingLastPathComponent stringByAppendingPathComponent:@"safe-mode.plist"]];
-    // A new build may be the fix, so it starts over.
     NSString *build = DPBuildUUID(info.dli_fbase);
     NSDictionary *saved = [NSDictionary dictionaryWithContentsOfURL:DPStateURL error:nil];
     DPState = [saved[@"build"] isEqual:build] ? [saved mutableCopy] : [NSMutableDictionary dictionaryWithObject:build forKey:@"build"];

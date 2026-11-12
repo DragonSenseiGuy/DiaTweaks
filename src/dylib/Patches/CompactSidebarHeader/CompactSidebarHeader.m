@@ -2,7 +2,7 @@
 
 extern DPPatch DPCompactSidebarHeader;
 static const CGFloat DPHeaderTrim = 10;
-static const CGFloat DPTopTabsButtonInset = 14;  // Where Dia puts the window buttons, from the window's corner, with tabs at the top.
+static const CGFloat DPTopTabsButtonInset = 14;
 static NSHashTable<NSView *> *DPSidebars;
 static char DPHeaderFrameKey, DPButtonsFrameKey, DPRetriesKey;
 
@@ -10,7 +10,6 @@ static NSRect DPLaidOutHeader(NSView *header) {
     return [DPDiaValue(header, &DPHeaderFrameKey, @(header.frame)) rectValue];
 }
 
-// The close button's frame from the window's top left corner.
 static NSRect DPCloseButtonInWindow(NSView *lights) {
     NSView *close = DPFindView(lights, ^BOOL(NSView *v) { return [v isKindOfClass:NSButton.class] && v == [v.window standardWindowButton:NSWindowCloseButton]; });
     if (!close || !lights.window) return NSZeroRect;
@@ -19,9 +18,7 @@ static NSRect DPCloseButtonInWindow(NSView *lights) {
     return r;
 }
 
-// With tabs at the top Dia moves the window buttons into the corner; the compact header puts them in the same spot. A
-// sidebar floating over the page has them elsewhere, so only buttons already near the corner move. In full screen macOS
-// slides the buttons in with the menu bar, laying the header out each frame, so they stay where Dia puts them.
+// Only buttons already near the corner move (a floating sidebar has them elsewhere), and never in full screen, where macOS slides them in each frame.
 static void DPHeader_layout(NSView *self, SEL _cmd) {
     DPCallOriginal(DPHeader_layout, self);
     NSView *lights = DPFindView(self, ^BOOL(NSView *v) { return DPIsKind(v, DPDiaTrafficLights); }), *row = lights.superview;
@@ -31,7 +28,7 @@ static void DPHeader_layout(NSView *self, SEL _cmd) {
     NSRect close = DPCloseButtonInWindow(lights);
     CGFloat dx = DPTopTabsButtonInset - NSMinX(close), dy = DPTopTabsButtonInset - NSMinY(close);
     BOOL fullScreen = (self.window.styleMask & NSWindowStyleMaskFullScreen) != 0;
-    // At launch Dia lays the header out before the window's buttons are in it, then not again until the sidebar changes.
+    // At launch Dia lays the header out before the buttons are in it, then not again until the sidebar changes.
     NSUInteger retries = [DPGet(self, &DPRetriesKey) unsignedIntegerValue];
     if (DPCompactSidebarHeader.on && NSIsEmptyRect(close) && self.window && retries < 8) {
         DPSet(self, &DPRetriesKey, @(retries + 1));
@@ -53,7 +50,6 @@ static void DPCompactHeader(NSView *sidebar) {
     if (DPCompactSidebarHeader.on) frame.size.height = MAX(0, NSHeight(laidOut) - DPHeaderTrim);
     DPOverride(header, &DPHeaderFrameKey, @(laidOut), @(frame));
     header.frame = frame;
-    // The view under the header keeps its bottom edge, so whatever follows it stays put.
     for (NSView *sub in sidebar.subviews) {
         if (sub == header) continue;
         CGFloat top = NSMinY(sub.frame);
@@ -76,7 +72,6 @@ static void DPInstallCompactSidebarHeader(void) {
 
 static void DPApplyCompactSidebarHeader(DPPatch *patch) { DPRelayoutViews(DPSidebars); }
 
-// A sidebar that isn't open passes: with tabs at the top there's no header.
 static NSString *DPVerifyCompactSidebarHeader(DPPatch *patch) {
     for (NSView *header in DPFindViews(DPDiaSidebarHeader)) {
         if (header.hiddenOrHasHiddenAncestor || !header.superview.isFlipped) continue;

@@ -1,5 +1,3 @@
-// The helper's launch constraint only checks its parent as it starts, so the original Dia runs just until its first
-// subprocess (this diapatch) becomes the helper. Apple's pairing window then says "(null)" for the browser.
 #import <libproc.h>
 #import <poll.h>
 #import <spawn.h>
@@ -38,8 +36,7 @@ static NSArray<NSString *> *strings(const char *const *list, int count) {
     return result;
 }
 
-// A socket's path holds 103 bytes, which a long account name or DIAPATCH_HOME can use up before the file name. Then the socket
-// goes in the user's temporary folder, which is short and which only they can enter.
+// A socket path holds 103 bytes; a long home falls back to the user's short, private temporary folder.
 static BOOL fitsSocket(NSString *path) { return strlen(path.fileSystemRepresentation) < sizeof((struct sockaddr_un *)NULL)->sun_path; }
 
 static NSString *socketPath(NSString *folder, NSString **problem) {
@@ -64,7 +61,6 @@ static int listenAt(NSString *path) {
     return -1;
 }
 
-// Headless and in a home of its own, it opens no windows and leaves the patched Dia's settings alone.
 static pid_t launchOriginal(NSString *app, NSString *folder, NSString *socket) {
     NSString *dia = [app stringByAppendingPathComponent:@"Contents/MacOS/Dia"];
     NSString *profile = [@"--user-data-dir=" stringByAppendingString:[folder stringByAppendingPathComponent:@"ud"]];
@@ -130,7 +126,7 @@ static BOOL handOver(int client, NSString *helper, int argc, const char *argv[])
     return YES;
 }
 
-// The subprocess's end of the socket closes as it execs, or as it gives up.
+// The subprocess's end closes as it execs or gives up.
 static BOOL becameHelper(int client, pid_t peer, NSString *helperPath) {
     char byte, path[PROC_PIDPATHINFO_MAXSIZE], helper[PATH_MAX];
     setsockopt(client, SOL_SOCKET, SO_RCVTIMEO, &(struct timeval){ .tv_sec = 5 }, sizeof(struct timeval));
@@ -141,10 +137,10 @@ static BOOL becameHelper(int client, pid_t peer, NSString *helperPath) {
     return NO;
 }
 
-// 1Password's helper checks its browser itself, a few milliseconds after it starts, from a sandbox that can only read apps
-// under /Applications. So it needs a clone of the original Dia there (instant on APFS), and the browser to outlive it by a moment.
+// 1Password's helper checks its browser a few ms after starting, so the browser must outlive it.
 static const useconds_t kBrowserCheck = 300000;
 
+// Its sandbox reads only apps under /Applications, hence the clone.
 static NSString *applicationsCopy(NSString *pristine) {
     NSString *clone = [DPCopyFolder stringByAppendingPathComponent:@"Dia.app"], *fresh = [clone stringByAppendingFormat:@".%d", getpid()];
     struct stat original, copy;
@@ -156,7 +152,7 @@ static NSString *applicationsCopy(NSString *pristine) {
         [NSFileManager.defaultManager removeItemAtPath:clone error:nil];
         if (clonefile(pristine.fileSystemRepresentation, fresh.fileSystemRepresentation, 0) != 0 || rename(fresh.fileSystemRepresentation, clone.fileSystemRepresentation) != 0) return nil;
     }
-    // Files made from inside Dia are quarantined, so macOS would ask before opening the copy. Only strip it when it's there: macOS warns when a process changes an app it didn't make.
+    // Only strip it when present: macOS warns when a process changes an app it didn't make.
     if (getxattr(clone.fileSystemRepresentation, "com.apple.quarantine", NULL, 0, 0, 0) >= 0) removexattr(clone.fileSystemRepresentation, "com.apple.quarantine", 0);
     return clone;
 }

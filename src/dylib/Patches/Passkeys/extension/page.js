@@ -50,7 +50,6 @@
     });
   };
 
-  // A site cancels with an AbortSignal, which rejects with its reason: an AbortError, or a TimeoutError from AbortSignal.timeout.
   const ask = (kind, options, signal) =>
     new Promise((resolve, reject) => {
       if (signal?.aborted) return reject(signal.reason);

@@ -1,4 +1,3 @@
-// Each request is a port to the worker, so closing it, as a page's cancel does, cancels the request there and in the helper.
 const ports = new Map();
 const reply = (id, response) => window.postMessage({ diaTweaksPasskey: 'response', id, response }, '*');
 

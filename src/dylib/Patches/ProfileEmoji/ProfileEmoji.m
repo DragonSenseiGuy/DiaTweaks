@@ -3,11 +3,10 @@
 extern DPPatch DPProfileEmoji;
 
 static NSString *const DPEmojisKey = @"profileEmojis";
-// The gap is between what's drawn, so emoji and dots sit the same distance apart in any mix.
 static const CGFloat DPSidebarEmojiSize = 13.5, DPSidebarEmojiWidth = 16, DPSidebarDotWidth = 6, DPSidebarGap = 10;
 static NSUserDefaults *DPEmojiDefaults;
 static NSHashTable<NSViewController *> *DPProfilePanes;
-static char DPLabelKey, DPRowKey;  // The row's separator and the row, on the pane that got them.
+static char DPLabelKey, DPRowKey;
 
 static NSString *DPEmoji(NSString *spaceID) {
     return DPProfileEmoji.on && spaceID ? [DPEmojiDefaults dictionaryForKey:DPEmojisKey][spaceID] : nil;
@@ -54,8 +53,7 @@ static CGFloat DPSidebarItemWidth(NSView *item, NSDictionary *views) {
     return (DPEmoji(DPSpaceIDOf(item, views)) ? DPSidebarEmojiWidth : DPSidebarDotWidth) + DPSidebarGap;
 }
 
-// Dia packs items 12 points apart, which crowds emoji, so each item gets its own width and the row stays centered.
-// Dia also places items outside layout, such as after switching profiles.
+// Dia also sets frames outside layout, such as after switching profiles, so layout alone doesn't keep the row spaced.
 static void DPSidebarItem_setFrame(NSView *self, SEL _cmd, NSRect frame) {
     NSView *switcher = self.superview;
     NSDictionary *views = DPSwiftValue(switcher, @"itemViews");
@@ -96,7 +94,7 @@ static void DPTopDot_layout(NSView *self, SEL _cmd) {
     DPShowEmoji(self, self.subviews.firstObject, DPEmoji(spaceID), 8, focused ? 1 : 0.45);
 }
 
-static void DPRefresh(DPPatch *patch) {
+static void DPRefresh(void) {
     for (NSString *name in @[ @DPDiaSpaceSwitcher, @DPDiaSpaceSwitcherItem, @DPDiaPageIndicatorDot ])
         for (NSView *view in DPFindViews(name.UTF8String)) view.needsLayout = YES;
 }
@@ -121,7 +119,7 @@ static void DPRefresh(DPPatch *patch) {
     NSMutableDictionary *emoji = [[DPEmojiDefaults dictionaryForKey:DPEmojisKey] mutableCopy] ?: [NSMutableDictionary dictionary];
     emoji[self.spaceID] = last.length ? last : nil;
     [DPEmojiDefaults setObject:emoji forKey:DPEmojisKey];
-    DPRefresh(&DPProfileEmoji);
+    DPRefresh();
 }
 @end
 
@@ -165,13 +163,12 @@ static void DPRemoveEmojiRow(NSViewController *pane) {
     DPSet(pane, &DPRowKey, nil);
 }
 
-// A pane that's already loaded gets the row, or loses it, as the tweak changes.
 static void DPApplyProfileEmoji(DPPatch *patch) {
     for (NSViewController *pane in DPProfilePanes.allObjects) {
         if (patch->on) DPAddEmojiRow(pane);
         else DPRemoveEmojiRow(pane);
     }
-    DPRefresh(patch);
+    DPRefresh();
 }
 
 static void DPProfilePane_viewDidLoad(NSViewController *self, SEL _cmd) {

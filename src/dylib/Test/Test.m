@@ -4,7 +4,7 @@
 static const NSTimeInterval DPSettleSeconds = 1;
 
 static void DPWriteReport(NSArray<NSDictionary *> *results, NSString *path) {
-    DPTesting = NO;  // Dia carries on with the saved settings.
+    DPTesting = NO;
     NSMutableArray<NSString *> *unavailable = [NSMutableArray new];
     for (NSUInteger i = 0; i < DPPatchCount; i++) if (DPPatches[i]->unavailable && !DPPatches[i]->inDia) [unavailable addObject:DPPatches[i]->key];
     NSDictionary *info = NSBundle.mainBundle.infoDictionary;
@@ -43,7 +43,6 @@ void DPRunTests(NSString *path) {
     DPOnLaunch(^{
         __block int polls = 0;
         [NSTimer scheduledTimerWithTimeInterval:0.5 repeats:YES block:^(NSTimer *timer) {
-            // After a minute without a browser window, run anyway so the report says what's missing.
             if (!DPFindViews(DPDiaContentPane).count && ++polls < 120) return;
             [timer invalidate];
             if (DPSafeMode) return DPWriteReport(@[], path);

@@ -1,6 +1,5 @@
 #import "Settings.h"
 
-// App icons carry their own margin, so Dia's is drawn larger than the tile to look the same size.
 static NSView *DPPartIcon(NSString *part) {
     if ([part isEqual:DPTweaks]) return DPIconTileOfSize(@"wand.and.stars", NSColor.systemPurpleColor, 30);
     NSImageView *icon = [NSImageView imageViewWithImage:[NSWorkspace.sharedWorkspace iconForFile:NSBundle.mainBundle.bundlePath]];
@@ -54,7 +53,6 @@ static NSButton *DPButton(NSString *title, id target, SEL action, NSString *part
     return [updates downloading:part] ? @"downloading" : [updates staged:part] ? @"staged" : @"available";
 }
 
-// Rebuilds only when something other than download progress changed, so buttons don't move under the pointer.
 - (void)sync {
     DPUpdates *updates = DPUpdates.shared;
     NSMutableString *shape = [NSMutableString stringWithFormat:@"%d %d %@", updates.checking, updates.found != nil, updates.checkProblem];
@@ -109,16 +107,24 @@ static NSButton *DPButton(NSString *title, id target, SEL action, NSString *part
         [views addObject:[self groupFor:part]];
     }
 
-    if (updates.found) {
-        NSMutableArray<NSView *> *installed = [NSMutableArray new];
-        for (NSString *part in @[DPDia, DPTweaks]) {
-            id version = updates.found[part][@"installed"];
-            NSString *text = [version isKindOfClass:NSString.class] ? version : [part isEqual:DPDia] ? @"—" : @"Development build";
-            [installed addObject:DPRow(DPLine(DPPartName(part), 13, NSColor.labelColor), DPLine(text, 13, NSColor.secondaryLabelColor))];
-        }
-        [views addObjectsFromArray:@[DPHeader(@"Installed"), DPGroup(installed)]];
-    }
+    if (updates.found) [views addObjectsFromArray:@[DPHeader(@"Installed"), [self installedGroup]]];
+    [views addObjectsFromArray:@[DPHeader(@"Automatic Updates"), [self automaticGroup]]];
 
+    DPFillStack(self, views);
+    [self setCustomSpacing:14 afterView:views.firstObject];
+}
+
+- (NSView *)installedGroup {
+    NSMutableArray<NSView *> *installed = [NSMutableArray new];
+    for (NSString *part in @[DPDia, DPTweaks]) {
+        id version = DPUpdates.shared.found[part][@"installed"];
+        NSString *text = [version isKindOfClass:NSString.class] ? version : [part isEqual:DPDia] ? @"—" : @"Development build";
+        [installed addObject:DPRow(DPLine(DPPartName(part), 13, NSColor.labelColor), DPLine(text, 13, NSColor.secondaryLabelColor))];
+    }
+    return DPGroup(installed);
+}
+
+- (NSView *)automaticGroup {
     NSMutableArray<NSView *> *automatic = [NSMutableArray new];
     for (NSString *part in @[DPDia, DPTweaks]) {
         NSPopUpButton *menu = [NSPopUpButton new];
@@ -133,10 +139,7 @@ static NSButton *DPButton(NSString *title, id target, SEL action, NSString *part
         NSView *text = DPColumn(@[DPLine(DPPartName(part), 13, NSColor.labelColor), DPLine(does, 11, NSColor.secondaryLabelColor)], 2);
         [automatic addObject:DPRow(text, menu)];
     }
-    [views addObjectsFromArray:@[DPHeader(@"Automatic Updates"), DPGroup(automatic)]];
-
-    DPFillStack(self, views);
-    [self setCustomSpacing:14 afterView:views.firstObject];
+    return DPGroup(automatic);
 }
 
 - (NSView *)groupFor:(NSString *)part {
@@ -145,10 +148,11 @@ static NSButton *DPButton(NSString *title, id target, SEL action, NSString *part
     NSString *state = [self stateOf:part];
     BOOL installsOnQuit = DPAutoLevelOf(part) == DPAutoInstall && !DPIsLocalBuild(part);
     NSString *size = [NSByteCountFormatter stringFromByteCount:[found[@"size"] longLongValue] countStyle:NSByteCountFormatterCountStyleFile];
+    BOOL failed = [updates failed:part];
     NSTextField *detail = DPLine([state isEqual:@"staged"] ? (installsOnQuit ? @"Installs when you quit" : @"Ready to install")
-                                 : [updates failed:part] ? ([updates failure:part] ?: @"Download failed") : size,
-                                 11, [updates failed:part] ? NSColor.systemRedColor : NSColor.secondaryLabelColor);
-    if ([updates failed:part]) detail.toolTip = detail.stringValue;  // the line truncates
+                                 : failed ? ([updates failure:part] ?: @"Download failed") : size,
+                                 11, failed ? NSColor.systemRedColor : NSColor.secondaryLabelColor);
+    if (failed) detail.toolTip = detail.stringValue;
     NSStackView *leading = [NSStackView stackViewWithViews:@[
         DPPartIcon(part),
         DPColumn(@[DPLine([NSString stringWithFormat:@"%@ %@", DPPartName(part), found[@"latest"]], 13, NSColor.labelColor), detail], 2),
@@ -168,7 +172,7 @@ static NSButton *DPButton(NSString *title, id target, SEL action, NSString *part
     } else if ([state isEqual:@"staged"]) {
         trailing = DPButton(@"Relaunch", self, @selector(relaunch:), part);
     } else {
-        trailing = [NSStackView stackViewWithViews:@[DPButton([updates failed:part] ? @"Try Again" : @"Download", self, @selector(download:), part),
+        trailing = [NSStackView stackViewWithViews:@[DPButton(failed ? @"Try Again" : @"Download", self, @selector(download:), part),
                                                      DPButton(@"Update Now", self, @selector(updateNow:), part)]];
     }
     NSMutableArray *rows = [NSMutableArray arrayWithObject:DPRow(leading, trailing)];
@@ -194,7 +198,6 @@ static NSButton *DPButton(NSString *title, id target, SEL action, NSString *part
     DPUpdates *updates = DPUpdates.shared;
     NSArray<NSString *> *parts = self.shown;
     __block NSUInteger left = parts.count;
-    // A part whose download failed shows why on the page, and quitting for it would only relaunch the same Dia.
     void (^ready)(void) = ^{
         if (--left != 0) return;
         NSMutableArray<NSString *> *staged = [NSMutableArray new];

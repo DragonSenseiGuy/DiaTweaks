@@ -1,7 +1,6 @@
 #import "TidyTabs.h"
 #import "Commands/GroupTabs/GroupTabs.h"
 
-// From the layout, which knows off-screen rows too.
 static NSInteger DPTidyPinnedRows(NSWindow *window) {
     for (NSView *list in DPFindViews(DPDiaTabList)) {
         if (list.window != window || list.hiddenOrHasHiddenAncestor) continue;
@@ -22,13 +21,12 @@ static NSInteger DPTidyPinnedRows(NSWindow *window) {
     return 0;
 }
 
-// Scripting lists favorites (isPinned), then pinned tabs, then the rest. A URL both above and below the divider is
-// left out: Chromium's tabs, which carry the sessions, can't tell them apart.
+// Scripting lists favorites, then pinned tabs, then the rest; a URL on both sides of the divider is dropped.
 NSDictionary<NSString *, NSString *> *DPTidyLooseTabs(NSWindow *window) {
     NSArray *tabs = nil;
     for (id each in DPMsg(NSApp.delegate, @selector(appleScriptWindows))) {
         tabs = [each respondsToSelector:@selector(appleScriptTabs)] ? DPMsg(each, @selector(appleScriptTabs)) : nil;
-        if ([tabs isKindOfClass:NSArray.class]) break;  // Front to back, so the first is the front window.
+        if ([tabs isKindOfClass:NSArray.class]) break;
     }
     NSInteger pinnedRows = DPTidyPinnedRows(window);
     NSMutableDictionary<NSString *, NSString *> *loose = [NSMutableDictionary dictionary];
@@ -45,7 +43,6 @@ NSDictionary<NSString *, NSString *> *DPTidyLooseTabs(NSWindow *window) {
     return loose;
 }
 
-// Query and fragment are mostly tracking and session noise.
 NSString *DPTidyAddress(NSString *url, NSString *host) {
     NSString *path = [NSURL URLWithString:url].path ?: @"";
     while ([path hasSuffix:@"/"]) path = [path substringToIndex:path.length - 1];

@@ -7,11 +7,10 @@ static NSUInteger DPPeekLookAheadTurn;
 static BOOL DPPeekWanted(NSInteger disposition) {
     BOOL elsewhere = disposition == DPForegroundTab || disposition == DPBackgroundTab || disposition == DPPopup || disposition == DPNewWindow;
     NSEventModifierFlags mods = NSEvent.modifierFlags & NSEventModifierFlagDeviceIndependentFlagsMask & ~(NSEventModifierFlagCapsLock | NSEventModifierFlagNumericPad | NSEventModifierFlagFunction);
-    return DPPeek.on && !DPPeekGiving && elsewhere && mods == NSEventModifierFlagShift;  // ⌘⇧-click and ⌥⇧-click keep their meaning.
+    return DPPeek.on && !DPPeekGiving && elsewhere && mods == NSEventModifierFlagShift;  // Exactly Shift: ⌘⇧-click and ⌥⇧-click keep their meaning.
 }
 
-// Peek shows web pages. A mailto: or tel: link has none, so it would leave an empty card.
-static BOOL DPPeekIsWeb(NSURL *url) { return [url isKindOfClass:NSURL.class] && [@[ @"http", @"https" ] containsObject:url.scheme.lowercaseString]; }
+BOOL DPPeekIsWeb(NSURL *url) { return [url isKindOfClass:NSURL.class] && [@[ @"http", @"https" ] containsObject:url.scheme.lowercaseString]; }
 
 static void DPPeekOpenLater(id delegate, id source, NSURL *url) {
     DPPeekLookAheadTurn++;  // The link opens now; a look-ahead still waiting would load it again.
@@ -28,7 +27,6 @@ static void DPWebContent_didCreate(id self, SEL _cmd, id webContents, id newWebC
     DPPeekOpenLater(self, webContents, url);
 }
 
-// The same link, as if it opened in its own tab.
 @interface DPStayingAction : NSProxy
 @property (nonatomic, strong) id action;
 @end
@@ -44,7 +42,7 @@ static NSInteger DPWebContent_decidePolicy(id self, SEL _cmd, id webContents, id
     if (!DPPeekWanted(disposition)) {
         NSInteger policy = DPCallOriginal(DPWebContent_decidePolicy, self, webContents, action);
         if (!DPPeek.on || !DPPeekPinnedLinks.on || policy != DPForegroundTab) return policy;
-        // Only a pinned tab turns a current-tab link into a new tab. A plain click on a new-tab link asks as if it stayed.
+        // Ask Dia as if the link stayed in the tab: only a pinned tab turns that into a new tab.
         BOOL leaves = disposition == DPCurrentTab;
         if (disposition == DPForegroundTab && !(NSEvent.modifierFlags & NSEventModifierFlagCommand)) {
             DPStayingAction *staying = [DPStayingAction alloc];
@@ -68,8 +66,7 @@ static BOOL DPPeekLookAheadWanted(id page, NSURL *url) {
     return DPPeek.on && mods == NSEventModifierFlagShift && url && page && !DPPeekShows(page) && DPPeekCanOpen(page);
 }
 
-// Shift is also pressed for a capital letter, so the link loads only once Shift has stood alone for a moment. A key cancels it,
-// and it looks again when the moment is up, as Shift may have gone without anything left to cancel it.
+// Shift also types capitals, so wait for it to stand alone; the recheck covers Shift released with nothing to cancel it.
 static void DPPeekLookAhead(void) {
     id page = DPPeekHoveredPage;
     NSURL *url = DPPeekHovered;
@@ -91,7 +88,6 @@ static void DPWebContent_status(id self, SEL _cmd, id webContents, NSString *tex
     DPPeekLookAhead();
 }
 
-// A dragged link was pointed at first, so the page it came from is the last one that reported one.
 void DPPeekOpenDragged(NSURL *url, NSPoint origin) {
     id page = DPPeekHoveredPage;
     if (DPPeekShows(page)) return DPPeekLoad(page, url);

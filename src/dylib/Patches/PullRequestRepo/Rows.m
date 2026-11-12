@@ -2,9 +2,6 @@
 #import "Patches/CompactTabRows/CompactTabRows.h"
 #import <objc/message.h>
 
-// A pull request with a review status shows it on a third line, so its row is a line taller. Dia's list gives every tab
-// the same height, so after it lays the list out, the rows below a tall one move down and the folders around it grow.
-
 static const CGFloat DPExtra = 14, DPTabHeight = 37;
 static NSMutableSet<NSString *> *DPTallTabs;
 static char DPStatusKey, DPLineKey, DPAdjustedKey, DPEditsKey;
@@ -23,8 +20,7 @@ static void DPInvalidateRows(void) {
 }
 
 void DPSetPRStatus(NSView *subtitle, NSString *tab, NSString *status) {
-    NSView *content = subtitle.superview;
-    while (content && !DPIsKind(content, DPDiaTabContentView)) content = content.superview;
+    NSView *content = DPEnclosingView(subtitle.superview, DPDiaTabContentView);
     DPSet(content, &DPStatusKey, status);
     content.needsLayout = YES;
     if (!tab.length || [DPTallTabs containsObject:tab] == (status != nil)) return;
@@ -38,40 +34,43 @@ void DPResetPRRows(void) {
     DPInvalidateRows();
 }
 
-// The list's items are TabList.TabListView.CollectionViewItem.tab(<tab ID>), .tabGroupHeader(…) and so on.
 static NSString *DPTabAt(id source, NSIndexPath *path) {
     NSString *item = [((id (*)(id, SEL, id))objc_msgSend)(source, @selector(itemIdentifierForIndexPath:), path) description];
     NSRange open = [item rangeOfString:@".tab("];
     return open.location == NSNotFound || item.length < NSMaxRange(open) + 36 ? nil : [item substringWithRange:NSMakeRange(NSMaxRange(open), 36)];
 }
 
+static id DPObjectIvar(id object, const char *name) {
+    Ivar ivar = class_getInstanceVariable(object_getClass(object), name);
+    return ivar ? object_getIvar(object, ivar) : nil;
+}
+
 static void DPLayout_prepareLayout(NSCollectionViewLayout *self, SEL _cmd) {
     DPCallOriginal(DPLayout_prepareLayout, self);
     if (!DPPullRequestRepo.on || !DPTallTabs.count) return DPSet(self, &DPEditsKey, nil);
     id diffable = self.collectionView.dataSource;
-    Ivar ivar = class_getInstanceVariable(object_getClass(diffable), "_impl");
-    id source = ivar ? object_getIvar(diffable, ivar) : nil;
-    void *height = DPIvar(self, "contentHeight");  // Dia's layout hands out the attributes it keeps, so changing them changes it.
+    id source = DPObjectIvar(diffable, "_impl");
+    void *height = DPIvar(self, "contentHeight");
     if (![source respondsToSelector:@selector(itemIdentifierForIndexPath:)] || !height) return;
-    // The attributes Dia keeps: Collapse Pinned Tabs hands out moved copies, and changing those changes nothing.
+    // Dia's own IMP: Collapse Pinned Tabs hands out copies, and changing a copy changes nothing.
     NSArray *(*elements)(id, SEL, NSRect) = (void *)DPDiaIMP(objc_getClass(DPDiaTabListLayout), @selector(layoutAttributesForElementsInRect:));
     NSArray<NSCollectionViewLayoutAttributes *> *all = elements(self, @selector(layoutAttributesForElementsInRect:), NSMakeRect(-1e5, -1e5, 2e5, 1e7));
     NSMutableArray<NSCollectionViewLayoutAttributes *> *tall = [NSMutableArray new];
     for (NSCollectionViewLayoutAttributes *a in all)
         if (a.representedElementCategory == NSCollectionElementCategoryItem && [DPTallTabs containsObject:DPTabAt(source, a.indexPath)]) [tall addObject:a];
     // A prepare that kept the last geometry still has our heights in it.
-    NSArray *last = DPGet(self, &DPAdjustedKey);
     if (!tall.count) return DPSet(self, &DPEditsKey, nil);
+    NSArray *last = DPGet(self, &DPAdjustedKey);
     if (last[0] == tall[0] && NSEqualRects([last[1] rectValue], tall[0].frame)) return;
     NSMutableArray<NSValue *> *rows = [NSMutableArray new];
     for (NSCollectionViewLayoutAttributes *a in tall) [rows addObject:[NSValue valueWithRect:a.frame]];
-    NSMutableArray *edits = [NSMutableArray new];  // Each item, and how far its top and its height moved.
+    NSMutableArray *edits = [NSMutableArray new];
     for (NSCollectionViewLayoutAttributes *a in all) {
         NSRect frame = a.frame;
         for (NSValue *value in rows) {
             NSRect row = value.rectValue;
             if (NSMinY(a.frame) >= NSMaxY(row) - 0.5) frame.origin.y += DPExtra;
-            else if (NSMinY(a.frame) <= NSMinY(row) + 0.5 && NSMaxY(a.frame) >= NSMaxY(row) - 0.5) frame.size.height += DPExtra;  // it, or a folder around it
+            else if (NSMinY(a.frame) <= NSMinY(row) + 0.5 && NSMaxY(a.frame) >= NSMaxY(row) - 0.5) frame.size.height += DPExtra;
         }
         if (a.representedElementCategory == NSCollectionElementCategoryItem)
             [edits addObject:@[a, @(frame.origin.y - a.frame.origin.y), @(frame.size.height - a.frame.size.height)]];
@@ -82,11 +81,7 @@ static void DPLayout_prepareLayout(NSCollectionViewLayout *self, SEL _cmd) {
     DPSet(self, &DPAdjustedKey, @[tall[0], [NSValue valueWithRect:tall[0].frame]]);
 }
 
-#pragma mark Dragging
-
-// Dia works out where a dragged tab lands from the rows as it laid them out, without the lines added here, so the pointer
-// goes back to the same spot in those. It arrives as the list shows it, Collapse Pinned Tabs' header included (its hooks
-// install before these, so they run after), so each row is taken as the list shows it too.
+// Collapse Pinned Tabs' hooks install before these and so run after: rows are read as the list shows them.
 static NSArray<NSArray<NSValue *> *> *DPMoves(NSCollectionViewLayout *layout) {
     NSMutableArray *moves = [NSMutableArray new];
     for (NSArray *edit in DPGet(layout, &DPEditsKey)) {
@@ -115,12 +110,10 @@ static BOOL DPTabList_prepare(NSView *self, SEL _cmd, id<NSDraggingInfo> info) {
 static BOOL DPTabList_perform(NSView *self, SEL _cmd, id<NSDraggingInfo> info) { return DPCallOriginal(DPTabList_perform, self, DPDiaDrag(self, info)); }
 
 static NSView *DPPart(NSView *content, const char *name) {
-    Ivar ivar = class_getInstanceVariable(object_getClass(content), name);
-    id part = ivar ? object_getIvar(content, ivar) : nil;
+    id part = DPObjectIvar(content, name);
     return [part isKindOfClass:NSView.class] ? part : nil;
 }
 
-// Title, repository and status, centred together in the taller row. The comments icon follows the status.
 static void DPContent_layout(NSView *self, SEL _cmd) {
     DPCallOriginal(DPContent_layout, self);
     NSString *status = DPPullRequestRepo.on ? DPGet(self, &DPStatusKey) : nil;
@@ -136,7 +129,6 @@ static void DPContent_layout(NSView *self, SEL _cmd) {
     line.lineBreakMode = NSLineBreakByTruncatingTail;
     line.stringValue = status;
     CGFloat lineHeight = NSHeight(subtitle.frame), bottom = round((NSHeight(self.bounds) - NSHeight(title.frame) - 2 * lineHeight) / 2);
-    // The whole width, so it only cuts off what doesn't fit. The icon goes after the text.
     CGFloat x = NSMinX(subtitle.frame), width = NSWidth(self.bounds) - x - 8;
     CGFloat text = ceil([status sizeWithAttributes:@{NSFontAttributeName: line.font ?: [NSFont systemFontOfSize:11]}].width);
     line.frame = NSMakeRect(x, bottom, width, lineHeight);

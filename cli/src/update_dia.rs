@@ -128,8 +128,7 @@ fn install(env: &Env, ui: &Ui, diapatch: &Diapatch, ready: &str) -> Result<()> {
     Ok(())
 }
 
-/// diapatch exits 0 when it keeps an official Dia that was put there by hand and drops the staged build, so the Dia in
-/// place says whether the staged one went in.
+/// diapatch exits 0 when it drops the staged build for a hand-installed official Dia, so check the Dia in place.
 fn installed(env: &Env, ready: &str) -> Result<()> {
     let Some(now) = dia::version_of(&env.app) else {
         bail!(

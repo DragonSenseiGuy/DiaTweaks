@@ -11,7 +11,6 @@ static NSRect DPLittleDiaFrame(void) {
     return NSMakeRect(round(NSMidX(visible) - size.width / 2), round(NSMidY(visible) - size.height / 2), size.width, size.height);
 }
 
-// Links clicked in Dia, and any sent while Option is held, open as Dia would. So does anything that isn't a web page.
 static NSURL *DPLittleDiaLink(NSAppleEventDescriptor *event) {
     if (event.eventClass != kInternetEventClass || event.eventID != kAEGetURL) return nil;
     NSString *string = [event paramDescriptorForKeyword:keyDirectObject].stringValue;
@@ -23,11 +22,10 @@ static NSURL *DPLittleDiaLink(NSAppleEventDescriptor *event) {
     return url;
 }
 
-// The worker drops a request it reaches after `until`, a little before the link gives up on its window: one that
-// opened after the link fell back to a tab would be a second copy of it.
+// The worker drops requests after `until`, set before the link falls back to a tab, so no second copy opens.
 static BOOL DPOpenInLittleDia(NSURL *url, NSDictionary *noted, void (^missed)(void), void (^claimed)(NSWindow *window)) {
     NSRect frame = DPLittleDiaFrame();
-    CGFloat top = NSMaxY(NSScreen.screens.firstObject.frame) - NSMaxY(frame);  // Chromium measures down from the top.
+    CGFloat top = NSMaxY(NSScreen.screens.firstObject.frame) - NSMaxY(frame);
     long long until = llround((NSDate.date.timeIntervalSince1970 + DPLittleDiaWait - 0.5) * 1000);
     NSDictionary *request = @{@"action" : @"open", @"url" : url.absoluteString, @"left" : @(NSMinX(frame)), @"top" : @(top),
                               @"width" : @(NSWidth(frame)), @"height" : @(NSHeight(frame)), @"until" : @(until)};
@@ -36,8 +34,7 @@ static BOOL DPOpenInLittleDia(NSURL *url, NSDictionary *noted, void (^missed)(vo
     return YES;
 }
 
-// A link that opens Dia arrives before its extensions have loaded, so it waits for them, up to 10 seconds. The stack is
-// noted once, when the link arrives: noted again later, it would find Dia in front.
+// The stack is noted once, when the link arrives: noted again later it would find Dia in front.
 static void DPOpenWhenReady(NSURL *url, NSDictionary *noted, void (^fallback)(void), int tries) {
     if (DPOpenInLittleDia(url, noted, fallback, nil)) return;
     if (tries <= 0 || !DPLittleDiaStarting()) return fallback();

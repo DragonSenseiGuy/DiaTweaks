@@ -1,8 +1,6 @@
 #import "AppIcon.h"
 #import "Updates/Updates.h"
 
-// macOS draws an app's icon from its bundle, once per appearance. `diapatch build` links Dia to a catalog holding every icon,
-// under one fixed name, and `diapatch set-icon` repoints that name, so a switch never touches Dia's signature.
 static NSUInteger DPSwitches;
 
 static void DPAlertIconFailed(void) {
@@ -12,7 +10,6 @@ static void DPAlertIconFailed(void) {
     [alert runModal];
 }
 
-// Why `diapatch build` couldn't link the catalog, from the "warning: kept Dia's icons: <reason>" it prints. nil if it did.
 static NSString *DPLinkProblem(NSString *output) {
     for (NSString *line in [output componentsSeparatedByString:@"\n"]) {
         NSString *kept = [line hasPrefix:@"warning: kept Dia's icon"] ? [line substringFromIndex:@"warning: ".length] : nil;
@@ -22,7 +19,6 @@ static NSString *DPLinkProblem(NSString *output) {
     return nil;
 }
 
-// Set once a build says it can't link: relaunching won't fix that, and building again says the same.
 static NSString *DPUnlinkable;
 
 static void DPAlertUnlinkable(void) {
@@ -33,7 +29,6 @@ static void DPAlertUnlinkable(void) {
     [alert runModal];
 }
 
-// A Dia built before this tweak existed has no linked catalog yet.
 static void DPLinkCatalog(void) {
     if (DPUnlinkable) return DPAlertUnlinkable();
     DPRunCLI(@[ @"build" ], ^(NSString *output) {
@@ -53,7 +48,7 @@ static BOOL DPCatalogLinked(void) {
 }
 
 static void DPApplyAppIcon(DPPatch *patch) {
-    if (DPTesting) return;  // the self-test flips patches without saving, and turning one off again isn't a switch
+    if (DPTesting) return;
     if (!DPCatalogLinked()) {
         if (patch->on) DPLinkCatalog();
         return;
@@ -61,7 +56,7 @@ static void DPApplyAppIcon(DPPatch *patch) {
     CFPreferencesAppSynchronize(CFSTR("com.diapatches"));
     NSUInteger current = ++DPSwitches;
     DPRunCLI(@[ @"set-icon" ], ^(NSString *output) {
-        if (current != DPSwitches) return;  // A newer choice is on its way.
+        if (current != DPSwitches) return;
         output ? DPDrawOwnTile() : DPAlertIconFailed();
     });
 }
@@ -74,7 +69,7 @@ static BOOL DPWorkspace_setIcon(NSWorkspace *self, SEL _cmd, NSImage *image, NSS
 static void DPInstallAppIcon(void) {
     DPHook("NSWorkspace", @selector(setIcon:forFile:options:), (IMP)DPWorkspace_setIcon);
     DPInstallDockTile();
-    // The Dock shows the icon it last cached for Dia, which a relaunch brings back, so the chosen one is drawn again.
+    // The Dock shows its cached icon after a relaunch, so draw the chosen one again.
     DPOnLaunch(^{ if ((DPAppIcon.on || DPOwnTileInDock()) && DPCatalogLinked()) DPDrawOwnTile(); });
 }
 
@@ -103,7 +98,6 @@ static NSMenu *DPAppIconChoices(void) {
     return menu;
 }
 
-// "AppIcon" stands for Dia's own icon, so turning the tweak on changes nothing until a choice is made.
 DP_PATCH(DPAppIcon) {
     .key = @"appIcon",
     .order = 115,

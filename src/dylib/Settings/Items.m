@@ -13,7 +13,6 @@ NSString *DPWhyDisabled(DPPatch *patch) {
     return cover && cover->on ? [NSString stringWithFormat:@"%@ hides this too.", cover->title] : nil;
 }
 
-// An option on, like showing the hidden toolbar on hover, means it doesn't hide for good.
 NSString *DPWhyHiddenBy(DPPatch *disabler) {
     if (!disabler || !disabler->on) return nil;
     __block BOOL shownSometimes = NO;
@@ -42,7 +41,6 @@ NSURL *DPWikiURL(DPPatch *patch) {
     return self;
 }
 
-// Every switch here is the same small one, and asking NSSwitch its size is most of laying out the overview.
 - (NSSize)intrinsicContentSize {
     static NSSize size;
     if (!size.width) size = [super intrinsicContentSize];

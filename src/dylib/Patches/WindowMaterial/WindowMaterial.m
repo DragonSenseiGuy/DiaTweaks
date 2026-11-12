@@ -15,32 +15,33 @@ static NSString *const DPMaterials[] = {
     [NSVisualEffectMaterialToolTip] = @"Tooltip",
 };
 
-// NSGlassEffectView's `_variant`s, in AppKit's order.
+// Index is AppKit's `_variant` value: don't reorder.
 static NSString *const DPGlasses[] = {
     @"Regular", @"Clear", @"Dock", @"App Icons", @"Widgets", @"Text", @"AV Player", @"FaceTime", @"Control Center",
     @"Notification Center", @"Monogram", @"Bubbles", @"Identity", @"Focus Border", @"Focus Platter", @"Keyboard",
     @"Sidebar", @"Abutted Sidebar", @"Inspector", @"Control", @"Loupe", @"Slider", @"Camera", @"Cartouche Popover",
 };
 
+static Class DPGlassEffectView(void) { return NSClassFromString(@"NSGlassEffectView"); }
+
 static NSMenu *DPMaterialChoices(void) {
     NSMenu *menu = [[NSMenu alloc] initWithTitle:@"Material"];
     [menu addItem:[NSMenuItem sectionHeaderWithTitle:@"Materials"]];
     for (NSUInteger i = 0; i < sizeof DPMaterials / sizeof *DPMaterials; i++)
         if (DPMaterials[i]) [menu addItemWithTitle:DPMaterials[i] action:nil keyEquivalent:@""].representedObject = [NSString stringWithFormat:@"material.%lu", i];
-    if (!NSClassFromString(@"NSGlassEffectView")) return menu;
+    if (!DPGlassEffectView()) return menu;
     [menu addItem:[NSMenuItem sectionHeaderWithTitle:@"Liquid Glass"]];
     for (NSUInteger i = 0; i < sizeof DPGlasses / sizeof *DPGlasses; i++)
         [menu addItemWithTitle:DPGlasses[i] action:nil keyEquivalent:@""].representedObject = [NSString stringWithFormat:@"glass.%lu", i];
     return menu;
 }
 
-// Liquid Glass needs NSGlassEffectView, which macOS 14 and 15 don't have, so they get Sidebar instead.
 static NSString *DPWindowMaterialChoice(void) {
     NSString *choice = DPChoice(&DPWindowMaterial);
-    return [choice hasPrefix:@"glass."] && !NSClassFromString(@"NSGlassEffectView") ? [NSString stringWithFormat:@"material.%ld", (long)NSVisualEffectMaterialSidebar] : choice;
+    BOOL unsupported = [choice hasPrefix:@"glass."] && !DPGlassEffectView();
+    return unsupported ? [NSString stringWithFormat:@"material.%ld", (long)NSVisualEffectMaterialSidebar] : choice;
 }
 
-// Dia shows and hides these views too, so its last say is kept for when the patch lets go.
 static void DPView_setHidden(NSView *self, SEL _cmd, BOOL hidden) {
     DPSet(self, &DPDiaHiddenKey, @(hidden));
     DPCallOriginal(DPView_setHidden, self, hidden || [DPGet(self, &DPHiddenKey) boolValue]);
@@ -58,9 +59,13 @@ static void DPCollectEffects(NSView *view, NSMutableArray<NSVisualEffectView *> 
     for (NSView *sub in view.subviews) DPCollectEffects(sub, effects);
 }
 
-static NSView *DPTintIn(NSView *view);
+// Not the selected tab's own copy, which sits deeper.
+static NSView *DPTintIn(NSView *view) {
+    for (NSView *sub in view.subviews)
+        for (NSView *inner in sub.subviews) if (DPIsKind(inner, DPDiaWindowTint)) return inner;
+    return nil;
+}
 
-// The tint is a white or black wash under a gradient of the profile's color. Only the wash hides the material.
 static NSView *DPWashIn(NSView *tint) {
     for (NSView *view in tint.subviews) if (DPIsKind(view, DPDiaColorView)) return view;
     return nil;
@@ -73,7 +78,6 @@ static NSVisualEffectMaterial DPWindowBackgroundMaterial(NSWindow *window) {
     return effect ? ((NSVisualEffectView *)effect).material : NSVisualEffectMaterialUnderWindowBackground;
 }
 
-// The window and the floating sidebar each stack effect views under a theme tint.
 static void DPApplyMaterialUnder(NSView *tint, BOOL floating) {
     NSView *content = tint.superview;
     if (!content) return;
@@ -108,7 +112,7 @@ static void DPApplyMaterialUnder(NSView *tint, BOOL floating) {
         DPSet(content, &DPGlassKey, glassView = nil);
     }
     if (glass && !glassView) {
-        glassView = [[NSClassFromString(@"NSGlassEffectView") alloc] initWithFrame:content.bounds];
+        glassView = [[DPGlassEffectView() alloc] initWithFrame:content.bounds];
         glassView.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
         [glassView setValue:@(content.layer.cornerRadius) forKey:@"cornerRadius"];
         [content addSubview:glassView positioned:NSWindowBelow relativeTo:nil];
@@ -123,13 +127,6 @@ static void DPApplyMaterialUnder(NSView *tint, BOOL floating) {
     DPOverride(window, &DPOpaqueKey, dia, ours);
     if (window.opaque != [ours[0] boolValue]) window.opaque = [ours[0] boolValue];
     if (![window.backgroundColor isEqual:ours[1]]) window.backgroundColor = ours[1];
-}
-
-// Not the selected tab's own copy, which sits deeper.
-static NSView *DPTintIn(NSView *view) {
-    for (NSView *sub in view.subviews)
-        for (NSView *inner in sub.subviews) if (DPIsKind(inner, DPDiaWindowTint)) return inner;
-    return nil;
 }
 
 static NSArray<NSView *> *DPWindowFrames(void) {
@@ -149,7 +146,6 @@ static void DPFloatingSidebar_layout(NSView *self, SEL _cmd) {
     DPApplyMaterialUnder(DPTintIn(self), YES);
 }
 
-// Dia sets its own material again whenever a background redraws.
 static void DPBackgroundTile_updateLayer(NSView *self, SEL _cmd) {
     DPCallOriginal(DPBackgroundTile_updateLayer, self);
     for (NSView *host = self.superview; host; host = host.superview) {

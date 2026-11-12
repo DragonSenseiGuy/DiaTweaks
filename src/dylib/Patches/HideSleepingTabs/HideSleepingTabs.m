@@ -4,7 +4,6 @@ extern DPPatch DPHideSleepingTabs;
 
 static id DPState(id viewModel) { return DPSwiftValue(DPSwiftValue(viewModel, @"stateSubject"), @"currentValue"); }
 
-// The items only come through as a description, so their tab IDs are read out of it.
 static NSArray<NSString *> *DPSwitcherItems(id viewModel) {
     return DPUUIDsIn([DPSwiftValue(DPState(viewModel), @"items") description]);
 }
@@ -66,7 +65,6 @@ static void DPList_select(id self, SEL _cmd, NSCollectionView *view, NSSet<NSInd
     DPCallOriginal(DPList_select, self, view, dia);
 }
 
-// Dia sizes the switcher for every tab through constraints on its content, so each one it sets is refit to the cells left.
 static const CGFloat DPSwitcherChrome = 152;  // Shadow margin and grid inset, both sides.
 static char DPWatchedKey;
 static BOOL DPFitting;
@@ -110,8 +108,8 @@ static void DPWatchSwitcherSize(id list) {
     }
 }
 
-static int DPStepsLeft;  // Ticks left in the one chain stepping past sleeping tabs; 0 while none runs. Only a ⌃⇥ the user presses refills it.
-static const int64_t DPOwnKey = 0x44505353;  // Set as the user data of the ⌃⇥ the chain posts, which the monitor sees too.
+static int DPStepsLeft;
+static const int64_t DPOwnKey = 0x44505353;
 
 static void DPStepPastSleeping(void);
 
@@ -119,7 +117,6 @@ static void DPStepSoon(void) {
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 20 * NSEC_PER_MSEC), dispatch_get_main_queue(), ^{ DPStepPastSleeping(); });
 }
 
-// The switcher opens a moment after the first ⌃⇥, then moves its highlight on each ⌃⇥ until it rests on a loaded tab.
 static void DPStepPastSleeping(void) {
     if (!DPHideSleepingTabs.on) {
         DPStepsLeft = 0;

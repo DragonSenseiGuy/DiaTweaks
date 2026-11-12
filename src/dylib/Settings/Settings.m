@@ -1,9 +1,8 @@
 #import "Settings.h"
-#import <Carbon/Carbon.h>
 
 static char DPSettingsKey, DPSearchItemKey;
 
-// Our rows follow Dia's. Dia never sees their indexes: its cell lookup traps past the end of its items.
+// Dia's cell lookup traps past its own rows, so it never sees our indexes.
 typedef NS_ENUM(NSInteger, DPSidebarRow) { DPDiaRow = -1, DPDividerRow, DPHomeRow, DPPatchesRow, DPOurRowCount };
 
 static DPSidebarRow DPOurRow(NSTableView *table, NSInteger row) {
@@ -11,7 +10,6 @@ static DPSidebarRow DPOurRow(NSTableView *table, NSInteger row) {
     return row >= 0 && ours >= 0 ? ours : DPDiaRow;
 }
 
-// Dia puts a pane's toolbar items in when that pane is selected and takes them out, by identifier, the next time any of its panes is. Our rows never reach that, so the last pane's items would stay beside ours. They're taken out here; Dia puts them back when its pane is selected again.
 static void DPRemoveDiaPaneItems(NSToolbar *toolbar) {
     void **slot = DPIvar(toolbar.delegate, "paneToolbarItems");
     // A Swift array of objects is its storage, an NSArray; one bridged from Objective-C is tagged and left alone.
@@ -51,7 +49,6 @@ static __weak DPPaneView *DPShownPane;
     return settings;
 }
 
-// The divider takes the sidebar's spare height, so our rows sit at its bottom. It's sized when the table first asks for its height, and re-fitted when the clip's size or insets change.
 - (CGFloat)fittedDividerHeight {
     NSTableView *table = self.table;
     NSClipView *clip = table.enclosingScrollView.contentView;
@@ -83,7 +80,6 @@ static __weak DPPaneView *DPShownPane;
     return nil;
 }
 
-// Building and laying out a pane takes a moment, so it's done hidden as Settings opens and a click only shows it.
 - (void)preparePane:(DPPaneView *)pane {
     NSView *detail = ((NSSplitViewController *)self.table.window.contentViewController).splitViewItems.lastObject.viewController.view;
     if (!detail || pane.superview == detail) return;
@@ -129,7 +125,6 @@ static __weak DPPaneView *DPShownPane;
     [self allowResizing:NO];
 }
 
-// Leaves the window resizable, for when another of our panes is about to show.
 - (void)closeShownPane {
     DPPaneView *pane = self.shown;
     if (!pane) return;
@@ -170,7 +165,6 @@ static __weak DPPaneView *DPShownPane;
         self.fixedHeight = window.frame.size.height;
         CGFloat width = window.contentLayoutRect.size.width;
         window.styleMask |= NSWindowStyleMaskResizable;
-        // Resizable enables zoom and full screen; Settings should only grow taller.
         window.collectionBehavior = (window.collectionBehavior & ~NSWindowCollectionBehaviorFullScreenPrimary) | NSWindowCollectionBehaviorFullScreenNone;
         [window standardWindowButton:NSWindowZoomButton].enabled = NO;
         window.contentMinSize = NSMakeSize(width, 400);
@@ -255,21 +249,17 @@ static void DPSettings_handleBack(id self, SEL _cmd) {
     DPCallOriginal(DPSettings_handleBack, self);
 }
 
-// ⌘F goes to the shown pane's search field, as in most apps' settings. The key's letter, so it follows the layout; where that isn't ASCII, the key's place on a US keyboard.
 static NSEvent *DPSettings_findKey(NSEvent *event) {
     DPPaneView *pane = DPShownPane;
     NSSearchToolbarItem *item = pane.searchItem;
     if (!item || pane.hidden || event.window != pane.window || !event.window.isKeyWindow || DPShortcutRecording()) return event;
     NSEventModifierFlags mods = event.modifierFlags & NSEventModifierFlagDeviceIndependentFlagsMask & ~(NSEventModifierFlagCapsLock | NSEventModifierFlagNumericPad);
-    NSString *key = event.charactersIgnoringModifiers.lowercaseString;
-    BOOL f = key.length == 1 && [key characterAtIndex:0] < 128 ? [key characterAtIndex:0] == 'f' : event.keyCode == kVK_ANSI_F;
-    if (mods != NSEventModifierFlagCommand || !f) return event;
+    if (mods != NSEventModifierFlagCommand || !DPEventIsKey(event, @"f")) return event;
     [item beginSearchInteraction];
     [item.searchField selectText:nil];
     return nil;
 }
 
-// Dia's sidebar implements neither, so there's nothing to hook or call through to.
 static void DPAddSidebarMethod(SEL sel, IMP imp) {
     const char *types = protocol_getMethodDescription(@protocol(NSTableViewDelegate), sel, NO, YES).types;
     if (!class_addMethod(objc_getClass(DPDiaSettingsSidebar), sel, imp, types))

@@ -1,7 +1,7 @@
 #import "HideToolbar.h"
 
 static const CGFloat DPToolbarHoverHeight = 8;
-static const NSTimeInterval DPPeekDuration = 1.6;  // Long enough for Dia's Copied message to come and go.
+static const NSTimeInterval DPPeekDuration = 1.6;
 static char DPHoverKey;
 
 static NSTimer *DPEase(CGFloat from, CGFloat to, void (^step)(CGFloat value, BOOL done)) {
@@ -74,7 +74,6 @@ static NSTimer *DPEase(CGFloat from, CGFloat to, void (^step)(CGFloat value, BOO
 
 - (BOOL)toolbarHasFocus {
     NSResponder *responder = self.pane.window.firstResponder;
-    // The shared field editor lives outside the toolbar; its delegate is the edited control.
     if ([responder isKindOfClass:NSTextView.class] && ((NSTextView *)responder).isFieldEditor)
         responder = (NSResponder *)((NSTextView *)responder).delegate;
     return [responder isKindOfClass:NSView.class] && [(NSView *)responder isDescendantOf:self.bar];
@@ -92,7 +91,7 @@ static NSTimer *DPEase(CGFloat from, CGFloat to, void (^step)(CGFloat value, BOO
         DPApplyToolbarOpacity(me);
         if (!done) return;
         me.animation = nil;
-        if (!me.revealed) me.peeking = NO;  // Only once faded out, so the fade isn't cut short.
+        if (!me.revealed) me.peeking = NO;
         DPApplyToolbar(me.pane);
     });
     DPApplyToolbar(self.pane);
@@ -122,7 +121,7 @@ static NSTimer *DPEase(CGFloat from, CGFloat to, void (^step)(CGFloat value, BOO
 }
 
 - (void)mouseExited:(NSEvent *)event {
-    // Growing the tracking area on reveal sends an exit from the old, narrow strip.
+    // Growing the tracking area on reveal sends a stray exit.
     if (!self.revealed || self.peeking || [self containsPointer] || self.hideTimer) return;
     __weak DPToolbarHover *weakSelf = self;
     self.hideTimer = [NSTimer scheduledTimerWithTimeInterval:0.2 repeats:YES block:^(NSTimer *timer) {
@@ -168,7 +167,6 @@ static NSTimer *DPEase(CGFloat from, CGFloat to, void (^step)(CGFloat value, BOO
         rect = NSIntersectionRect(rect, self.pane.bounds);
         CGFloat height = MIN(DPToolbarHoverHeight, NSHeight(rect));
         if (self.revealed) {
-            // A margin keeps the revealed bar from flickering at its edge.
             if (!self.pane.isFlipped) rect.origin.y -= DPToolbarHoverHeight;
             rect.size.height += DPToolbarHoverHeight;
             rect = NSIntersectionRect(rect, self.pane.bounds);

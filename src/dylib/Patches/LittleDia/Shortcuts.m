@@ -4,14 +4,11 @@
 #define DPDiaPopupController  "_TtC5Popup29PlatformPopupWindowController"
 #define DPDiaCallbackMenuItem "_TtC5ARCUI16CallbackMenuItem"
 
-// Dia sends its menu commands for a popup window through a model of its page that Little Dia's page isn't part of, so
-// in a Little Dia window Copy URL, Go Back, Zoom In and the rest did nothing, from the menu or by shortcut. Here they act
-// on the page itself, so each keeps whatever shortcut its menu item has.
 static const char *const DPPopupActionNames[] = {"copyCurrentURL:", "copyCurrentURLAsMarkdown:", "navigateTabBack:", "navigateTabForward:", "zoomIn:",
                                                  "zoomInAlternate:", "zoomOut:", "resetZoom:", "printFocusedContent:", "closeFocusedContent:"};
 
 static const SEL *DPPopupActions(void) {
-    static SEL actions[sizeof DPPopupActionNames / sizeof *DPPopupActionNames + 1];  // and NULL
+    static SEL actions[sizeof DPPopupActionNames / sizeof *DPPopupActionNames + 1];
     static dispatch_once_t once;
     dispatch_once(&once, ^{
         for (size_t i = 0; i < sizeof DPPopupActionNames / sizeof *DPPopupActionNames; i++) actions[i] = sel_registerName(DPPopupActionNames[i]);
@@ -19,7 +16,6 @@ static const SEL *DPPopupActions(void) {
     return actions;
 }
 
-// Dia's own items for these call back into its main window, so they're greyed out in a popup.
 static SEL DPCallbackAction(NSMenuItem *item) {
     if (item.menu.supermenu != NSApp.mainMenu) return NULL;
     static NSDictionary<NSString *, NSString *> *actions;
@@ -77,8 +73,6 @@ static void DPRun(NSWindow *window, SEL action) {
     else if (action == @selector(closeFocusedContent:) || action == @selector(performClose:)) [window performClose:nil];
 }
 
-#pragma mark Hooks
-
 static void DPPopup_action(NSWindowController *self, SEL _cmd, id sender) {
     NSWindow *window = DPLittleWindow(self.window);
     if (!window) return DPCallOriginal(DPPopup_action, self, sender);
@@ -96,7 +90,6 @@ static BOOL DPPopup_validate(NSWindowController *self, SEL _cmd, NSMenuItem *ite
     return DPCanRun(window, item.action);
 }
 
-// Every key equivalent validates the menu bar's items, so the key window is looked at before the title.
 static BOOL DPCallback_validate(NSMenuItem *self, SEL _cmd, NSMenuItem *item) {
     NSWindow *window = DPLittleWindow(NSApp.keyWindow);
     SEL action = window ? DPCallbackAction(self) : NULL;

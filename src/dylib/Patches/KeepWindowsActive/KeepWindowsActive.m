@@ -24,7 +24,6 @@ static BOOL DPWindow_hasActiveAppearance(NSWindow *self, SEL _cmd) {
     return DPKeptActive(self) || DPCallOriginal(DPWindow_hasActiveAppearance, self);
 }
 
-// Dia's window buttons follow this. Claiming it also shows focus rings in windows without keyboard focus.
 static BOOL DPWindow_hasKeyAppearance(NSWindow *self, SEL _cmd) {
     return DPKeptActive(self) || DPCallOriginal(DPWindow_hasKeyAppearance, self);
 }
@@ -47,10 +46,7 @@ static BOOL DPAppKitAnswer(NSWindow *window, SEL sel) {
     return ((BOOL (*)(id, SEL))DPDiaIMP(NSWindow.class, sel))(window, sel);
 }
 
-// A titled window that was never shown is neither key nor main, so AppKit alone calls it inactive, whichever app is in
-// front and however many windows are open. It stands in for a background window: on, the hooks make it look active
-// and key; off, both answers are AppKit's own, whatever else AppKit counts (a key child or sheet, another Space). The
-// pool frees it before any other check can list it.
+// A never-shown titled window is inactive to AppKit alone; the pool frees it before any check can list it.
 static NSString *DPProbeProblem(BOOL on) {
     @autoreleasepool {
         NSWindow *probe = [[NSWindow alloc] initWithContentRect:NSMakeRect(0, 0, 100, 100) styleMask:NSWindowStyleMaskTitled
