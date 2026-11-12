@@ -20,6 +20,11 @@ static BOOL DPLaunchCLI(NSArray<NSString *> *args) {
 
 static NSUserDefaults *DPUpdateDefaults(void) { return [[NSUserDefaults alloc] initWithSuiteName:@"com.diapatches"]; }
 
+// DiaTweaks built from source has no release.plist, which diapatch writes when it installs a release. Updating it is up to the user.
+BOOL DPIsLocalBuild(NSString *part) {
+    return [part isEqual:DPTweaks] && ![[NSDictionary dictionaryWithContentsOfFile:DPSupport(@"release.plist")][@"tag"] isKindOfClass:NSString.class];
+}
+
 static NSString *DPAutoKey(NSString *part) { return [part isEqual:DPDia] ? @"autoUpdateDia" : @"autoUpdateTweaks"; }
 
 DPAutoLevel DPAutoLevelOf(NSString *part) {
@@ -261,7 +266,7 @@ static void DPShowUpdateAlert(void) {
 
 static void DPInstallOnQuit(void) {
     BOOL dia = DPAutoLevelOf(DPDia) == DPAutoInstall && [NSFileManager.defaultManager fileExistsAtPath:DPSupport(@"staged/Dia.app")];
-    BOOL tweaks = DPAutoLevelOf(DPTweaks) == DPAutoInstall && [NSFileManager.defaultManager fileExistsAtPath:DPSupport(@"staged/DiaTweaks")];
+    BOOL tweaks = DPAutoLevelOf(DPTweaks) == DPAutoInstall && !DPIsLocalBuild(DPTweaks) && [NSFileManager.defaultManager fileExistsAtPath:DPSupport(@"staged/DiaTweaks")];
     if (!dia && !tweaks) return;
     NSMutableArray *args = [NSMutableArray arrayWithObjects:@"apply", @"--wait", @(getpid()).stringValue, nil];
     if (dia) [args addObject:@"--dia"];
@@ -314,7 +319,8 @@ void DPInstallUpdates(void) {
         DPUpdates *updates = DPUpdates.shared;
         [updates check:^{
             for (NSString *part in @[DPDia, DPTweaks])
-                if (DPAutoLevelOf(part) >= DPAutoDownload && [updates available:part] && ![updates failed:part]) [updates download:part then:nil];
+                if (DPAutoLevelOf(part) >= DPAutoDownload && !DPIsLocalBuild(part) && [updates available:part] && ![updates failed:part])
+                    [updates download:part then:nil];
         }];
     });
     DPOnQuit(^{ DPInstallOnQuit(); });

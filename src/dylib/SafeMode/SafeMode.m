@@ -61,8 +61,6 @@ void DPBeginLaunch(void) {
     [DPState writeToURL:DPStateURL error:nil];
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, DPSurviveSeconds * NSEC_PER_SEC), dispatch_get_main_queue(), ^{ DPSurvived(); });
     DPOnQuit(^{ DPSurvived(); });
-    // Dia doesn't post NSApplicationWillTerminateNotification, so a normal quit only runs atexit.
-    atexit(DPSurvived);
 }
 
 void DPLeaveSafeMode(void) {

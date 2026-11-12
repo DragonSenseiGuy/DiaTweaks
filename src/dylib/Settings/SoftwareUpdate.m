@@ -143,7 +143,7 @@ static NSButton *DPButton(NSString *title, id target, SEL action, NSString *part
     DPUpdates *updates = DPUpdates.shared;
     NSDictionary *found = updates.found[part];
     NSString *state = [self stateOf:part];
-    BOOL installsOnQuit = DPAutoLevelOf(part) == DPAutoInstall;
+    BOOL installsOnQuit = DPAutoLevelOf(part) == DPAutoInstall && !DPIsLocalBuild(part);
     NSString *size = [NSByteCountFormatter stringFromByteCount:[found[@"size"] longLongValue] countStyle:NSByteCountFormatterCountStyleFile];
     NSTextField *detail = DPLine([state isEqual:@"staged"] ? (installsOnQuit ? @"Installs when you quit" : @"Ready to install")
                                  : [updates failed:part] ? ([updates failure:part] ?: @"Download failed") : size,

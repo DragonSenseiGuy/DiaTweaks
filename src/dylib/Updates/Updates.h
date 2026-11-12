@@ -12,6 +12,7 @@ NSString *DPPartName(NSString *part);
 typedef NS_ENUM(NSInteger, DPAutoLevel) { DPAutoOff, DPAutoNotify, DPAutoDownload, DPAutoInstall };
 DPAutoLevel DPAutoLevelOf(NSString *part);
 void DPSetAutoLevel(NSString *part, DPAutoLevel level);
+BOOL DPIsLocalBuild(NSString *part);  // DiaTweaks built from source: it is never downloaded or installed automatically, only when asked
 
 extern NSNotificationName const DPUpdatesDidChangeNotification;
 

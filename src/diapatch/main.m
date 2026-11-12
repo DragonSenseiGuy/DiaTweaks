@@ -617,7 +617,8 @@ static BOOL apply(void) {
 }
 
 static BOOL applyChosen(BOOL dia, BOOL tweaks) {
-    if (!dia && !tweaks) dia = tweaks = YES;
+    // Only --tweaks puts a staged release over a source build; a plain apply leaves it staged.
+    if (!dia && !tweaks) dia = YES, tweaks = installedRelease()[@"tag"] != nil;
     return (!tweaks || applyTweaks()) && (!dia || apply());
 }
 
@@ -812,7 +813,8 @@ static const char kUsage[] =
     "  update           download, verify and stage a newer Dia from your channel (stable or Early Birds)\n"
     "  self-update      download, verify and stage the latest DiaTweaks release if it isn't the one installed\n"
     "  apply [--wait PID] [--relaunch] [--dia] [--tweaks]\n"
-    "                   install what's staged once PID and Dia have quit, then reopen Dia; --dia or --tweaks limits it\n"
+    "                   install what's staged once PID and Dia have quit, then reopen Dia; --dia or --tweaks limits it,\n"
+    "                   and only --tweaks installs a staged DiaTweaks release over a source build\n"
     "  check --json     what's installed, available and staged for Dia and DiaTweaks\n"
     "  set-icon         use the icon chosen in the App Icon tweak\n"
     "  uninstall [--wait PID] [--relaunch] [--purge]\n"
