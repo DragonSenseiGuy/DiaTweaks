@@ -11,6 +11,17 @@ static DPSidebarRow DPOurRow(NSTableView *table, NSInteger row) {
     return row >= 0 && ours >= 0 ? ours : DPDiaRow;
 }
 
+// Dia puts a pane's toolbar items in when that pane is selected and takes them out, by identifier, the next time any of its panes is. Our rows never reach that, so the last pane's items would stay beside ours. They're taken out here; Dia puts them back when its pane is selected again.
+static void DPRemoveDiaPaneItems(NSToolbar *toolbar) {
+    void **slot = DPIvar(toolbar.delegate, "paneToolbarItems");
+    // A Swift array of objects is its storage, an NSArray; one bridged from Objective-C is tagged and left alone.
+    if (!slot || !*slot || ((uintptr_t)*slot & 0xC000000000000001)) return;
+    NSArray<NSToolbarItem *> *paneItems = (__bridge NSArray *)*slot;
+    NSSet *identifiers = [NSSet setWithArray:[paneItems valueForKey:@"itemIdentifier"]];
+    for (NSInteger i = toolbar.items.count - 1; i >= 0; i--)
+        if ([identifiers containsObject:toolbar.items[i].itemIdentifier]) [toolbar removeItemAtIndex:i];
+}
+
 @interface DPSettings : NSObject
 @property (nonatomic, weak) NSTableView *table;
 @property (nonatomic, weak) NSTextField *title;
@@ -99,6 +110,7 @@ static __weak DPPaneView *DPShownPane;
     [self allowResizing:YES];
 
     NSToolbar *toolbar = window.toolbar;
+    DPRemoveDiaPaneItems(toolbar);
     if (pane.searchItem) {
         DPSet(toolbar, &DPSearchItemKey, pane.searchItem);
         [toolbar insertItemWithItemIdentifier:NSToolbarFlexibleSpaceItemIdentifier atIndex:toolbar.items.count];
