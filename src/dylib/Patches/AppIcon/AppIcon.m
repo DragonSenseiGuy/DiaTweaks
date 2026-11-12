@@ -12,10 +12,33 @@ static void DPAlertIconFailed(void) {
     [alert runModal];
 }
 
+// Why `diapatch build` couldn't link the catalog, from the "warning: kept Dia's icons: <reason>" it prints. nil if it did.
+static NSString *DPLinkProblem(NSString *output) {
+    for (NSString *line in [output componentsSeparatedByString:@"\n"]) {
+        NSString *kept = [line hasPrefix:@"warning: kept Dia's icon"] ? [line substringFromIndex:@"warning: ".length] : nil;
+        NSRange colon = [kept rangeOfString:@": "];
+        if (colon.length) return [kept substringFromIndex:NSMaxRange(colon)];
+    }
+    return nil;
+}
+
+// Set once a build says it can't link: relaunching won't fix that, and building again says the same.
+static NSString *DPUnlinkable;
+
+static void DPAlertUnlinkable(void) {
+    NSAlert *alert = [NSAlert new];
+    alert.messageText = @"Couldn’t set up icon switching";
+    alert.informativeText = [NSString stringWithFormat:@"DiaTweaks couldn’t prepare this version of Dia: %@. Dia keeps its current icon, "
+                                                       @"and relaunching won’t change that. Updating or reinstalling DiaTweaks may fix it.", DPUnlinkable];
+    [alert runModal];
+}
+
 // A Dia built before this tweak existed has no linked catalog yet.
 static void DPLinkCatalog(void) {
+    if (DPUnlinkable) return DPAlertUnlinkable();
     DPRunCLI(@[ @"build" ], ^(NSString *output) {
         if (!output) return DPAlertIconFailed();
+        if ((DPUnlinkable = DPLinkProblem(output))) return DPAlertUnlinkable();
         NSAlert *alert = [NSAlert new];
         alert.messageText = @"Relaunch Dia to change its icon";
         alert.informativeText = @"Until then, Dia keeps its current icon.";

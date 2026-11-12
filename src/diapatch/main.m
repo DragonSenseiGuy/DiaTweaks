@@ -337,8 +337,10 @@ static BOOL switchIcon(void) {
     return !problem || fail(@"%@", problem);
 }
 
+// A Dia that can't switch icons still works, so a failed link is reported without failing the build.
 static BOOL noteIcon(NSString *outcome) {
-    if (outcome) note(@"%@", outcome);
+    if ([outcome hasPrefix:@"kept "]) say(@"warning: %@", outcome);
+    else if (outcome) note(@"%@", outcome);
     return YES;
 }
 

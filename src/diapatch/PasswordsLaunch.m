@@ -38,6 +38,22 @@ static NSArray<NSString *> *strings(const char *const *list, int count) {
     return result;
 }
 
+// A socket's path holds 103 bytes, which a long account name or DIAPATCH_HOME can use up before the file name. Then the socket
+// goes in the user's temporary folder, which is short and which only they can enter.
+static BOOL fitsSocket(NSString *path) { return strlen(path.fileSystemRepresentation) < sizeof((struct sockaddr_un *)NULL)->sun_path; }
+
+static NSString *socketPath(NSString *folder, NSString **problem) {
+    NSString *path = [folder stringByAppendingString:@".sock"];
+    if (fitsSocket(path)) return path;
+    char temporary[PATH_MAX];
+    struct stat info;
+    BOOL mine = confstr(_CS_DARWIN_USER_TEMP_DIR, temporary, sizeof temporary) && stat(temporary, &info) == 0 && info.st_uid == getuid() && !(info.st_mode & 077);
+    NSString *shorter = mine ? [[@(temporary) stringByAppendingPathComponent:[NSString stringWithFormat:@"diapatch-%d", getpid()]] stringByAppendingString:@".sock"] : nil;
+    if (shorter && fitsSocket(shorter)) return shorter;
+    *problem = [NSString stringWithFormat:@"%@ is too long for a socket, and there is no short folder of yours to use instead", path];
+    return nil;
+}
+
 static int listenAt(NSString *path) {
     struct sockaddr_un address = { .sun_family = AF_UNIX };
     if (strlcpy(address.sun_path, path.fileSystemRepresentation, sizeof address.sun_path) >= sizeof address.sun_path) return -1;
@@ -147,17 +163,18 @@ static NSString *applicationsCopy(NSString *pristine) {
 
 pid_t DPStartHelperThroughOriginal(NSString *home, NSString *helperPath, BOOL checksBrowser, int argc, const char *argv[]) {
     NSString *launches = [home stringByAppendingPathComponent:@"passwords-launch"];
-    NSString *folder = [launches stringByAppendingPathComponent:@(getpid()).stringValue], *socket = [folder stringByAppendingString:@".sock"];
+    NSString *folder = [launches stringByAppendingPathComponent:@(getpid()).stringValue], *problem = nil;
+    NSString *socket = socketPath(folder, &problem);
     NSString *pristine = [home stringByAppendingPathComponent:@"pristine/Dia.app"];
     NSString *app = checksBrowser ? applicationsCopy(pristine) : pristine;
     [NSFileManager.defaultManager createDirectoryAtPath:folder withIntermediateDirectories:YES attributes:@{ NSFilePosixPermissions : @0700 } error:nil];
     chmod(launches.fileSystemRepresentation, 0700);
     NSDate *start = NSDate.date;
-    int listener = listenAt(socket);
+    int listener = socket ? listenAt(socket) : -1;
+    if (listener < 0) logLine(home, problem ?: [NSString stringWithFormat:@"couldn't listen at %@", socket]);
     pid_t dia = listener >= 0 && app ? launchOriginal(app, folder, socket) : 0, peer = 0, helper = 0;
     int client = dia ? acceptSubprocess(listener, &dia, &peer) : -1;
-    if (listener >= 0) close(listener);
-    unlink(socket.fileSystemRepresentation);
+    if (listener >= 0) close(listener), unlink(socket.fileSystemRepresentation);
     if (client >= 0 && handOver(client, helperPath, argc, argv) && becameHelper(client, peer, helperPath)) helper = peer;
     if (client >= 0) close(client);
     if (helper && checksBrowser) usleep(kBrowserCheck);

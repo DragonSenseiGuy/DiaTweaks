@@ -1,7 +1,9 @@
 // Each request runs in the unpatched Dia, in a window the size of the passkey sheet so the sheet hides it.
 #import <CoreGraphics/CoreGraphics.h>
 #import <Foundation/Foundation.h>
+#import <pthread.h>
 #import <spawn.h>
+#import <stdatomic.h>
 #import <sys/file.h>
 #import <sys/wait.h>
 #import "LaunchServices.h"
@@ -13,6 +15,8 @@ int responsibility_spawnattrs_setdisclaim(posix_spawnattr_t *attrs, int disclaim
 static const int kSheetWidth = 480, kSheetHeight = 300;
 
 static FILE *gFromHelper, *gToHelper;
+static _Atomic pid_t gHelper;       // the passkey copy of Dia, while it runs
+static _Atomic int gCancelled;      // the extension closed our stdin: the page gave up on the request
 
 static NSDictionary *readFromHelper(void) {
     NSMutableData *data = [NSMutableData data];
@@ -59,6 +63,20 @@ static void writeMessage(NSDictionary *message) {
 }
 
 static NSDictionary *failure(NSString *message) { return @{ @"error" : @{ @"name" : @"NotAllowedError", @"message" : message } }; }
+
+// The extension keeps its end of our stdin open until it has the answer, so reading to the end means the page gave up (its signal
+// aborted, or its tab went away). The copy of Dia is stopped, which also ends the read in progress on its pipe.
+static void *watchForCancel(void *_) {
+    char byte;
+    while (read(STDIN_FILENO, &byte, 1) > 0) {}
+    gCancelled = 1;
+    pid_t helper = gHelper;
+    if (helper <= 0) return NULL;
+    kill(helper, SIGTERM);
+    for (int i = 0; i < 30 && gHelper == helper; i++) usleep(100000);
+    if (gHelper == helper) kill(helper, SIGKILL);
+    return NULL;
+}
 
 static NSArray<NSString *> *const kAccountStore = @[ @"global_key_value_store.db", @"global_key_value_store.db-wal", @"global_key_value_store.db-shm" ];
 
@@ -236,13 +254,19 @@ static NSDictionary *runInHelper(pid_t pid, NSString *kind, NSString *origin, id
 int DPRunPasskeyHost(NSString *home) {
     NSDictionary *request = readMessage();
     if (!request) return 1;
-    // A second copy started on the same data hands off to the first and quits.
-    flock(open([home stringByAppendingPathComponent:@"passkey-helper.lock"].fileSystemRepresentation, O_CREAT | O_RDWR, 0600), LOCK_EX);
+    pthread_t watcher;
+    if (pthread_create(&watcher, NULL, watchForCancel, NULL) == 0) pthread_detach(watcher);
+    // A second copy started on the same data waits for the first, unless its page gives up first.
+    int lock = open([home stringByAppendingPathComponent:@"passkey-helper.lock"].fileSystemRepresentation, O_CREAT | O_RDWR, 0600);
+    while (flock(lock, LOCK_EX | LOCK_NB) != 0 && errno == EWOULDBLOCK && !gCancelled) usleep(50000);
+    if (gCancelled) return writeMessage(failure(@"The passkey request was cancelled.")), 0;
 
     int toHelper[2], fromHelper[2];
     pid_t pid = 0;
     if (pipe(toHelper) || pipe(fromHelper) || !(pid = launchHelper(home, toHelper, fromHelper)))
         return writeMessage(failure(@"Couldn't start the passkey copy of Dia.")), 1;
+    gHelper = pid;
+    if (gCancelled) kill(pid, SIGTERM);  // it came between the copy starting and gHelper being set
     close(toHelper[0]);
     close(fromHelper[1]);
 
@@ -252,6 +276,7 @@ int DPRunPasskeyHost(NSString *home) {
     // Dia kills this process once it has the answer, so the copy has to quit before then.
     send(@"Browser.close", nil, nil);
     for (int i = 0; i < 50 && waitpid(pid, NULL, WNOHANG) == 0; i++) usleep(100000);
+    gHelper = 0;
     kill(pid, SIGKILL);
     DPForgetApp([home stringByAppendingPathComponent:@"pristine/Dia.app"]);
     writeMessage(result);
