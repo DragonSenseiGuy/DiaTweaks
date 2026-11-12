@@ -170,7 +170,7 @@ static void DPInstallTurnOffAI(void) {
     DPHook(DPDiaChatSidebar, @selector(viewWillLayout), (IMP)DPChatSidebar_viewWillLayout);
     DPInstallAIRows();
     [NSEvent addLocalMonitorForEventsMatchingMask:NSEventMaskKeyDown handler:^NSEvent *(NSEvent *event) {
-        return DPTurnOffAI.on && DPIsAIShortcut(event) ? nil : event;
+        return DPTurnOffAI.on && !DPShortcutRecording() && DPIsAIShortcut(event) ? nil : event;
     }];
     DPOnLaunch(^{ DPTrackMenu(NSApp.mainMenu); });
 }

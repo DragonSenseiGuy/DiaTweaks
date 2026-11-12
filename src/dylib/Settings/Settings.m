@@ -247,7 +247,7 @@ static void DPSettings_handleBack(id self, SEL _cmd) {
 static NSEvent *DPSettings_findKey(NSEvent *event) {
     DPPaneView *pane = DPShownPane;
     NSSearchToolbarItem *item = pane.searchItem;
-    if (!item || pane.hidden || event.window != pane.window || !event.window.isKeyWindow) return event;
+    if (!item || pane.hidden || event.window != pane.window || !event.window.isKeyWindow || DPShortcutRecording()) return event;
     NSEventModifierFlags mods = event.modifierFlags & NSEventModifierFlagDeviceIndependentFlagsMask & ~(NSEventModifierFlagCapsLock | NSEventModifierFlagNumericPad);
     NSString *key = event.charactersIgnoringModifiers.lowercaseString;
     BOOL f = key.length == 1 && [key characterAtIndex:0] < 128 ? [key characterAtIndex:0] == 'f' : event.keyCode == kVK_ANSI_F;
