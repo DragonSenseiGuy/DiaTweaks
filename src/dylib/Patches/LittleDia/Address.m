@@ -137,7 +137,9 @@
     [self.field removeFromSuperview];
     self.field = nil;
     self.label.hidden = NO;
-    [self.window makeFirstResponder:nil];
+    // Back to the page, so the keys typed next scroll it, as in Dia's main window.
+    NSView *page = DPFindView(self.window.contentView, ^BOOL(NSView *view) { return DPIsKind(view, "WebContentsHostView") && !view.isHiddenOrHasHiddenAncestor; });
+    [self.window makeFirstResponder:DPFindView(page, ^BOOL(NSView *view) { return view.acceptsFirstResponder; })];
     self.ending = NO;
     [self refresh];
 }

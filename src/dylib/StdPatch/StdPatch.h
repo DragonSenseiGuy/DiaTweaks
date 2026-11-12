@@ -116,6 +116,12 @@ void DPSet(id object, const void *key, id value);
 void DPOverride(id object, const void *key, id dia, id ours);
 id DPDiaValue(id object, const void *key, id current);
 
+#pragma mark Addresses
+
+// What was typed in an address bar, as Chromium's omnibox reads it: a URL, or nil when it is words to search for. An explicit
+// scheme is kept; localhost, IP addresses and anything with a port get http; a name with a known top-level domain gets https.
+NSURL *DPAddressURL(NSString *typed);
+
 #pragma mark Extensions
 
 // Loads the unpacked Chromium extension in `folder` into every profile. Chromium reads it once as Dia starts, so call

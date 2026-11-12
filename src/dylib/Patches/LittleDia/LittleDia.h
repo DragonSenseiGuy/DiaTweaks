@@ -15,7 +15,7 @@ void DPInstallLittleDiaExtension(void);
 BOOL DPWriteLittleDiaExtension(BOOL on);
 NSString *DPLittleDiaExtensionProblem(void);  // nil once its files are written.
 BOOL DPSendToLittleDia(NSDictionary *request);  // Hands the extension {action, ...}: see its worker. NO until it's loaded.
-BOOL DPLittleDiaStarting(void);  // Dia has no window or its extensions are still loading.
+BOOL DPLittleDiaStarting(void);  // Dia is launching: it has no window yet or its extensions are still loading.
 BOOL DPLittleDiaReady(void);     // DPSendToLittleDia would reach the extension.
 
 // Options.m: the window's size, and Close with Escape.
