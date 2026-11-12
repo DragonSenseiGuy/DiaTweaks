@@ -40,7 +40,7 @@ static void DPSettingsHeader_layout(NSView *self, SEL _cmd) {
     NSTextField *title = (NSTextField *)DPFindView(self, ^BOOL(NSView *view) { return [view isKindOfClass:NSTextField.class]; });
     if (![title.stringValue isEqual:@"Morning Brief"] || !self.superview) return;
     [DPMorningBriefs addObject:self.superview];
-    self.superview.hidden = DPTurnOffAI.on;
+    if (DPTurnOffAI.on) self.superview.hidden = YES;
 }
 
 #pragma mark Chat sidebar
