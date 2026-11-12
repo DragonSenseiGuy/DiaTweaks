@@ -25,10 +25,17 @@ static BOOL DPCompacts(NSView *toolbar) {
     return DPCompactWithChat.on || DPChatLocked(toolbar);
 }
 
+// The chat's composer uses the same views, so a bar compacts only in ⌘L's popover, the new tab page or Command bar's overlay.
+static BOOL DPOnCommandBarSurface(NSView *view) {
+    for (; view; view = view.superview)
+        if (DPIsKind(view, DPDiaPopover) || DPIsKind(view, DPDiaNewTabPage) || DPIsKind(view, "DPCommandBarOverlay")) return YES;
+    return NO;
+}
+
 NSView *DPCompactToolbar(NSView *commandBar) {
     NSView *toolbar = DPCommandBarPart(commandBar, DPDiaCommandBarToolbar);
     BOOL compacts = toolbar && (DPCompacts(toolbar) || [DPCommandBarDefaults() boolForKey:DPChatLockedKey]);
-    return DPCompactCommandBar.on && compacts ? toolbar : nil;
+    return DPCompactCommandBar.on && compacts && DPOnCommandBarSurface(commandBar) ? toolbar : nil;
 }
 
 NSView *DPGoButton(NSView *toolbar) {
@@ -54,7 +61,7 @@ static NSString *DPVerifyCompactCommandBar(DPPatch *patch) {
     for (NSView *commandBar in DPFindViews(DPDiaCommandBar)) {
         NSView *toolbar = DPCommandBarPart(commandBar, DPDiaCommandBarToolbar), *go = DPGoButton(toolbar);
         NSView *input = DPCommandBarPart(commandBar, DPDiaCommandBarInput);
-        if (!go || !input || !DPCompacts(toolbar)) continue;
+        if (!go || !input || !DPCompacts(toolbar) || !DPOnCommandBarSurface(commandBar)) continue;
         NSRect goFrame = [go convertRect:go.bounds toView:input.superview];
         BOOL beside = NSMinY(goFrame) < NSMaxY(input.frame) && NSMaxY(goFrame) > NSMinY(input.frame);
         if (beside != patch->on) return patch->on ? @"Go is still under the input" : @"Go is still beside the input";
