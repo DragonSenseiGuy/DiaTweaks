@@ -122,6 +122,11 @@ id DPDiaValue(id object, const void *key, id current);
 // scheme is kept; localhost, IP addresses and anything with a port get http; a name with a known top-level domain gets https.
 NSURL *DPAddressURL(NSString *typed);
 
+#pragma mark Zoom
+
+// The zoom factor a page zooms to from `now`: Chromium's next step up (1) or down (-1), stopping at its ends. 1 for 0.
+float DPZoomStep(float now, int direction);
+
 #pragma mark Extensions
 
 // Loads the unpacked Chromium extension in `folder` into every profile. Chromium reads it once as Dia starts, so call

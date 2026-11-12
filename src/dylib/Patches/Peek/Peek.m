@@ -100,6 +100,7 @@ void DPPeekOpenDragged(NSURL *url, NSPoint origin) {
 
 static void DPInstallPeek(void) {
     DPPeekInstallPages();
+    DPPeekInstallZoom();
     DPOnLaunch(^{
         DPHook(DPDiaWebContent, @selector(webContents:didCreateNewWebContent:targetURL:disposition:), (IMP)DPWebContent_didCreate);
         DPHook(DPDiaWebContent, @selector(webContents:decidePolicyForNavigationAction:), (IMP)DPWebContent_decidePolicy);
@@ -118,7 +119,7 @@ static NSString *DPVerifyPeek(DPPatch *patch) {
         return @"link clicks don't reach Peek";
     if (class_getMethodImplementation(delegate, @selector(webContents:didCreateNewWebContent:targetURL:disposition:)) != (IMP)DPWebContent_didCreate)
         return @"new windows don't reach Peek";
-    return nil;
+    return DPPeekZoomProblem();
 }
 
 DP_PATCH(DPPeek) {

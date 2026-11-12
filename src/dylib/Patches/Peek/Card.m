@@ -162,7 +162,7 @@ static id DPWatchKeys(DPPeekCard *card) {
         id responder = peek.window.firstResponder;
         BOOL command = mods == NSEventModifierFlagCommand, control = mods == NSEventModifierFlagControl;
         BOOL editing = [responder isKindOfClass:NSText.class] || ([responder conformsToProtocol:@protocol(NSTextInputClient)] && [responder hasMarkedText]);
-        if (DPPeekCopyURL(peek, event)) return nil;
+        if (DPPeekCopyURL(peek, event) || DPPeekZoomShortcut(peek, event)) return nil;
         if (command && DPIsKey(event, 'o', kVK_ANSI_O)) [peek close:DPPeekTab];
         // Dia's menu would go back, forward or reload the tab behind the card. Without the toolbar, the card stays stock.
         else if (command && peek.toolbar && DPIsKey(event, '[', kVK_ANSI_LeftBracket)) DPPeekNavigate(peek.page, DPPeekBack);

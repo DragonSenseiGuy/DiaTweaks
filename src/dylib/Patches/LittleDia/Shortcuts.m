@@ -33,21 +33,10 @@ static NSWindow *DPLittleWindow(NSWindow *window) { return DPLittleDia.on && DPI
 
 static BOOL DPPageFlag(id page, SEL flag) { return [page respondsToSelector:flag] && ((BOOL (*)(id, SEL))objc_msgSend)(page, flag); }
 
-// Chromium's zoom steps.
-static const float DPZoomSteps[] = {0.25, 1.0 / 3, 0.5, 2.0 / 3, 0.75, 0.8, 0.9, 1, 1.1, 1.25, 1.5, 1.75, 2, 2.5, 3, 4, 5};
-
 static void DPZoom(NSWindow *window, int direction) {
     id page = DPLittleDiaPage(window);
     if (![page respondsToSelector:@selector(zoomFactor)] || ![page respondsToSelector:@selector(setZoomFactor:)]) return;
-    float now = ((float (*)(id, SEL))objc_msgSend)(page, @selector(zoomFactor)), next = 1;
-    size_t count = sizeof DPZoomSteps / sizeof *DPZoomSteps;
-    if (direction > 0) {
-        next = DPZoomSteps[count - 1];
-        for (size_t i = 0; i < count; i++) if (DPZoomSteps[i] > now + 0.001) { next = DPZoomSteps[i]; break; }
-    } else if (direction < 0) {
-        next = DPZoomSteps[0];
-        for (size_t i = count; i-- > 0;) if (DPZoomSteps[i] < now - 0.001) { next = DPZoomSteps[i]; break; }
-    }
+    float next = DPZoomStep(((float (*)(id, SEL))objc_msgSend)(page, @selector(zoomFactor)), direction);
     ((void (*)(id, SEL, float))objc_msgSend)(page, @selector(setZoomFactor:), next);
     DPShowLittleDiaNotice(window, [NSString stringWithFormat:@"Zoom %d%%", (int)lroundf(next * 100)]);
 }

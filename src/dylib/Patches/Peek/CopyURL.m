@@ -12,20 +12,20 @@ static NSMenuItem *DPPeekMenuItem(NSMenu *menu, NSString *title) {
     return nil;
 }
 
-static BOOL DPPeekIsShortcut(NSEvent *event, NSString *title) {
-    NSMenuItem *item = DPPeekMenuItem(NSApp.mainMenu, title);
+BOOL DPPeekIsShortcut(NSEvent *event, NSMenuItem *item) {
     NSString *key = item.keyEquivalent;
     if (!key.length) return NO;
     NSEventModifierFlags all = NSEventModifierFlagCommand | NSEventModifierFlagShift | NSEventModifierFlagOption | NSEventModifierFlagControl;
-    NSEventModifierFlags mask = item.keyEquivalentModifierMask & all;
-    // A capital letter means Shift, whether or not the mask says so.
+    NSEventModifierFlags mask = item.keyEquivalentModifierMask & all, held = event.modifierFlags & all;
+    // A capital letter means Shift, whether or not the mask says so. The menu takes ⌘+ for the Shift that types the plus.
     if (![key isEqual:key.lowercaseString]) mask |= NSEventModifierFlagShift;
-    return (event.modifierFlags & all) == mask && DPEventIsKey(event, key);
+    if ([key isEqual:@"+"]) mask &= ~NSEventModifierFlagShift, held &= ~NSEventModifierFlagShift;
+    return held == mask && DPEventIsKey(event, key);
 }
 
 BOOL DPPeekCopyURL(DPPeekCard *peek, NSEvent *event) {
-    BOOL markdown = DPPeekIsShortcut(event, @"Copy URL as Markdown");
-    if (!markdown && !DPPeekIsShortcut(event, @"Copy URL")) return NO;
+    BOOL markdown = DPPeekIsShortcut(event, DPPeekMenuItem(NSApp.mainMenu, @"Copy URL as Markdown"));
+    if (!markdown && !DPPeekIsShortcut(event, DPPeekMenuItem(NSApp.mainMenu, @"Copy URL"))) return NO;
     NSObject *page = (NSObject *)peek.page;
     NSURL *url = [page valueForKey:@"url"];
     if (![url isKindOfClass:NSURL.class]) return NO;
