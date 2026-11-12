@@ -1,5 +1,6 @@
 #import "StdPatch/StdPatch.h"
 #import "StdPatch/Hide.h"
+#import "SafeMode/SafeMode.h"
 #include <mach-o/getsect.h>
 #include <notify.h>
 
@@ -71,6 +72,7 @@ void DPSetPatch(DPPatch *patch, BOOL on, BOOL save) {
     if (patch->on == on) return;
     patch->on = on;
     if (save) [DPDefaults setBool:on forKey:patch->key];
+    if (DPSafeMode) return;  // Nothing is installed, so the choice waits until patches are turned back on.
     if (patch->apply) patch->apply(patch);
     else DPAnimate();
     if (on && patch->ready) DPEnsureReady(patch);
@@ -119,7 +121,7 @@ NSString *DPChoice(DPPatch *patch) {
 
 void DPSetChoice(DPPatch *patch, NSString *value) {
     [DPDefaults setObject:value forKey:patch->choice];
-    if (patch->on && patch->apply) patch->apply(patch);
+    if (!DPSafeMode && patch->on && patch->apply) patch->apply(patch);
 }
 
 static int DPCompareOrder(const void *a, const void *b) {

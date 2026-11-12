@@ -98,10 +98,14 @@ void DPSetHint(NSView *view, NSString *text);
 NSString *DPHintOf(NSView *view);
 void DPShowHint(NSView *view);
 
-// Saved under the patch's `shortcut` key as @{keyCode, modifiers, key}, key being the label to show.
+// Saved under the patch's `shortcut` key as @{keyCode, modifiers, key}, key being the label to show. A label that is a letter
+// matches the key that types it, any other the keyCode.
 NSView *DPShortcutRow(DPPatch *patch);
 BOOL DPShortcutMatches(NSEvent *event, DPPatch *patch);  // NO while any field is recording.
 BOOL DPShortcutRecording(void);  // YES while a field in the key window is recording, which takes every key before Dia does.
+// Whether the key is the one that types `key`, a single character, ignoring case. Where the layout types no ASCII on the key
+// (Russian, Greek, Hebrew), it is the one in that character's place on a US keyboard.
+BOOL DPEventIsKey(NSEvent *event, NSString *key);
 
 #pragma mark Values
 
@@ -111,6 +115,12 @@ void DPSet(id object, const void *key, id value);
 // DPDiaValue returns Dia's remembered value while `current` is still ours, else `current`.
 void DPOverride(id object, const void *key, id dia, id ours);
 id DPDiaValue(id object, const void *key, id current);
+
+#pragma mark Addresses
+
+// What was typed in an address bar, as Chromium's omnibox reads it: a URL, or nil when it is words to search for. An explicit
+// scheme is kept; localhost, IP addresses and anything with a port get http; a name with a known top-level domain gets https.
+NSURL *DPAddressURL(NSString *typed);
 
 #pragma mark Extensions
 

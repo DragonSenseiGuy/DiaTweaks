@@ -1,5 +1,6 @@
 #import "Settings.h"
 #import <AVFoundation/AVFoundation.h>
+#import <ImageIO/ImageIO.h>
 #import <VideoToolbox/VideoToolbox.h>
 
 #ifndef DP_PREVIEWS
@@ -36,18 +37,32 @@ static NSArray<NSString *> *DPPreviewNames(NSString *key, NSString *layout) {
     return names;
 }
 
+// A captive portal or proxy can answer with a page where the preview should be.
+static BOOL DPIsPreview(NSData *data, NSString *name) {
+    if (data.length < 8) return NO;
+    if ([name hasSuffix:@".mp4"]) return !memcmp((const char *)data.bytes + 4, "ftyp", 4);
+    CGImageSourceRef source = CGImageSourceCreateWithData((__bridge CFDataRef)data, NULL);
+    CGImageRef image = source ? CGImageSourceCreateImageAtIndex(source, 0, NULL) : NULL;
+    BOOL decoded = image != NULL;
+    CGImageRelease(image);
+    if (source) CFRelease(source);
+    return decoded;
+}
+
 static void DPFetchPreview(NSArray<NSString *> *names, void (^done)(NSURL *file, BOOL changed)) {
     if (!names.count) return done(nil, NO);
     NSURL *cached = DPCachedPreview(names[0]);
     NSURL *url = [NSURL URLWithString:[@DP_PREVIEWS stringByAppendingString:names[0]]];
     [[NSURLSession.sharedSession dataTaskWithURL:url completionHandler:^(NSData *data, NSURLResponse *response, NSError *error) {
         NSInteger status = [(NSHTTPURLResponse *)response statusCode];
+        BOOL preview = status == 200 && DPIsPreview(data, names[0]);
         dispatch_async(dispatch_get_main_queue(), ^{
             if (error || (status != 200 && status != 404)) return done(nil, NO);
             if (status == 404) {
                 [NSFileManager.defaultManager removeItemAtURL:cached error:nil];
                 return DPFetchPreview([names subarrayWithRange:NSMakeRange(1, names.count - 1)], done);
             }
+            if (!preview) return done(nil, NO);  // The copy already cached stays.
             BOOL changed = ![[NSData dataWithContentsOfURL:cached] isEqualToData:data];
             if (changed) [data writeToURL:cached atomically:YES];
             done(cached, changed);
