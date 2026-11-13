@@ -71,6 +71,7 @@ NSArray<NSView *> *DPFindViews(const char *className);
 NSString *DPTabLayout(void);
 NSView *DPSubview(NSView *parent, const char *className);
 BOOL DPIsKind(id object, const char *className);
+BOOL DPIsFloatingChat(NSView *popover);
 BOOL DPHasLabel(NSView *view, NSString *accessibilityLabel);
 void DPRelayoutViews(NSHashTable<NSView *> *views);
 // Call before changing a frame during layout: if Dia keeps restoring it, the two loop until AppKit aborts Dia.

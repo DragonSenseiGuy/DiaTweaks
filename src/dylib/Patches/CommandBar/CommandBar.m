@@ -586,7 +586,7 @@ static void DPPopover_viewDidMoveToWindow(NSView *self, SEL _cmd) {
     DPCallOriginal(DPPopover_viewDidMoveToWindow, self);
     DPCommandBarOverlay *overlay = DPGet(self, &DPOverlayKey);
     if (overlay) return (void)DPDismissCommandBar(overlay);
-    if (!self.window || DPToolbarShowing(self.window)) return;
+    if (!self.window || DPToolbarShowing(self.window) || DPIsFloatingChat(self)) return;
     overlay = DPLiftBar(self, [DPScriptWindow(self.window) valueForKey:@"activeTab"]);
     if (overlay) DPShowWhenBuilt(overlay);
 }

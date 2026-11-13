@@ -46,6 +46,7 @@
 #define DPDiaSettingsSidebarCell "_TtC11PreferencesP33_4E27E2219272DF78406B73092738280415SidebarCellView"
 #define DPDiaPopover            "_TtCC14DynamicPopover28DynamicPopoverViewControllerP33_AB0357A1429F4D6D7F128058B713C93F8RootView"
 #define DPDiaAssistantPanel     "_TtC20AssistantPanelUIBase22AssistantPanelRootView"
+#define DPDiaChatHeader         "_TtC14AssistantPanel24AssistantPanelHeaderView"
 #define DPDiaCommandBar         "_TtC15BoostCommandBar8RootView"
 #define DPDiaCommandBarInput    "_TtC15BoostCommandBar18InputContainerView"
 #define DPDiaCommandBarText     "_TtC15BoostCommandBar17TextContainerView"
