@@ -178,7 +178,7 @@ fn notes(manifest: &Manifest, current: &[bool], wanted: &[bool]) -> Vec<String> 
     notes
 }
 
-/// Writes only what this run changed, in case something else changed the rest meanwhile.
+/// Writes only what this run changed: something else may have changed the rest meanwhile.
 fn save(env: &Env, manifest: &Manifest, current: &[bool], wanted: &[bool]) -> Result<Vec<usize>> {
     let changes: Vec<usize> = (0..wanted.len())
         .filter(|&index| current[index] != wanted[index])

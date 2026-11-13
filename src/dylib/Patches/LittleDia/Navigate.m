@@ -12,7 +12,6 @@ void DPLittleDiaGo(NSWindow *window, SEL action) {
     if ([navigation respondsToSelector:action]) ((id (*)(id, SEL))objc_msgSend)(navigation, action);
 }
 
-// Names the window's tab to the extension: Chromium's tab IDs are its session IDs.
 NSDictionary *DPLittleDiaTab(NSWindow *window, NSString *action) {
     return @{@"action" : action, @"tabId" : @(DPSessionOf(DPLittleDiaPage(window))), @"url" : DPLittleDiaURL(window)};
 }

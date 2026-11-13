@@ -2,7 +2,7 @@
 #import <Carbon/Carbon.h>
 
 static const NSEventModifierFlags DPShortcutModifiers = NSEventModifierFlagControl | NSEventModifierFlagOption | NSEventModifierFlagShift | NSEventModifierFlagCommand;
-static NSHashTable<NSView *> *DPRecorders;  // fields recording, whichever window is key
+static NSHashTable<NSView *> *DPRecorders;
 
 static NSUserDefaults *DPShortcutDefaults(void) {
     static NSUserDefaults *defaults;
@@ -45,14 +45,13 @@ BOOL DPEventIsKey(NSEvent *event, NSString *key) {
     if (key.length != 1) return NO;
     NSString *typed = event.charactersIgnoringModifiers;
     if (typed.length == 1 && [typed characterAtIndex:0] < 128) return [typed caseInsensitiveCompare:key] == NSOrderedSame;
-    // The keys of a US keyboard by key code, 0 to 50; a space is a key with no character.
+    // US keyboard by key code, 0 to 50; the space is a key with no character.
     static const char us[] = "asdfhgzxcv bqweryt123465=97-80]ou[ip lj'k;\\,/nm.  `";
     unichar c = [key.lowercaseString characterAtIndex:0];
     const char *at = c > ' ' && c < 127 ? strchr(us, c) : NULL;
     return at && event.keyCode == at - us;
 }
 
-// A shortcut shown as a letter is on the key that types it, as Settings shows it. Any other is on the key that was pressed.
 BOOL DPShortcutMatches(NSEvent *event, DPPatch *patch) {
     NSDictionary *shortcut = DPPatchShortcut(patch);
     NSString *label = shortcut[@"key"];
@@ -137,7 +136,6 @@ static NSArray<NSString *> *DPShortcutClashes(DPPatch *patch) {
     _label.stringValue = recording ? @"Type shortcut…" : text ?: @"Add new…";
     _label.textColor = text && !recording ? NSColor.labelColor : NSColor.secondaryLabelColor;
     _clear.hidden = !text || !_hovered;
-    // Worded like Dia's Shortcuts settings.
     NSArray<NSString *> *clashes = DPShortcutClashes(_patch);
     NSFont *font = [NSFont systemFontOfSize:11];
     NSMutableAttributedString *warning = [[NSMutableAttributedString alloc] initWithString:@"This shortcut conflicts with another shortcut:\n"
@@ -164,7 +162,6 @@ static NSArray<NSString *> *DPShortcutClashes(DPPatch *patch) {
 - (NSRect)focusRingMaskBounds { return self.bounds; }
 - (void)drawFocusRingMask { [[NSBezierPath bezierPathWithRoundedRect:self.bounds xRadius:6 yRadius:6] fill]; }
 
-// Tab and Shift-Tab move on, as from any field, and end recording.
 - (BOOL)moveFocus:(NSEvent *)event {
     NSEventModifierFlags flags = event.modifierFlags & DPShortcutModifiers;
     if (event.keyCode != kVK_Tab || (flags & ~NSEventModifierFlagShift)) return NO;
@@ -174,14 +171,12 @@ static NSArray<NSString *> *DPShortcutClashes(DPPatch *patch) {
     return YES;
 }
 
-// Tabbing in only focuses the field, so ⌘W there still closes the window. A click, Space or Return starts recording.
 - (void)keyDown:(NSEvent *)event {
     BOOL activate = (event.keyCode == kVK_Space || event.keyCode == kVK_Return) && !(event.modifierFlags & DPShortcutModifiers);
     if (activate) [self startRecording];
     else if (![self moveFocus:event]) [super keyDown:event];
 }
 
-// Recording takes every key before Dia's menus and other shortcuts see it.
 - (void)startRecording {
     if (_monitor) return;
     DPRecorders = DPRecorders ?: [NSHashTable weakObjectsHashTable];
@@ -197,11 +192,11 @@ static NSArray<NSString *> *DPShortcutClashes(DPPatch *patch) {
 }
 
 - (void)stopRecording {
-    BOOL recording = _monitor != nil;
-    if (_monitor) [NSEvent removeMonitor:_monitor];
+    if (!_monitor) return;
+    [NSEvent removeMonitor:_monitor];
     _monitor = nil;
     [DPRecorders removeObject:self];
-    if (recording) [self refresh];
+    [self refresh];
 }
 
 - (BOOL)resignFirstResponder {
@@ -225,7 +220,6 @@ static NSArray<NSString *> *DPShortcutClashes(DPPatch *patch) {
     if ((event.keyCode == kVK_Delete || event.keyCode == kVK_ForwardDelete) && !flags) return [self clearShortcut];
     NSString *name = DPKeyName(event);
     BOOL functionKey = name.length > 1 && [name hasPrefix:@"F"];
-    // Needs a modifier other than Shift, so plain typing isn't taken.
     if (!name || (!(flags & ~NSEventModifierFlagShift) && !functionKey)) return NSBeep();
     [DPShortcutDefaults() setObject:@{ @"keyCode" : @(event.keyCode), @"modifiers" : @(flags), @"key" : name } forKey:_patch->shortcut];
     [self.window makeFirstResponder:nil];

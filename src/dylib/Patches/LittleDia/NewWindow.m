@@ -1,15 +1,14 @@
 #import "LittleDia.h"
 
 static NSMenuItem *gItem;
-static BOOL gLooking;  // A look is waiting its turn.
+static BOOL gLookScheduled;
 static int gLooks;
 
 static NSMenu *DPFileMenu(void) { return [NSApp.mainMenu itemWithTitle:@"File"].submenu; }
 
 static BOOL DPShouldShow(void) { return DPLittleDia.on && DPLittleDiaReady(); }
 
-// After New Incognito Window. The extension is ready some time after Dia starts, and much later if Dia starts with no
-// window, so this looks again until it is: twice a second for a minute, then every 5 seconds.
+// The extension is ready some time after launch, and much later with no window, so this polls until it is.
 void DPRefreshLittleDiaNewWindow(void) {
     NSMenu *file = DPFileMenu();
     BOOL show = DPShouldShow();
@@ -20,10 +19,10 @@ void DPRefreshLittleDiaNewWindow(void) {
         }
         gItem.hidden = !show;
     }
-    if (show || !DPLittleDia.on || gLooking) return;
-    gLooking = YES;
+    if (show || !DPLittleDia.on || gLookScheduled) return;
+    gLookScheduled = YES;
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (gLooks++ < 120 ? 500 : 5000) * NSEC_PER_MSEC), dispatch_get_main_queue(), ^{
-        gLooking = NO;
+        gLookScheduled = NO;
         DPRefreshLittleDiaNewWindow();
     });
 }

@@ -2,8 +2,7 @@
 #import <arpa/inet.h>
 #import <dlfcn.h>
 
-// Schemes kept as typed without "//", as Dia's own address bar keeps them. javascript: isn't one: a bar that only
-// navigates has nothing to run it on, so it is searched for.
+// javascript: is left out on purpose: a bar that only navigates has nothing to run it on, so it is searched for.
 static BOOL DPKeepsScheme(NSString *scheme) {
     return [@[ @"about", @"chrome", @"data", @"file", @"mailto", @"view-source" ] containsObject:scheme];
 }
@@ -20,9 +19,6 @@ static BOOL DPIsIPv4(NSArray<NSString *> *labels) {
     return YES;
 }
 
-// Whether the last label is a top-level domain. CFNetwork's list is the system's own and kept current, so .dev, .app and
-// .sh count, and .js, .json and .14 don't. Some file extensions are country domains too (.md, .py, .rs), and are sites here as
-// they are in Chromium. Should the private call be gone, Foundation's link detector and the common newer domains stand in.
 static BOOL DPIsTopLevel(NSString *label) {
     static Boolean (*system)(CFStringRef);
     static NSDataDetector *links;
@@ -41,7 +37,6 @@ static BOOL DPIsTopLevel(NSString *label) {
     return [newer containsObject:label.lowercaseString] || (match && NSEqualRanges(match.range, NSMakeRange(0, host.length)));
 }
 
-// Names that only exist on a network of one's own, which speak plain HTTP like localhost does.
 static BOOL DPIsLocalName(NSString *name) {
     if ([name isEqual:@"localhost"]) return YES;
     for (NSString *suffix in @[ @".localhost", @".test", @".local", @".internal", @".lan", @".home.arpa" ]) if ([name hasSuffix:suffix]) return YES;
@@ -67,7 +62,6 @@ NSURL *DPAddressURL(NSString *typed) {
     NSString *text = [typed stringByTrimmingCharactersInSet:space];
     if (!text.length || [text rangeOfCharacterFromSet:space].location != NSNotFound) return nil;
 
-    // An explicit scheme is kept as typed.
     NSRange colon = [text rangeOfString:@":"];
     NSString *scheme = colon.location == NSNotFound ? @"" : [text substringToIndex:colon.location].lowercaseString;
     NSCharacterSet *schemeLetters = [NSCharacterSet characterSetWithCharactersInString:@"abcdefghijklmnopqrstuvwxyz0123456789+.-"];
@@ -75,10 +69,9 @@ NSURL *DPAddressURL(NSString *typed) {
         ![scheme isEqual:@"javascript"] && ([[text substringFromIndex:NSMaxRange(colon)] hasPrefix:@"//"] || DPKeepsScheme(scheme)))
         return [NSURL URLWithString:text];
 
-    // Else a host with a port, a path or a query: what comes before the first / ? or #.
     NSRange end = [text rangeOfCharacterFromSet:[NSCharacterSet characterSetWithCharactersInString:@"/?#"]];
     NSString *authority = end.location == NSNotFound ? text : [text substringToIndex:end.location], *host = authority, *port = nil;
-    if ([authority hasPrefix:@"["]) {  // [::1] or [::1]:3000
+    if ([authority hasPrefix:@"["]) {
         NSRange close = [authority rangeOfString:@"]"];
         if (close.location == NSNotFound) return nil;
         NSString *after = [authority substringFromIndex:NSMaxRange(close)];
@@ -94,14 +87,11 @@ NSURL *DPAddressURL(NSString *typed) {
         if (!DPIsPort(port)) return nil;
     }
 
-    // A name with an @ is an email address, and fails the check on its letters.
     NSString *name = host.lowercaseString;
     if ([name hasSuffix:@"."]) name = [name substringToIndex:name.length - 1];
     NSArray<NSString *> *labels = [name componentsSeparatedByString:@"."];
     for (NSString *label in labels) if (!DPIsHostLabel(label)) return nil;
 
-    // This machine or one on its network speaks plain HTTP, as does anything given a port. A name with a top-level domain is
-    // a site, tried over HTTPS because nothing here can fall back to HTTP.
     if (DPIsIPv4(labels) || DPIsLocalName(name) || port)
         return [NSURL URLWithString:[(port.integerValue == 443 ? @"https://" : @"http://") stringByAppendingString:text]];
     if (labels.count > 1 && ([name hasPrefix:@"www."] || DPIsTopLevel(labels.lastObject))) return [NSURL URLWithString:[@"https://" stringByAppendingString:text]];

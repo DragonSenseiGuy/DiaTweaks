@@ -2,8 +2,8 @@
 
 @interface DPOverviewView ()
 @property (nonatomic, strong) NSMapTable<DPPatchSwitch *, NSTextField *> *notes;
-@property (nonatomic, strong) NSMutableArray<NSArray *> *sections;  // header, group, rows
-@property (nonatomic, strong) NSMutableDictionary<NSString *, NSString *> *sectionHiders;  // "" when its tweaks don't share one
+@property (nonatomic, strong) NSMutableArray<NSArray *> *sections;
+@property (nonatomic, strong) NSMutableDictionary<NSString *, NSString *> *sectionHiders;
 @property (nonatomic, strong) NSMutableDictionary<NSString *, NSImageView *> *sectionEyes;
 @property (nonatomic, strong) NSTextField *noResults;
 @end

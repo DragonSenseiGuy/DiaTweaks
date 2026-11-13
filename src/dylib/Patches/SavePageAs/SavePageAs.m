@@ -15,10 +15,9 @@ static void DPPage_setVisibility(id self, SEL _cmd, NSInteger visibility) {
     DPCallOriginal(DPPage_setVisibility, self, visibility);
 }
 
-// The focused page, else the one under the pointer, else the only visible one; with split tabs and none of those, nil.
 static id DPFrontPage(void) {
     NSWindow *window = NSApp.keyWindow;
-    NSView *hit = [window.contentView.superview hitTest:window.mouseLocationOutsideOfEventStream];  // the frame view has no superview
+    NSView *hit = [window.contentView.superview hitTest:window.mouseLocationOutsideOfEventStream];
     id focused = nil, under = nil, only = nil;
     NSUInteger count = 0;
     for (id page in DPPages.allObjects) {

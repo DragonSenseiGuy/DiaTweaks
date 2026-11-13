@@ -1,9 +1,9 @@
 #import "EdgeToEdge.h"
 
 static char DPPathKey, DPShadowPathKey, DPPastPathsKey;
-static NSMapTable<CALayer *, NSView *> *DPPathOwners;  // masks have no superlayer to find their page by
+static NSMapTable<CALayer *, NSView *> *DPPathOwners;
 
-// Private, in on-screen order from the top left. Dia crossfades a masked page as it resizes, so radii beat a mask.
+// Private; fields in on-screen order from the top left.
 typedef struct CACornerRadii { CGSize topLeft, topRight, bottomRight, bottomLeft; } CACornerRadii;
 
 @interface CALayer (DPCornerRadii)
@@ -70,7 +70,6 @@ static void DPSetPath(CALayer *layer, NSString *key, CGPathRef path) {
     [CATransaction commit];
 }
 
-// Dia draws the page's shadow and border as full-width paths, which get the same corners.
 static void DPReshapePaths(NSView *container, CGFloat base, CGFloat grow, CGFloat left, CGFloat right) {
     for (NSView *sub in container.subviews)
         for (CALayer *sublayer in sub.layer.sublayers) {
@@ -94,7 +93,6 @@ BOOL DPBesideSidebar(NSView *container) {
     return NSMinX(container.frame) > DPWindowPadding + 1 && !DPChatCard(container);
 }
 
-// With Sidebar on Right, the page meets the sidebar on its right.
 BOOL DPSidebarOnRightOf(NSView *container) {
     static DPPatch *onRight;
     onRight = onRight ?: DPPatchNamed(@"sidebarOnRight");
@@ -102,12 +100,10 @@ BOOL DPSidebarOnRightOf(NSView *container) {
     return onRight && onRight->on && superview && NSMaxX(superview.bounds) - NSMaxX(container.frame) > DPWindowPadding + 1 && !DPChatCard(container);
 }
 
-// A full screen window has square corners, so the page squares the ones it shares with the screen.
 BOOL DPFullScreen(NSView *container) {
     return (container.window.styleMask & NSWindowStyleMaskFullScreen) && !DPChatCard(container);
 }
 
-// `base` is Dia's radius, `grow` how much rounder the page is, `left` and `right` how far each side has gone square.
 static CALayer *DPCornerShape(NSView *container, CGFloat *base, CGFloat *grow, CGFloat *left, CGFloat *right) {
     CALayer *layer = DPRoundedContent(container).layer;
     if (!layer) return nil;
@@ -115,7 +111,6 @@ static CALayer *DPCornerShape(NSView *container, CGFloat *base, CGFloat *grow, C
     BOOL onLeft = DPBesideSidebar(container), onRight = !onLeft && DPSidebarOnRightOf(container);
     *left = onLeft ? square : screen;
     *right = onRight ? square : screen;
-    // Rounder window corners don't reach the corners by the sidebar.
     CGFloat growth = DPWindowCornerGrowth(container.window), *side = onLeft ? left : onRight ? right : NULL;
     if (growth > 0 && layer.cornerRadius > 0 && side) *side = 1 - (1 - *side) * (layer.cornerRadius - growth) / layer.cornerRadius;
     *base = DPBaseCornerRadius(container) ?: layer.cornerRadius;
@@ -158,7 +153,6 @@ void DPApplySquareCorners(NSView *container) {
     DPRoundCornerControls(container);
 }
 
-// Reshaped as Dia sets them, or its corners show for a frame before layout.
 CGPathRef DPReshapeSetPath(CALayer *layer, BOOL shadow, CGPathRef path) {
     NSView *container = [DPPathOwners objectForKey:layer];
     if (!container || !path || [DPGet(layer, &DPPastPathsKey) objectForKey:(__bridge id)path]) return path;

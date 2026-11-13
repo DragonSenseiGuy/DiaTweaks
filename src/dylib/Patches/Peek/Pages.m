@@ -56,7 +56,6 @@ void DPPeekLoad(id page, NSURL *url) {
     if (url && [navigation respondsToSelector:load]) ((id (*)(id, SEL, NSURL *, NSURL *))objc_msgSend)(navigation, load, url, nil);
 }
 
-// Dia's default search engine for the profile the page belongs to, else Google.
 NSURL *DPPeekSearchURL(id page, NSString *text) {
     id factory = DPPeekFactoryFor(page, NSApp.keyWindow);
     id context = [factory respondsToSelector:@selector(preferences)] ? factory : [(NSObject *)factory valueForKey:@"context"];
@@ -68,7 +67,6 @@ NSURL *DPPeekSearchURL(id page, NSString *text) {
     if (![template isKindOfClass:NSString.class] || ![template containsString:@"{searchTerms}"] || [template containsString:@"{google:"])
         template = @"https://www.google.com/search?q={searchTerms}";
     template = [template stringByReplacingOccurrencesOfString:@"{searchTerms}" withString:query];
-    // Chromium's other placeholders, such as {inputEncoding}, mean nothing outside its omnibox.
     NSRegularExpression *rest = [NSRegularExpression regularExpressionWithPattern:@"\\{[^}]*\\}" options:0 error:nil];
     return [NSURL URLWithString:[rest stringByReplacingMatchesInString:template options:0 range:NSMakeRange(0, template.length) withTemplate:@""]];
 }
@@ -127,7 +125,7 @@ static void DPPeekFindLink(NSWindow *window, id source, NSPoint origin, NSView *
     };
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.15 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{ finish(fallback); });
     void (^answer)(NSString *, BOOL) = ^(NSString *result, BOOL ok) {
-        NSString *box = [result stringByTrimmingCharactersInSet:[NSCharacterSet characterSetWithCharactersInString:@"\""]];  // JSON-quoted
+        NSString *box = [result stringByTrimmingCharactersInSet:[NSCharacterSet characterSetWithCharactersInString:@"\""]];
         NSArray<NSString *> *parts = [box componentsSeparatedByString:@","];
         NSRect link = fallback;
         if (ok && parts.count == 4 && parts[2].doubleValue >= 1 && parts[3].doubleValue >= 1) {

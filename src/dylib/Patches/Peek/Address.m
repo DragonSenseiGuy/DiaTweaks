@@ -1,8 +1,5 @@
 #import "Patches/Peek/Peek.h"
 
-// The Peek's address, as Little Dia draws its own: "site / Page Title", and "site/path" in a soft field under the
-// pointer. A click, or ⌘L, edits the whole URL; Return loads it in the Peek, Escape doesn't. Dia's own address field
-// belongs to the tab behind the card, so it can't show or change the Peek's page.
 @interface DPPeekAddress : NSView <NSTextFieldDelegate>
 @property (nonatomic, weak) id page;
 @property (nonatomic) NSTextField *label, *field;
@@ -25,7 +22,6 @@
 
 - (BOOL)acceptsFirstMouse:(NSEvent *)event { return YES; }
 
-// The label inside would take the click for itself; while editing, the field gets it.
 - (NSView *)hitTest:(NSPoint)point {
     NSView *hit = [super hitTest:point];
     if (!hit) return nil;
@@ -79,7 +75,6 @@
     [self refresh];
 }
 
-#pragma mark Typing another address
 - (void)begin {
     if (self.field) return (void)[self.window makeFirstResponder:self.field];
     NSString *shown = [self.url.absoluteString isEqual:@"about:blank"] ? @"" : self.url.absoluteString;
@@ -110,7 +105,6 @@
     [self.field removeFromSuperview];
     self.field = nil;
     self.label.hidden = NO;
-    // Back to the Peek's page, not the tab behind it.
     for (NSView *view = self.superview; view; view = view.superview)
         if ([view isKindOfClass:DPPeekCard.class]) [self.window makeFirstResponder:((DPPeekCard *)view).host];
     self.ending = NO;

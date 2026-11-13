@@ -1,8 +1,6 @@
 #import "StdPatch/StdPatch.h"
 #include <libproc.h>
 
-// The extension asks for Apple's host by name, and Chromium prefers a user's copy of a host over the system's.
-
 extern DPPatch DPICloudPasswords;
 
 static NSString *const kAppleHost = @"/Library/Google/Chrome/NativeMessagingHosts/com.apple.passwordmanager.json";
@@ -17,10 +15,7 @@ static NSDictionary *DPHostAt(NSString *path) {
 
 static NSError *gWriteError;
 
-// Another app's manifest stays, unless it sends its extension straight to Apple's helper, as Better Passwords' does,
-// which can't start from a patched Dia, or through Open Passwords' helper, which starts it from a signed browser Dia
-// may be the only one of. The relay starts that helper for any browser, so it stands in while this is on, and the
-// other app's manifest is kept aside to put back after.
+// Replace another app's manifest only if it points at a helper a patched Dia can't start, and keep it aside to restore.
 static NSError *DPRegisterHost(NSString *name, NSString *description, NSArray<NSString *> *origins, BOOL on) {
     NSFileManager *files = NSFileManager.defaultManager;
     NSString *path = DPHostManifestPath(name), *relay = DPAppSupport(@"DiaPatches/bin/diapatch");
@@ -55,14 +50,14 @@ static void DPRegisterHosts(BOOL on) {
 }
 
 static NSString *DPICloudPasswordsProblem(DPPatch *patch) {
-    NSDictionary *apple = [NSJSONSerialization JSONObjectWithData:[NSData dataWithContentsOfFile:kAppleHost] ?: NSData.data options:0 error:nil];
-    if (![apple isKindOfClass:NSDictionary.class] || ![apple[@"path"] isKindOfClass:NSString.class] || ![NSFileManager.defaultManager isExecutableFileAtPath:apple[@"path"]])
+    NSString *apple = DPHostAt(kAppleHost)[@"path"];
+    if (![apple isKindOfClass:NSString.class] || ![NSFileManager.defaultManager isExecutableFileAtPath:apple])
         return @"This Mac doesn’t have Apple’s iCloud Passwords helper, which comes with macOS 14 and later.";
     if (gWriteError) return DPWriteProblem(DPHostManifestPath(@"com.apple.passwordmanager"), gWriteError);
     return DPRelayProblem() ?: DPHostProblem(DPHostManifestPath(@"com.apple.passwordmanager"), @"com.apple.passwordmanager");
 }
 
-// A hand-off's original Dia outlives this one by seconds, and Dia refuses to start while it runs. This runs before Dia checks.
+// The hand-off's original Dia outlives this one and blocks Dia's launch check, so this runs in install.
 static void DPStopOriginalDia(void) {
     char path[PROC_PIDPATHINFO_MAXSIZE];
     NSString *pristine = DPAppSupport(@"DiaPatches/pristine/Dia.app/Contents/MacOS/Dia").stringByResolvingSymlinksInPath;

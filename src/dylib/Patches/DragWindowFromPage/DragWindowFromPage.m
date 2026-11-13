@@ -2,10 +2,10 @@
 
 extern DPPatch DPDragWindowFromPage;
 static const CGFloat DPDragBand = 56, DPDragSlop = 3, DPDragScroller = 16;
-static const NSEventModifierFlags DPDragKeys = NSEventModifierFlagCommand | NSEventModifierFlagOption | NSEventModifierFlagControl | NSEventModifierFlagShift;  // Not Caps Lock.
+static const NSEventModifierFlags DPDragKeys = NSEventModifierFlagCommand | NSEventModifierFlagOption | NSEventModifierFlagControl | NSEventModifierFlagShift;
 static NSEvent *DPPressed;
 
-// Links and buttons show a hand and text an I-beam, so only the plain arrow drags. The page's own scrollbar and anything drawn over it, like the toolbar, are left alone.
+// The arrow cursor stands in for an empty spot: links show a hand, text an I-beam.
 static NSView *DPPageTopUnder(NSEvent *event) {
     NSWindow *window = event.window;
     if (!window || (window.styleMask & NSWindowStyleMaskFullScreen) || NSCursor.currentCursor != NSCursor.arrowCursor) return nil;
@@ -34,7 +34,7 @@ static NSEvent *DPDragMouse(NSEvent *event) {
         DPPressed = nil;
         [pressed.window performWindowDragWithEvent:pressed];
         return nil;
-    default:  // Let go without moving: it was a click after all, so the page gets it.
+    default:
         DPPressed = nil;
         if (pressed) [pressed.window sendEvent:pressed];
         return event;

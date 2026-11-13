@@ -5,7 +5,7 @@ static id DPTabState(NSView *tab) {
     return DPSwiftValue(DPSwiftValue(DPSwiftValue(tab, @"viewModel"), @"stateSubject"), @"currentValue");
 }
 
-// selectionStyle is "none" when unselected (nil on an unselected pinned tab), and above/below on the selection's neighbours.
+// selectionStyle is nil on an unselected pinned tab, "none" on other unselected tabs, above/below beside the selection.
 static BOOL DPTabSelected(NSView *tab) {
     NSString *style = [[DPSwiftValue(DPTabState(tab), @"selectionStyle") description] lowercaseString];
     return style && ![style containsString:@"none"] && ![style containsString:@"above"] && ![style containsString:@"below"];
@@ -36,7 +36,6 @@ static NSView *DPPeekOriginTab(NSWindow *window, id source) {
     return selected;
 }
 
-// Pinned tabs list no contentIDs.
 static NSString *DPPeekTabContentKey(NSView *tab) {
     NSString *state = [DPTabState(tab) description];
     NSRange mark = [state rangeOfString:@"contentIDs: ["];
@@ -57,13 +56,12 @@ static BOOL DPTabIsTop(NSView *tab) {
     return NO;
 }
 
-// Hides on hover over a sidebar tab, where Dia's close button shares its spot.
 @interface DPPeekTabBadge : NSView
 @property (nonatomic, weak) DPPeekCard *peek;
-@property (nonatomic, copy) NSString *contentKey, *frontTabID;  // frontTabID: the tab in front when the Peek opened.
+@property (nonatomic, copy) NSString *contentKey, *frontIDAtOpen;
 @property (nonatomic) BOOL pinned;
 @property (nonatomic, strong) NSTrackingArea *tabTracking;
-@property (nonatomic, weak) NSView *trackedTab;  // Where tabTracking was added, which isn't its owner.
+@property (nonatomic, weak) NSView *trackedTab;
 @property (nonatomic, strong) NSTimer *watch;
 @end
 
@@ -95,10 +93,9 @@ static BOOL DPTabIsTop(NSView *tab) {
     }
     tab = DPPeekTabWithContent(peek.window, self.contentKey);
     if (!tab) {
-        // The sidebar only builds rows near its visible area, none inside a folded folder, and none are seen while Dia is hidden.
-        // So a missing row says nothing; the tab closing or another coming to the front does, and scripting knows both.
+        // A missing row says nothing (the sidebar builds rows lazily); only the tab closing or another coming to the front does.
         NSString *front = DPActiveTabID(peek.window);
-        if (!peek.source || (self.frontTabID && front && ![front isEqual:self.frontTabID])) [self closePeek];
+        if (!peek.source || (self.frontIDAtOpen && front && ![front isEqual:self.frontIDAtOpen])) [self closePeek];
         return;
     }
     if (self.superview != tab) [tab addSubview:self];
@@ -139,8 +136,8 @@ void DPPeekShowTabBadge(DPPeekCard *peek, id source) {
     badge.peek = peek;
     badge.pinned = pinned;
     badge.contentKey = DPPeekTabContentKey(tab);
-    badge.frontTabID = DPActiveTabID(peek.window);
-    eyes.frame = NSOffsetRect(badge.bounds, 0, !pinned && top ? 2 : 0);  // The glyph sits low in a top-strip row.
+    badge.frontIDAtOpen = DPActiveTabID(peek.window);
+    eyes.frame = NSOffsetRect(badge.bounds, 0, !pinned && top ? 2 : 0);
     eyes.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
     [badge addSubview:eyes];
     [tab addSubview:badge];

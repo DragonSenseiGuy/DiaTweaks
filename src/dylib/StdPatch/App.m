@@ -5,7 +5,7 @@ void DPOnLaunch(void (^block)(void)) {
                                                 usingBlock:^(NSNotification *_) { block(); }];
 }
 
-// Dia doesn't post NSApplicationWillTerminateNotification, so a normal quit only runs atexit. Each block runs once, on whichever comes first.
+// Dia posts no WillTerminate on a normal quit, only atexit runs; each block runs once, on whichever comes first.
 static NSMutableArray<void (^)(void)> *DPQuitBlocks;
 
 static void DPRunQuitBlocks(void) {
