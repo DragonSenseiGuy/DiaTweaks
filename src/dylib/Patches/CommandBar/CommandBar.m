@@ -96,6 +96,13 @@ static void DPFocusBar(DPCommandBarOverlay *overlay) {
     if (text && overlay.host.firstResponder != text) [overlay.host makeFirstResponder:text];
 }
 
+// Dia closes ⌘L's bar when a new tab opens, which DPGoBack's return to the old tab stops.
+static void DPCloseCommandBarPopover(NSWindow *window) {
+    NSView *popover = DPFindView(window.contentView.superview, ^BOOL(NSView *view) { return DPIsKind(view, DPDiaPopover) && !DPIsFloatingChat(view); });
+    NSView *text = DPFindView(popover, ^BOOL(NSView *view) { return [view isKindOfClass:NSTextView.class]; });
+    [(NSTextView *)text doCommandBySelector:@selector(cancelOperation:)];
+}
+
 static CGFloat DPSuggestionsHeight(NSView *panel) {
     CGFloat height = DPFindView(panel, ^BOOL(NSView *view) { return DPIsKind(view, DPDiaCommandBarSuggestions); }).intrinsicContentSize.height;
     return height > 0 ? height + 8 : 0;
@@ -381,6 +388,8 @@ static id DPWatchKeys(DPCommandBarOverlay *overlay) {
 static void DPGoBack(DPCommandBarOverlay *overlay) {
     NSView *web = DPFindView(overlay.host.contentView, ^BOOL(NSView *view) { return DPIsKind(view, "WebContentsHostView") && !view.isHiddenOrHasHiddenAncestor; });
     NSView *paneHost = web.superview;
+    NSString *returnID = DPTabID(overlay.returnTab);
+    __weak DPCommandBarOverlay *weak = overlay;
     DPFocusTab(overlay.returnTab);
     if (web) {
         CFRunLoopObserverRef beforeDraw = CFRunLoopObserverCreateWithHandler(NULL, kCFRunLoopBeforeWaiting, NO, 0, ^(CFRunLoopObserverRef observer, CFRunLoopActivity activity) {
@@ -390,11 +399,16 @@ static void DPGoBack(DPCommandBarOverlay *overlay) {
                 [web.topAnchor constraintEqualToAnchor:paneHost.topAnchor], [web.bottomAnchor constraintEqualToAnchor:paneHost.bottomAnchor],
                 [web.leadingAnchor constraintEqualToAnchor:paneHost.leadingAnchor], [web.trailingAnchor constraintEqualToAnchor:paneHost.trailingAnchor],
             ]];
+            // A bar cancelled before this ran leaves focus on the pane host, which Dia took while the web view was out.
+            NSWindow *window = paneHost.window;
+            NSResponder *focus = window.firstResponder;
+            if (weak.superview || (focus != paneHost && focus != window) || ![DPActiveTabID(window) isEqual:returnID]) return;
+            NSView *page = DPFindView(web, ^BOOL(NSView *view) { return DPIsKind(view, "RenderWidgetHostViewCocoa"); });
+            if (page) [window makeFirstResponder:page];
         });
         CFRunLoopAddObserver(CFRunLoopGetMain(), beforeDraw, kCFRunLoopCommonModes);
         CFRelease(beforeDraw);
     }
-    __weak DPCommandBarOverlay *weak = overlay;
     dispatch_async(dispatch_get_main_queue(), ^{ if (weak.superview) DPFocusBar(weak); });
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 200 * NSEC_PER_MSEC), dispatch_get_main_queue(), ^{
         if (!weak.superview) return;
@@ -452,6 +466,7 @@ static DPCommandBarOverlay *DPLiftBar(NSView *page, id tabBehind) {
 
 static void DPPresentCommandBar(NSView *page, BOOL overBlank) {
     NSWindow *window = page.window;
+    DPCloseCommandBarPopover(window);
     id openedTab = [DPScriptWindow(window) valueForKey:@"activeTab"];
     NSString *openedID = DPTabID(openedTab), *returnID = DPPreviousTabID(window);
     NSArray *recent = DPGet(window, &DPRecentKey);
@@ -586,7 +601,7 @@ static void DPPopover_viewDidMoveToWindow(NSView *self, SEL _cmd) {
     DPCallOriginal(DPPopover_viewDidMoveToWindow, self);
     DPCommandBarOverlay *overlay = DPGet(self, &DPOverlayKey);
     if (overlay) return (void)DPDismissCommandBar(overlay);
-    if (!self.window || DPToolbarShowing(self.window)) return;
+    if (!self.window || DPToolbarShowing(self.window) || DPIsFloatingChat(self)) return;
     overlay = DPLiftBar(self, [DPScriptWindow(self.window) valueForKey:@"activeTab"]);
     if (overlay) DPShowWhenBuilt(overlay);
 }
