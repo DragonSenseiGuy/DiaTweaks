@@ -44,7 +44,7 @@ static void DPRegisterHost(BOOL on) {
 
 static NSString *DPBitwardenProblem(DPPatch *patch) {
     NSString *path = DPHostManifestPath();
-    if (!DPProxyPath()) return @"The Bitwarden desktop app isn’t installed. Install it, then try again.";
+    if (!DPProxyPath()) return DPTesting ? nil : @"The Bitwarden desktop app isn’t installed. Install it, then try again.";
     if (gWriteError) return DPWriteProblem(path, gWriteError);
     NSDictionary *host = DPHostAt(path);
     if (![host[@"name"] isEqual:kHost]) return [NSString stringWithFormat:@"%@ isn’t a valid host file.", path];
