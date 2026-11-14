@@ -96,6 +96,13 @@ static void DPFocusBar(DPCommandBarOverlay *overlay) {
     if (text && overlay.host.firstResponder != text) [overlay.host makeFirstResponder:text];
 }
 
+// Dia closes ⌘L's bar when a new tab opens, which DPGoBack's return to the old tab stops.
+static void DPCloseCommandBarPopover(NSWindow *window) {
+    NSView *popover = DPFindView(window.contentView.superview, ^BOOL(NSView *view) { return DPIsKind(view, DPDiaPopover) && !DPIsFloatingChat(view); });
+    NSView *text = DPFindView(popover, ^BOOL(NSView *view) { return [view isKindOfClass:NSTextView.class]; });
+    [(NSTextView *)text doCommandBySelector:@selector(cancelOperation:)];
+}
+
 static CGFloat DPSuggestionsHeight(NSView *panel) {
     CGFloat height = DPFindView(panel, ^BOOL(NSView *view) { return DPIsKind(view, DPDiaCommandBarSuggestions); }).intrinsicContentSize.height;
     return height > 0 ? height + 8 : 0;
@@ -459,6 +466,7 @@ static DPCommandBarOverlay *DPLiftBar(NSView *page, id tabBehind) {
 
 static void DPPresentCommandBar(NSView *page, BOOL overBlank) {
     NSWindow *window = page.window;
+    DPCloseCommandBarPopover(window);
     id openedTab = [DPScriptWindow(window) valueForKey:@"activeTab"];
     NSString *openedID = DPTabID(openedTab), *returnID = DPPreviousTabID(window);
     NSArray *recent = DPGet(window, &DPRecentKey);
