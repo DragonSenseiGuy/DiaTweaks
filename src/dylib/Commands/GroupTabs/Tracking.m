@@ -104,9 +104,10 @@ NSArray *DPTrackedContents(id browser) {
     return contents;
 }
 
+// Discarding a page gives it a new session, but Dia's tabs keep the one it had when it opened.
 long long DPSessionOf(id contents) {
-    long long sid = DPContentsSession(contents);
-    return sid > 0 ? sid : DPLongID(DPGet(contents, &DPSessionKey));
+    long long sid = DPLongID(DPGet(contents, &DPSessionKey));
+    return sid > 0 ? sid : DPContentsSession(contents);
 }
 
 void DPInstallGroupTabs(void) {
