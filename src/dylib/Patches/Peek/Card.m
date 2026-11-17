@@ -87,8 +87,10 @@ static NSRect DPPeekCardRect(NSRect area) { return NSInsetRect(area, NSWidth(are
 }
 
 - (void)handOver {
+    NSWindow *window = self.window;
     [self stopWatching];
     [self removeFromSuperview];
+    [window resetCursorRects];
     // The card must be off screen before the page detaches, or it flashes blank.
     if (self.grown < 1) [CATransaction flush];
     [self.page detachFromPaneHostView:self.host];
@@ -254,6 +256,7 @@ DPPeekCard *DPPeekShowCard(NSWindow *window, id<DPPeekPage> page, NSView *warmHo
     [holder addSubview:peek positioned:NSWindowAbove relativeTo:nil];
     [peek layoutSubtreeIfNeeded];
     if (!warmHost) [page attachToPaneHostView:host];
+    [window resetCursorRects];
     [window makeFirstResponder:host];
     if (pane) {
         pane.postsFrameChangedNotifications = YES;

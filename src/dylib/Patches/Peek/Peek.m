@@ -114,6 +114,7 @@ void DPPeekOpenDragged(NSURL *url, NSPoint origin) {
 static void DPInstallPeek(void) {
     DPPeekInstallPages();
     DPPeekInstallZoom();
+    DPPeekInstallCursor();
     DPOnLaunch(^{
         DPHook(DPDiaWebContent, @selector(webContents:didCreateNewWebContent:targetURL:disposition:), (IMP)DPWebContent_didCreate);
         DPHook(DPDiaWebContent, @selector(webContents:decidePolicyForNavigationAction:), (IMP)DPWebContent_decidePolicy);
