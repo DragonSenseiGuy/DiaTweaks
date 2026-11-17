@@ -91,3 +91,4 @@ void DPPeekWarm(NSWindow *window, id source, NSURL *url);
 void DPPeekCool(void);
 void DPPeekOpenDragged(NSURL *url, NSPoint origin);
 BOOL DPPeekIsWeb(NSURL *url);
+BOOL DPPeekOverLink(id page, NSURL *url);  // The pointer is on a link to url in page.
