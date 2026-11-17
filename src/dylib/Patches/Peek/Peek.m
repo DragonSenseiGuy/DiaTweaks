@@ -75,7 +75,11 @@ static NSInteger DPWebContent_decidePolicy(id self, SEL _cmd, id webContents, id
         NSInteger policy = DPCallOriginal(DPWebContent_decidePolicy, self, webContents, action);
         BOOL peeks = DPPeek.on && DPPeekPinnedLinks.on, little = DPLittleDia.on && DPLittleDiaTabLinks.on;
         if (!peeks && !little) return policy;
-        BOOL leaves = DPPeekLeavesPinnedRow(webContents, action, disposition, policy);
+        NSURL *url = [action valueForKey:@"url"];
+        // A new tab asked for by a page's own script has no link under the pointer, and would lose its opener in Little Dia.
+        BOOL clicked = disposition != DPForegroundTab || DPPeekOverLink(webContents, url);
+        // Finding a pinned row builds a menu. Without Peek's pinned links, Little Dia needs it only for a clicked link that Dia keeps in the tab.
+        BOOL leaves = (peeks || (clicked && policy == DPCurrentTab)) && DPPeekLeavesPinnedRow(webContents, action, disposition, policy);
         if (!leaves && policy == DPForegroundTab) {
             // Ask Dia as if the link stayed in the tab: only an icon-only pinned tab turns that into a new tab.
             leaves = disposition == DPCurrentTab;
@@ -85,9 +89,6 @@ static NSInteger DPWebContent_decidePolicy(id self, SEL _cmd, id webContents, id
                 leaves = DPCallOriginal(DPWebContent_decidePolicy, self, webContents, staying) == DPForegroundTab;
             }
         }
-        NSURL *url = [action valueForKey:@"url"];
-        // A new tab asked for by a page's own script has no link under the pointer, and would lose its opener in Little Dia.
-        BOOL clicked = disposition != DPForegroundTab || DPPeekOverLink(webContents, url);
         if ((policy == DPForegroundTab || leaves) && clicked && DPLittleDiaTakesTabLink(webContents, url, leaves)) return DPIgnoreAction;
         if (!peeks || !leaves || !DPPeekIsWeb(url) || !DPPeekCanOpen(webContents)) return policy;
         DPPeekOpenLater(self, webContents, url);

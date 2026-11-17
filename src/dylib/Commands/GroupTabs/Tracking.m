@@ -85,6 +85,8 @@ static id DPFrontBrowser(NSWindow *window, NSArray *browsers) {
 
 id DPBrowserOfWindow(NSWindow *window) { return DPFrontBrowser(window, DPBrowsers.allObjects); }
 
+id DPBrowserOfContents(id contents) { return [DPBrowserByContents objectForKey:contents]; }
+
 id DPCommandBrowser(void) {
     NSMutableArray *ready = [NSMutableArray new];
     for (id browser in DPBrowsers.allObjects)

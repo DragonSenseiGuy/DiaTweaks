@@ -18,19 +18,19 @@ static NSURL *DPPageURL(id page) {
 // showing its address, and only when no other tab shows it too.
 static BOOL DPOnPinnedIcon(id page) {
     NSString *url = DPPageURL(page).absoluteString;
-    BOOL pinnedHere = NO, openHere = NO;
+    BOOL pinnedHere = NO;
     for (id window in DPList(NSApp.delegate, @selector(appleScriptWindows)))
         for (id tab in DPList(window, @selector(appleScriptTabs))) {
             NSString *address = [tab respondsToSelector:@selector(URL)] ? DPText(DPMsg(tab, @selector(URL))) : nil;
             if (!url.length || ![address isEqual:url]) continue;
-            if ([tab respondsToSelector:@selector(isPinned)] && DPMsgBool(tab, @selector(isPinned))) pinnedHere = YES;
-            else openHere = YES;
+            if (![tab respondsToSelector:@selector(isPinned)] || !DPMsgBool(tab, @selector(isPinned))) return NO;
+            pinnedHere = YES;
         }
-    return pinnedHere && !openHere;
+    return pinnedHere;
 }
 
 // Scripting calls only the icons pinned; a pinned row says so in its menu.
-static BOOL DPFromPinnedTab(id page) { return DPOnPinnedIcon(page) || DPPeekInPinnedRow(NSApp.keyWindow, page); }
+static BOOL DPFromPinnedTab(id page) { return DPPeekInPinnedRow(NSApp.keyWindow, page) || DPOnPinnedIcon(page); }
 
 static BOOL DPInLittleDia(id page) {
     for (NSWindow *window in NSApp.windows)
@@ -43,9 +43,8 @@ static BOOL DPPlainClick(void) {
     return !(NSEvent.modifierFlags & held);
 }
 
-// Little Dia opens through the front browser. That has to be the clicked window's own, and never a private one: a private window's link must not land in the normal profile.
-static BOOL DPOpensInOwnProfile(void) {
-    id browser = DPBrowserOfWindow(NSApp.keyWindow);
+// Little Dia opens through the front browser. That has to be the clicked page's own, and never a private one: a private window's link must not land in the normal profile.
+static BOOL DPOpensInOwnProfile(id browser) {
     id context = [browser respondsToSelector:@selector(context)] ? DPMsg(browser, @selector(context)) : nil;
     id contextID = [context respondsToSelector:@selector(id)] ? DPMsg(context, @selector(id)) : nil;
     return browser && browser == DPCommandBrowser() && [contextID respondsToSelector:@selector(isIncognito)] && !DPMsgBool(contextID, @selector(isIncognito));
@@ -54,9 +53,10 @@ static BOOL DPOpensInOwnProfile(void) {
 BOOL DPLittleDiaTakesTabLink(id page, NSURL *url, BOOL leavesPinned) {
     if (!DPLittleDia.on || !DPLittleDiaTabLinks.on || !DPPeekIsWeb(url) || !DPPlainClick() || !DPLittleDiaReady()) return NO;
     if (!page || DPInLittleDia(page) || DPPeekShows(page) || !DPPeekIsWeb(DPPageURL(page))) return NO;  // Not an extension's or Dia's own page.
-    if (!DPOpensInOwnProfile()) return NO;
+    id browser = DPBrowserOfContents(page);  // The page's own: the key window can be another one.
+    if (!DPOpensInOwnProfile(browser)) return NO;
     if (!leavesPinned && ![DPChoice(&DPLittleDiaTabLinks) isEqual:DPFromAllTabs] && !DPFromPinnedTab(page)) return NO;
-    NSWindow *source = NSApp.keyWindow;  // Where the click was; noted now, as Little Dia becomes key next.
+    NSWindow *source = DPBrowserWindow(browser);  // Where the click was; noted now, as Little Dia becomes key next.
     dispatch_async(dispatch_get_main_queue(), ^{ DPOpenTabLinkInLittleDia(url, source); });  // Not from inside Chromium's callback.
     return YES;
 }
