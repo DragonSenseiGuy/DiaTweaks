@@ -15,12 +15,6 @@ static BOOL DPPeekWanted(NSInteger disposition) {
     return DPPeek.on && !DPPeekGiving && elsewhere && mods == NSEventModifierFlagShift;  // Exactly Shift: ⌘⇧-click and ⌥⇧-click keep their meaning.
 }
 
-static NSString *DPPeekLinkKey(NSString *address) {
-    for (NSString *scheme in @[ @"https://", @"http://" ])
-        if ([address hasPrefix:scheme]) address = [address substringFromIndex:scheme.length];
-    return [address hasSuffix:@"/"] ? [address substringToIndex:address.length - 1] : address;
-}
-
 // The page clears the status as a click starts, before Dia is asked what to do with it, so the link under the pointer at mouse-down counts.
 BOOL DPPeekOverLink(id page, NSURL *url) {
     NSString *key = url ? DPPeekLinkKey(url.absoluteString) : nil;

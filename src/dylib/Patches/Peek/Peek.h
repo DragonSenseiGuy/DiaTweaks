@@ -92,3 +92,4 @@ void DPPeekCool(void);
 void DPPeekOpenDragged(NSURL *url, NSPoint origin);
 BOOL DPPeekIsWeb(NSURL *url);
 BOOL DPPeekOverLink(id page, NSURL *url);  // The pointer is on a link to url in page.
+NSString *DPPeekLinkKey(NSString *address);  // Same for a link's URL and for the status text Dia shows over it.
