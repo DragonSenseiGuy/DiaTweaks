@@ -56,6 +56,9 @@ build/vertical-tab-glow: tests/vertical-tab-glow.m $(wildcard src/dylib/Patches/
 build/peek-cursor: tests/peek-cursor.m src/dylib/Patches/Peek/Cursor.m src/dylib/Patches/Peek/Peek.h src/dylib/StdPatch/Hook.m $(wildcard src/dylib/StdPatch/*.h) | build
 	clang $(CFLAGS) -Isrc/dylib -framework AppKit -o $@ $<
 
+build/hook-table: tests/hook-table.m src/dylib/StdPatch/Hook.m $(wildcard src/dylib/StdPatch/*.h) | build
+	clang $(CFLAGS) -fsanitize=address -Isrc/dylib -framework AppKit -o $@ $<
+
 TIDY := src/dylib/Patches/TidyTabs/Tabs.m src/dylib/Patches/CommandBar/Tabs.m src/dylib/Commands/GroupTabs/Messages.m
 
 build/tidy-tabs: tests/tidy-tabs.m $(TIDY) | build
@@ -67,7 +70,7 @@ build/drag-offset: tests/drag-offset.m src/dylib/Patches/CompactTabRows/CompactT
 build/launch-flags: tests/launch-flags.m src/dylib/StdPatch/Extensions.m src/dylib/StdPatch/Hook.m $(wildcard src/dylib/StdPatch/*.h) | build
 	clang $(CFLAGS) -Isrc/dylib -framework AppKit -o $@ tests/launch-flags.m src/dylib/StdPatch/Hook.m
 
-check: build/diapatch build/group-tabs build/tidy-tabs build/mouse-back-forward build/vertical-tab-glow build/split-client-hello build/peek-cursor build/drag-offset build/launch-flags build/patches.json
+check: build/diapatch build/group-tabs build/mouse-back-forward build/vertical-tab-glow build/split-client-hello build/peek-cursor build/hook-table build/tidy-tabs build/drag-offset build/launch-flags build/patches.json
 	tests/tweaks-update
 	build/group-tabs
 	build/tidy-tabs
@@ -75,6 +78,7 @@ check: build/diapatch build/group-tabs build/tidy-tabs build/mouse-back-forward 
 	build/vertical-tab-glow
 	build/split-client-hello
 	build/peek-cursor
+	build/hook-table
 	build/drag-offset
 	build/launch-flags
 	tests/sidebar-grain
