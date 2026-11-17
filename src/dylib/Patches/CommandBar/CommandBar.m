@@ -1,5 +1,6 @@
 #import "StdPatch/StdPatch.h"
 #import "Patches/CommandBar/Tabs.h"
+#import "Patches/CommandBar/AutoPip.h"
 #import "Patches/CompactCommandBar/CompactCommandBar.h"
 
 extern DPPatch DPCommandBar, DPCommandBarBlur, DPCommandBarDarken, DPCommandBarShadow, DPCommandBarInteractive, DPCommandBarKeepText;
@@ -567,7 +568,9 @@ static void DPCapability_mouseDown(NSView *self, SEL _cmd, NSEvent *event) {
 
 static void DPNewTabButton_mouseDown(NSView *self, SEL _cmd, NSEvent *event) {
     DPSet(self.window, &DPClosedAtKey, nil);
-    if (!DPOpenOverBlank(self.window)) DPCallOriginal(DPNewTabButton_mouseDown, self, event);
+    if (DPOpenOverBlank(self.window)) return;
+    DPHoldAutoPip();
+    DPCallOriginal(DPNewTabButton_mouseDown, self, event);
 }
 
 static NSEvent *DPCommandBarKey(NSEvent *event) {
@@ -724,6 +727,7 @@ static NSString *DPVerifyCommandBar(DPPatch *patch) {
 
 static void DPInstallCommandBar(void) {
     [NSEvent addLocalMonitorForEventsMatchingMask:NSEventMaskKeyDown handler:^NSEvent *(NSEvent *event) { return DPCommandBarKey(event); }];
+    DPInstallAutoPipHold();
     DPHook(DPDiaPopover, @selector(viewDidMoveToWindow), (IMP)DPPopover_viewDidMoveToWindow);
     DPHook(DPDiaPopover, @selector(hitTest:), (IMP)DPPopover_hitTest);
     DPHook(DPDiaNewTabButton, @selector(mouseDown:), (IMP)DPNewTabButton_mouseDown);
