@@ -136,8 +136,13 @@ static NSDragOperation DPTabList_updated(NSView *self, SEL _cmd, id<NSDraggingIn
     DPPlaceDraggedTab();
     return operation;
 }
-static BOOL DPTabList_prepare(NSView *self, SEL _cmd, id<NSDraggingInfo> info) { return DPCallOriginal(DPTabList_prepare, self, DPDiaDrag(self, info)); }
-static BOOL DPTabList_perform(NSView *self, SEL _cmd, id<NSDraggingInfo> info) { return DPCallOriginal(DPTabList_perform, self, DPDiaDrag(self, info)); }
+// A drop places nothing, so what it handed down must not wait for the next drag to place a tab by it.
+static BOOL DPDropped(BOOL result) {
+    DPDragHandedSet = NO;
+    return result;
+}
+static BOOL DPTabList_prepare(NSView *self, SEL _cmd, id<NSDraggingInfo> info) { return DPDropped(DPCallOriginal(DPTabList_prepare, self, DPDiaDrag(self, info))); }
+static BOOL DPTabList_perform(NSView *self, SEL _cmd, id<NSDraggingInfo> info) { return DPDropped(DPCallOriginal(DPTabList_perform, self, DPDiaDrag(self, info))); }
 
 static void DPGroupCell_layout(NSView *self, SEL _cmd) {
     DPCallOriginal(DPGroupCell_layout, self);

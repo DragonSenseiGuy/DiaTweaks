@@ -56,16 +56,20 @@ build/vertical-tab-glow: tests/vertical-tab-glow.m $(wildcard src/dylib/Patches/
 build/peek-cursor: tests/peek-cursor.m src/dylib/Patches/Peek/Cursor.m src/dylib/Patches/Peek/Peek.h src/dylib/StdPatch/Hook.m $(wildcard src/dylib/StdPatch/*.h) | build
 	clang $(CFLAGS) -Isrc/dylib -framework AppKit -o $@ $<
 
+build/drag-offset: tests/drag-offset.m src/dylib/Patches/CompactTabRows/CompactTabRows.m src/dylib/StdPatch/Hook.m src/dylib/StdPatch/Views.m $(wildcard src/dylib/StdPatch/*.h) | build
+	clang $(CFLAGS) -Isrc/dylib -framework AppKit -o $@ tests/drag-offset.m src/dylib/StdPatch/Hook.m src/dylib/StdPatch/Views.m
+
 build/launch-flags: tests/launch-flags.m src/dylib/StdPatch/Extensions.m src/dylib/StdPatch/Hook.m $(wildcard src/dylib/StdPatch/*.h) | build
 	clang $(CFLAGS) -Isrc/dylib -framework AppKit -o $@ tests/launch-flags.m src/dylib/StdPatch/Hook.m
 
-check: build/diapatch build/group-tabs build/mouse-back-forward build/vertical-tab-glow build/split-client-hello build/peek-cursor build/launch-flags build/patches.json
+check: build/diapatch build/group-tabs build/mouse-back-forward build/vertical-tab-glow build/split-client-hello build/peek-cursor build/drag-offset build/launch-flags build/patches.json
 	tests/tweaks-update
 	build/group-tabs
 	build/mouse-back-forward
 	build/vertical-tab-glow
 	build/split-client-hello
 	build/peek-cursor
+	build/drag-offset
 	build/launch-flags
 	tests/sidebar-grain
 	scripts/check-patches
