@@ -10,6 +10,7 @@
 #define DPDiaSidebarController  "_TtC10TabSidebar30SidebarContainerViewController"
 #define DPDiaTabStripController "_TtC8TabStrip31TabStripContainerViewController"
 #define DPDiaTabStrip           "_TtCC8TabStrip31TabStripContainerViewControllerP33_466228EC43BE4F33691D8E9BB7BFDE208RootView"
+#define DPDiaTabStripTabs       "TabStrip.TabStripContainerView"
 #define DPDiaWindowBackground   "_TtGC5ARCUI25WindowFrameBackgroundViewC15WindowTreatment24WindowBackgroundBaseView_"
 #define DPDiaWindow             "_TtC6Window14PlatformWindow"
 #define DPDiaLibraryButton      "_TtC10DiaLibrary17LibraryButtonView"
@@ -33,6 +34,7 @@
 #define DPDiaBrowserDelegate    "_TtC3ADK15ChromiumBrowser"
 #define DPDiaWebContents        "ArcWebContents"
 #define DPDiaNavigationController "ArcWebContentsNavigationController"
+#define DPDiaMediaSession       "ArcWebContentsMediaSession"
 #define DPDiaTabGroupProperties "ArcTabGroupProperties"
 #define DPDiaTabSwitcher        "_TtC10RecentTabs26RecentTabsWindowController"
 #define DPDiaTabSwitcherList    "_TtC10RecentTabs24RecentTabsViewController"
@@ -75,6 +77,7 @@
 #define DPDiaSkillsSuggestions  "_TtC17SkillsSuggestions21SkillsSuggestionsView"
 #define DPDiaNewTabButton       "_TtC7TabList14NewTabCellView"
 #define DPDiaBrowserContext     "ArcBrowserContext"
+#define DPDiaRenderWidget       "RenderWidgetHostViewCocoa"
 #define DPDiaWebContentsConfiguration "ArcWebContentsConfiguration"
 #define DPDiaWebContent         "_TtC3ADK18WebContentChromium"  // A Swift class: look it up after launch.
 #define DPDiaTabList            "_TtC7TabList11TabListView"
