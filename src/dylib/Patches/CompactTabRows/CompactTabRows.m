@@ -21,6 +21,16 @@ static CGFloat DPRowHeight(NSArray<NSCollectionViewLayoutAttributes *> *all) {
 
 static char DPMovesKey;
 
+typedef void (*DPHeightHandler)(double height, void *context __attribute__((swift_context))) __attribute__((swiftcall));
+
+// A group's card is sized when its list reports its height, and Dia reports it only when it sets the height, not when we lower it.
+static void DPReportHeight(NSCollectionViewLayout *layout, double height) {
+    NSView *list = layout.collectionView;
+    while (list && !DPIsKind(list, DPDiaTabList)) list = list.superview;
+    void **handler = list ? DPIvar(list, "onPreferredHeightUpdated") : NULL;
+    if (handler && handler[0]) ((DPHeightHandler)handler[0])(height + layout.collectionView.enclosingScrollView.contentInsets.top, handler[1]);
+}
+
 static void DPLayout_prepareLayout(NSCollectionViewLayout *self, SEL _cmd) {
     DPCallOriginal(DPLayout_prepareLayout, self);
     if (!DPCompactTabRows.on) return DPSet(self, &DPMovesKey, nil);
@@ -47,6 +57,7 @@ static void DPLayout_prepareLayout(NSCollectionViewLayout *self, SEL _cmd) {
     }
     *contentHeight -= cut * rows.count;
     DPSet(self, &DPMovesKey, moves);
+    DPReportHeight(self, *contentHeight);
 }
 
 // Collapse Pinned's hooks install after these, so run first and have already taken its header out of the point.
