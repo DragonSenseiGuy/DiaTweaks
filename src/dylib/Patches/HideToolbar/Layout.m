@@ -50,7 +50,7 @@ NSString *DPVerifyKeptInPlace(DPPatch *patch) {
     for (NSView *pane in DPFindViews(DPDiaContentPane)) {
         DPToolbarHover *hover = [DPToolbarHover forPane:pane];
         NSView *bar = DPSubview(pane, DPDiaToolbar);
-        if (!DPHideToolbar.on || !bar || bar.hiddenOrHasHiddenAncestor || hover.revealed) continue;
+        if (!DPHideToolbar.on || !bar || bar.hiddenOrHasHiddenAncestor || hover.revealed || DPToolbarHasPermissionRequest(hover)) continue;
         BOOL kept = DPKeptInPlace(pane);
         if (kept && bar.alphaValue < 0.99) return @"toolbar stays hidden where an option keeps it";
         if (!kept && bar.alphaValue > 0.01) return @"toolbar shows where nothing keeps it";
@@ -58,7 +58,9 @@ NSString *DPVerifyKeptInPlace(DPPatch *patch) {
     return nil;
 }
 
-static CGFloat DPHidden(DPToolbarHover *hover) { return DPHideToolbar.progress * (1 - hover.inPlaceProgress); }
+static CGFloat DPHidden(DPToolbarHover *hover) {
+    return DPToolbarHasPermissionRequest(hover) ? 0 : DPHideToolbar.progress * (1 - hover.inPlaceProgress);
+}
 
 void DPApplyToolbarOpacity(DPToolbarHover *hover) {
     CGFloat alpha = DPLittleDiaIsOver(hover.pane.window) ? 0 : 1 - DPHidden(hover) * (1 - hover.progress);
