@@ -4,7 +4,7 @@
 #import "Patches/CompactCommandBar/CompactCommandBar.h"
 
 extern DPPatch DPCommandBar, DPCommandBarBlur, DPCommandBarDarken, DPCommandBarShadow, DPCommandBarInteractive, DPCommandBarKeepText;
-static char DPOverlayKey, DPHomeKey, DPRecentKey, DPBlankKey, DPSplitKey, DPOwnBarKey, DPLeftTextKey, DPClosedAtKey;
+static char DPOverlayKey, DPHomeKey, DPRecentKey, DPBlankKey, DPSplitKey, DPOwnBarKey, DPLeftTextKey, DPClosedAtKey, DPSeenKey;
 
 static NSString *const DPHeightKey = @"commandBarHeight", *const DPDarknessKey = @"commandBarDarkness",
                 *const DPBlurRadiusKey = @"commandBarBlurRadius", *const DPBlurWindowKey = @"commandBarBlurWindow",
@@ -59,8 +59,18 @@ static BOOL DPIsShortcut(NSEvent *event, NSString *menuTitle) {
         && [event.charactersIgnoringModifiers caseInsensitiveCompare:item.keyEquivalent] == NSOrderedSame;
 }
 
-static NSString *DPNoteActiveTab(NSWindow *window, id scriptWindow) {
+// Tabs a window had when it was first noted or that have been in front, and tabs left on Dia's own page: the replacement for a closed last tab is made as it closes, so it is none of them.
+static NSMutableSet<NSString *> *DPSeenTabs, *DPKeptTabs;
+
+static NSString *DPNoteActiveTab(NSWindow *window, id scriptWindow, BOOL *seen) {
     NSString *active = DPActiveTabIDIn(scriptWindow);
+    DPSeenTabs = DPSeenTabs ?: [NSMutableSet set];
+    if (scriptWindow && !DPGet(window, &DPSeenKey)) {
+        DPSet(window, &DPSeenKey, @YES);
+        for (id tab in [scriptWindow valueForKey:@"appleScriptTabs"]) [DPSeenTabs addObject:DPTabID(tab) ?: @""];
+    }
+    if (seen) *seen = active && [DPSeenTabs containsObject:active];
+    if (active) [DPSeenTabs addObject:active];
     NSArray *recent = DPGet(window, &DPRecentKey);
     if (active && ![recent.lastObject isEqual:active]) DPSet(window, &DPRecentKey, recent.count ? @[ recent.lastObject, active ] : @[ active ]);
     return active;
@@ -270,10 +280,9 @@ static void DPHidePage(NSView *page, BOOL hidden) {
         if (DPIsKind(view, DPDiaContentPane)) view.needsLayout = YES;
 }
 
-static void DPMakeBlank(NSView *page) {
-    NSString *active = DPActiveTabID(page.window);
-    if (!active) return;
-    [DPBlanks(page.window) addObject:active];
+static void DPMakeBlank(NSView *page, NSString *tab) {
+    if (!tab || DPInSplit(page)) return;
+    [DPBlanks(page.window) addObject:tab];
     DPSet(page, &DPBlankKey, @YES);
     DPHidePage(page, YES);
 }
@@ -317,7 +326,7 @@ static void DPCancelCommandBar(DPCommandBarOverlay *overlay) {
     id tab = DPDismissCommandBar(overlay);
     if (!tab) return;
     // Closing a window's only tab would close the window, and Dia with it.
-    if (overBlank || nowhereToGo) DPMakeBlank(page);
+    if (overBlank || nowhereToGo) DPMakeBlank(page, DPTabID(tab));
     else DPCloseTab(tab);
 }
 
@@ -483,14 +492,13 @@ static void DPPresentCommandBar(NSView *page, BOOL overBlank) {
     NSArray *recent = DPGet(window, &DPRecentKey);
     if (![recent.lastObject isEqual:openedID]) returnID = recent.lastObject;
     id returnTab = overBlank || !returnID ? nil : DPScriptTabIn(scriptWindow, returnID);
-    static NSMutableSet<NSString *> *keptIDs;
-    keptIDs = keptIDs ?: [NSMutableSet set];
-    BOOL hasPage = openedID && !overBlank && (DPHasURL(openedTab) || [keptIDs containsObject:openedID]);
-    BOOL returnsToPage = returnTab && [keptIDs containsObject:returnID] && !DPHasURL(returnTab);
+    DPKeptTabs = DPKeptTabs ?: [NSMutableSet set];
+    BOOL hasPage = openedID && !overBlank && (DPHasURL(openedTab) || [DPKeptTabs containsObject:openedID]);
+    BOOL returnsToPage = returnTab && [DPKeptTabs containsObject:returnID] && !DPHasURL(returnTab);
     // Back, switching tabs and moving a tab bring its new tab page back: a tab that had a page keeps Dia's own, and a new tab from one showing it does, as going back would put that page under the bar.
     // Going back to a split while Dia is still switching tabs crashes it, so new tabs in or from one keep Dia's own page.
     if (hasPage || returnsToPage || DPInSplit(page) || (!overBlank && [DPSplits(window) containsObject:returnID])) {
-        if (openedID) [keptIDs addObject:openedID];
+        if (openedID) [DPKeptTabs addObject:openedID];
         return (void)DPSet(page, &DPOwnBarKey, @YES);
     }
     DPCommandBarOverlay *overlay = openedTab ? DPLiftBar(page, returnTab) : nil;
@@ -537,7 +545,7 @@ static void DPCloseLeftBlank(NSWindow *window) {
     id blank = DPScriptTabIn(scriptWindow, previous);
     if (!blank || !DPScriptTabIn(scriptWindow, latest)) return;
     [blanks removeObject:previous];
-    DPCloseTab(blank);
+    if (!DPHasURL(blank)) DPCloseTab(blank);
 }
 
 #pragma mark Hooks
@@ -650,7 +658,7 @@ static void DPContentPane_viewDidMoveToWindow(NSView *self, SEL _cmd) {
     __weak NSWindow *window = self.window;
     if (!window) return;
     id scriptWindow = DPScriptWindow(window);
-    NSString *active = DPNoteActiveTab(window, scriptWindow);
+    NSString *active = DPNoteActiveTab(window, scriptWindow, NULL);
     if (active && DPInSplit(self)) [DPSplits(window) addObject:active];
     else if (active) [DPSplits(window) removeObject:active];
     DPCommandBarOverlay *overlay = DPGet(window, &DPOverlayKey);
@@ -663,7 +671,8 @@ static void DPNewTabPage_viewDidMoveToWindow(NSView *self, SEL _cmd) {
     NSWindow *window = self.window;
     if (!window) return;
     id scriptWindow = DPScriptWindow(window);
-    NSString *active = DPNoteActiveTab(window, scriptWindow);
+    BOOL seen;
+    NSString *active = DPNoteActiveTab(window, scriptWindow, &seen);
     if (!DPCommandBar.on) return;
     NSString *previous = DPPreviousTabID(window);
     NSMutableSet<NSString *> *blanks = DPBlanks(window);
@@ -677,8 +686,13 @@ static void DPNewTabPage_viewDidMoveToWindow(NSView *self, SEL _cmd) {
     DPSet(window, &DPClosedAtKey, nil);
     BOOL justClosed = closedAt && NSProcessInfo.processInfo.systemUptime - closedAt.doubleValue < 1;
     BOOL closing = DPIsShortcut(NSApp.currentEvent, @"Close Tab") || justClosed || (previous && !DPScriptTabIn(scriptWindow, previous));
-    if (active && ([blanks containsObject:active] || closing)) {
-        DPMakeBlank(self);
+    BOOL wasBlank = [blanks containsObject:active];
+    if (active && (wasBlank || closing)) {
+        // A tab Dia lands on after a close, or brings back to its own page, isn't the closed tab's replacement: it keeps its page, and no bar goes back to the closing tab.
+        if (!wasBlank && (seen || DPInSplit(self))) {
+            [DPKeptTabs addObject:active];
+            DPSet(self, &DPOwnBarKey, @YES);
+        } else DPMakeBlank(self, active);
         if (overlay.returnTab && !DPScriptTabIn(scriptWindow, DPTabID(overlay.returnTab))) DPCancelCommandBar(overlay);
         return;
     }
@@ -686,7 +700,8 @@ static void DPNewTabPage_viewDidMoveToWindow(NSView *self, SEL _cmd) {
     id blank = [blanks containsObject:previous] ? DPScriptTab(window, previous) : nil;
     if (blank) {
         [blanks removeObject:previous];
-        DPCloseTab(blank);
+        if (DPHasURL(blank)) blank = nil;
+        else DPCloseTab(blank);
     }
     // The bar takes its size from the page, which has none until its pane lays it out.
     NSView *pane = self.superview;
