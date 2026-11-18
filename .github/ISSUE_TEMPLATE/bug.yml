@@ -83,6 +83,7 @@ body:
         - Hide Link Address
         - Little Dia
         - Close with Escape
+        - Open Links from Tabs
         - Split TLS ClientHello
         - Patches pane in Settings
         - Installing, updating or restoring

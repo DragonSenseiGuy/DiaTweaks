@@ -1,5 +1,6 @@
 #import "HideToolbar.h"
 #import "Patches/EdgeToEdge/EdgeToEdge.h"
+#import "Patches/LittleDia/LittleDia.h"
 
 NSHashTable<NSView *> *DPPanes;
 static char DPFrameKey, DPFillsKey;
@@ -60,7 +61,7 @@ NSString *DPVerifyKeptInPlace(DPPatch *patch) {
 static CGFloat DPHidden(DPToolbarHover *hover) { return DPHideToolbar.progress * (1 - hover.inPlaceProgress); }
 
 void DPApplyToolbarOpacity(DPToolbarHover *hover) {
-    CGFloat alpha = 1 - DPHidden(hover) * (1 - hover.progress);
+    CGFloat alpha = DPLittleDiaIsOver(hover.pane.window) ? 0 : 1 - DPHidden(hover) * (1 - hover.progress);
     if (hover.bar && hover.bar.alphaValue != alpha) hover.bar.alphaValue = alpha;
     if (hover.bookmarks && hover.bookmarks.alphaValue != alpha) hover.bookmarks.alphaValue = alpha;
     DPRepaintTabs(hover.pane.window);

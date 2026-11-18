@@ -15,7 +15,7 @@ static void DPRemember(id contents, id session, id browser, id delegate) {
     [DPBrowserByContents setObject:browser forKey:contents];
     [DPContents addObject:contents];
     long long sid = DPLongID(session);
-    if (sid <= 0) sid = DPContentsSession(contents);
+    if (sid <= 0 && !DPGet(contents, &DPSessionKey)) sid = DPContentsSession(contents);
     if (sid > 0) DPSet(contents, &DPSessionKey, @(sid));
 }
 
@@ -85,6 +85,8 @@ static id DPFrontBrowser(NSWindow *window, NSArray *browsers) {
 
 id DPBrowserOfWindow(NSWindow *window) { return DPFrontBrowser(window, DPBrowsers.allObjects); }
 
+id DPBrowserOfContents(id contents) { return [DPBrowserByContents objectForKey:contents]; }
+
 id DPCommandBrowser(void) {
     NSMutableArray *ready = [NSMutableArray new];
     for (id browser in DPBrowsers.allObjects)
@@ -104,9 +106,10 @@ NSArray *DPTrackedContents(id browser) {
     return contents;
 }
 
+// Discarding a page gives it a new session, but Dia's tabs keep the one it had when it opened.
 long long DPSessionOf(id contents) {
-    long long sid = DPContentsSession(contents);
-    return sid > 0 ? sid : DPLongID(DPGet(contents, &DPSessionKey));
+    long long sid = DPLongID(DPGet(contents, &DPSessionKey));
+    return sid > 0 ? sid : DPContentsSession(contents);
 }
 
 void DPInstallGroupTabs(void) {
