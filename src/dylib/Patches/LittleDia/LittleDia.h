@@ -49,7 +49,8 @@ BOOL DPLittleDiaIsOver(NSWindow *window);  // Hide Toolbar keeps that window's t
 void DPInstallLittleDiaStack(void);
 NSDictionary *DPNoteStackForLink(void);
 void DPRestoreStack(NSWindow *little, NSDictionary *noted);
-void DPReturnToSource(pid_t pid);
+NSArray<NSDictionary *> *DPWindowStack(void);  // Normal windows on screen, front to back, with their numbers and owners.
+void DPReturnToSource(pid_t pid, NSWindow *little, NSArray<NSDictionary *> *stack);
 void DPBringBackPutAway(NSWindow *little);
 void DPLinkArrived(void);
 BOOL DPHideAgain(void);
