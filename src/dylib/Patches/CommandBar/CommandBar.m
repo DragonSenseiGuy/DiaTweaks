@@ -419,7 +419,8 @@ static void DPGoBack(DPCommandBarOverlay *overlay) {
     }
     dispatch_async(dispatch_get_main_queue(), ^{ if (weak.superview) DPFocusBar(weak); });
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 200 * NSEC_PER_MSEC), dispatch_get_main_queue(), ^{
-        if (!weak.superview) return;
+        // Focusing the tab that is already in front makes Dia refocus its page and lose what the bar was doing, such as a Return typed just before.
+        if (!weak.superview || [DPActiveTabID(weak.host) isEqual:DPTabID(weak.returnTab)]) return;
         DPFocusTab(weak.returnTab);
         dispatch_async(dispatch_get_main_queue(), ^{ if (weak.superview) DPFocusBar(weak); });
     });
