@@ -66,7 +66,7 @@ static void DPOpenWhenReady(NSURL *url, NSDictionary *noted, void (^fallback)(vo
 }
 
 static void DPOpenURLEvents_handle(id self, SEL _cmd, NSAppleEventDescriptor *event, NSAppleEventDescriptor *reply) {
-    NSURL *url = DPLittleDia.on ? DPLittleDiaLink(event) : nil;
+    NSURL *url = DPLittleDia.on && !DPLittleDiaFollowRules.on ? DPLittleDiaLink(event) : nil;
     if (!url) return DPCallOriginal(DPOpenURLEvents_handle, self, event, reply);
     DPLinkArrived();
     NSAppleEventDescriptor *kept = [event copy];  // The event is the system's and is gone once this returns.

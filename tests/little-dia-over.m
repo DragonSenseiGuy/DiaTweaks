@@ -1,7 +1,7 @@
 #import "Patches/LittleDia/Route.m"
 
 // Stand-ins for what Route.m asks of the rest of Little Dia, and for Dia's content pane.
-DPPatch DPLittleDia;
+DPPatch DPLittleDia, DPLittleDiaFollowRules;
 NSSize DPLittleDiaSize(void) { return NSZeroSize; }
 BOOL DPSendToLittleDia(NSDictionary *request) { return NO; }
 void DPExpectLittleDiaWindow(NSRect frame, NSDictionary *noted, void (^missed)(void), void (^claimed)(NSWindow *window)) {}
