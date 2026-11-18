@@ -1,4 +1,5 @@
 #import "LittleDia.h"
+#import "Patches/HideToolbar/HideToolbar.h"
 #import <Carbon/Carbon.h>
 
 static NSRect DPLittleDiaFrame(void) {
@@ -46,12 +47,13 @@ static NSRect DPPageArea(NSWindow *window) {
     return NSIsEmptyRect(area) ? window.frame : area;
 }
 
-// 80% of the page area's width, centred on it, and the window's height less a sliver top and bottom.
+// 80% of the page area's width, centred on it, and the window's height less a sliver top and bottom. Tabs at the top stay clear: it starts at the page.
 static NSRect DPOverWindowFrame(NSWindow *source) {
     if (!source.visible) return DPLittleDiaFrame();
     // macOS keeps windows below the menu bar, which would take the margin from the bottom.
     NSRect page = DPPageArea(source), window = NSIntersectionRect(source.frame, (source.screen ?: NSScreen.mainScreen).visibleFrame);
     if (NSIsEmptyRect(window)) window = source.frame;
+    if (DPTabsAtTop(source)) window.size.height = MIN(NSMaxY(window), NSMaxY(page)) - NSMinY(window);
     CGFloat width = MAX(round(NSWidth(page) * DPTabLinkWidth), 480), height = MAX(NSHeight(window) - 2 * DPTabLinkEdge, 360);
     return NSMakeRect(round(NSMidX(page) - width / 2), round(NSMidY(window) - height / 2), width, height);
 }
