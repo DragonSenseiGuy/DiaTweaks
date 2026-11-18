@@ -20,6 +20,14 @@ static void DPInstallHideToolbar(void) {
     DPHook(DPDiaBookmarksBar, @selector(hitTest:), (IMP)DPToolbar_hitTest);
 }
 
+static BOOL DPToolbarAnimating(void) {
+    for (NSView *pane in DPPanes) {
+        DPToolbarHover *hover = [DPToolbarHover forPane:pane];
+        if (hover.animation.valid || hover.inPlaceAnimation.valid) return YES;
+    }
+    return NO;
+}
+
 static NSString *DPVerifyHideToolbar(DPPatch *patch) {
     NSArray<NSView *> *panes = DPFindViews(DPDiaContentPane);
     if (!panes.count) return @"no toolbar found";
@@ -62,4 +70,5 @@ DP_PATCH(DPHideToolbar) {
     .install = DPInstallHideToolbar,
     .relayout = DPRelayoutPanes,
     .verify = DPVerifyHideToolbar,
+    .animating = DPToolbarAnimating,
 };

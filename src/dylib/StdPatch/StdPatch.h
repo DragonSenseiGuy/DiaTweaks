@@ -27,6 +27,7 @@ struct DPPatch {
     void (*relayout)(void);
     // nil if Dia's views match `on`, else what's wrong. Use DPFindViews, not your hooks, so a hook that never ran fails.
     NSString *(*verify)(DPPatch *patch);
+    BOOL (*animating)(void);  // Optional: whether it's still easing something its verify reads. The test waits for it.
     NSString *(*ready)(DPPatch *patch);
     BOOL on, unavailable;
     CGFloat progress;
@@ -44,6 +45,7 @@ extern NSUInteger DPPatchCount;
 DPPatch *DPPatchNamed(NSString *key);
 DPPatch *DPRequired(DPPatch *patch);
 void DPSetPatch(DPPatch *patch, BOOL on, BOOL save);
+BOOL DPAnimating(void);  // Whether any easing is still running.
 BOOL DPSavedOn(DPPatch *patch);
 NSString *DPChoice(DPPatch *patch);
 void DPSetChoice(DPPatch *patch, NSString *value);

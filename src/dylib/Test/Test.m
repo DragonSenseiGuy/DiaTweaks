@@ -1,7 +1,16 @@
 #import "Test/Test.h"
 #import "SafeMode/SafeMode.h"
 
-static const NSTimeInterval DPSettleSeconds = 1;
+static const NSTimeInterval DPSettleSeconds = 1, DPSettleLimit = 5, DPPollSeconds = 0.1;
+
+// A slow frame can leave an ease unfinished when the delay ends, and the checks would read it halfway.
+static void DPWhenSettled(NSTimeInterval waited, void (^then)(void)) {
+    NSTimeInterval wait = waited ? DPPollSeconds : DPSettleSeconds;
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(wait * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+        if (DPAnimating() && waited + wait < DPSettleLimit) return DPWhenSettled(waited + wait, then);
+        then();
+    });
+}
 
 static void DPWriteReport(NSArray<NSDictionary *> *results, NSString *path) {
     DPTesting = NO;
@@ -23,7 +32,7 @@ static void DPRunScenario(NSArray<NSArray<NSString *> *> *scenarios, NSUInteger 
     if (index == scenarios.count) return DPWriteReport(results, path);
     NSString *bits = scenarios[index][1];
     for (NSUInteger i = 0; i < DPPatchCount; i++) DPSetPatch(DPPatches[i], [bits characterAtIndex:i] == '1', NO);
-    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(DPSettleSeconds * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+    DPWhenSettled(0, ^{
         NSMutableDictionary<NSString *, id> *states = [NSMutableDictionary new], *failures = [NSMutableDictionary new];
         for (NSUInteger i = 0; i < DPPatchCount; i++) {
             DPPatch *patch = DPPatches[i];
