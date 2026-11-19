@@ -79,4 +79,6 @@ void DPLittleDiaNavigate(NSWindow *window, NSString *typed);
 
 NSArray<NSString *> *DPLittleDiaProfiles(void);  // In Dia's order, which DPOpenInProfile's index counts in.
 NSImage *DPLittleDiaProfileImage(NSString *name);
+NSString *DPOpenInLabel(NSString *profile, NSUInteger profiles);
+NSString *DPLittleDiaProfileName(NSWindow *window);  // nil until Chromium hands the page over.
 void DPOpenInProfile(NSString *url, NSUInteger index, void (^done)(BOOL opened));

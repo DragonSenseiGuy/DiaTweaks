@@ -12,6 +12,15 @@ NSArray<NSString *> *DPLittleDiaProfiles(void) {
     return [[DPScriptWindow() valueForKey:@"appleScriptProfiles"] valueForKey:@"name"] ?: @[];
 }
 
+// With one profile there is nothing to tell apart, so the button keeps its name. Neither does a profile named with blanks, which Dia allows,
+// down to Braille's blank cell.
+NSString *DPOpenInLabel(NSString *profile, NSUInteger profiles) {
+    NSMutableCharacterSet *blank = NSCharacterSet.whitespaceAndNewlineCharacterSet.mutableCopy;
+    [blank addCharactersInString:@"\u2800\u200B\u200C\u200D\u2060\uFEFF"];
+    NSString *name = [profile stringByTrimmingCharactersInSet:blank];
+    return name.length && profiles > 1 ? [@"Open in " stringByAppendingString:name] : @"Open in Dia";
+}
+
 static NSMenu *DPFilled(NSMenu *menu) {
     if ([menu.delegate respondsToSelector:@selector(menuNeedsUpdate:)]) [menu.delegate menuNeedsUpdate:menu];
     return menu;

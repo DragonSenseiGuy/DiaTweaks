@@ -1,7 +1,8 @@
 #import "LittleDia.h"
+#import "Commands/GroupTabs/GroupTabs.h"
 #import <objc/message.h>
 
-static char DPLittleKey, DPPageKey, DPChromeKey, DPSourceKey, DPPromotedKey, DPOpenedKey;
+static char DPLittleKey, DPPageKey, DPChromeKey, DPSourceKey, DPPromotedKey, DPOpenedKey, DPProfileKey;
 
 static NSMutableArray<NSDictionary *> *DPExpected;
 static NSMutableArray *DPPendingPages;
@@ -26,6 +27,14 @@ id DPLittleDiaPage(NSWindow *window) {
     BOOL usable = [page respondsToSelector:@selector(url)] && [page respondsToSelector:@selector(title)]
         && [page respondsToSelector:@selector(canGoBack)] && [page respondsToSelector:@selector(canGoForward)];
     return usable ? page : nil;
+}
+
+// The page carries the name of the profile its window opened in, which is where the window's tab goes.
+NSString *DPLittleDiaProfileName(NSWindow *window) { return DPGet(DPGet(window, &DPPageKey), &DPProfileKey); }
+
+static NSString *DPProfileNameOf(id browser) {
+    id context = [browser respondsToSelector:@selector(context)] ? DPMsg(browser, @selector(context)) : nil;
+    return [context respondsToSelector:@selector(userVisibleName)] ? DPText(DPMsg(context, @selector(userVisibleName))) : nil;
 }
 
 static void DPSetChrome(NSWindow *window, BOOL little) {
@@ -80,6 +89,7 @@ static void DPBrowser_didCreate(id self, SEL _cmd, id browser, id page, BOOL act
     DPCallOriginal(DPBrowser_didCreate, self, browser, page, active);
     long (*type)(id, SEL) = (void *)objc_msgSend;
     if (!page || ![browser respondsToSelector:@selector(type)] || type(browser, @selector(type)) != 2) return;  // 2: a popup
+    DPSet(page, &DPProfileKey, DPProfileNameOf(browser));
     [DPWindowsAwaitingPage compact];
     if (DPWindowsAwaitingPage.count) {
         NSWindow *window = (__bridge NSWindow *)[DPWindowsAwaitingPage pointerAtIndex:0];
