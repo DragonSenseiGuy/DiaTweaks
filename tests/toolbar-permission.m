@@ -2,6 +2,7 @@
 
 DPPatch DPRevealToolbarOnHover, DPShowToolbarWithSidebar, DPShowToolbarOnNewTab, DPShowToolbarWithTopTabs;
 BOOL DPBesideSidebar(NSView *view) { return NO; }
+BOOL DPSidebarOnRightOf(NSView *container) { return NO; }
 BOOL DPLittleDiaIsOver(NSWindow *window) { return NO; }
 void DPRepaintTabs(NSWindow *window) {}
 
