@@ -5,7 +5,7 @@
 #define DPDiaPopupBar      "_TtC5Popup22PopupNavigationBarView"
 #define DPDiaPopupTitle    "_TtC13NavigationBar21AssistantBarTitleView"
 
-extern DPPatch DPLittleDia, DPLittleDiaTabLinks, DPLittleDiaFollowRules;
+extern DPPatch DPLittleDia, DPLittleDiaTabLinks, DPLittleDiaFollowRules, DPLittleDiaRemember;
 
 // For a plain click Dia would open in a new tab; YES when Little Dia takes it. Peek's link hooks ask this first.
 BOOL DPLittleDiaTakesTabLink(id page, NSURL *url, BOOL leavesPinned);
@@ -18,6 +18,8 @@ BOOL DPLittleDiaStarting(void);
 BOOL DPLittleDiaReady(void);
 
 NSSize DPLittleDiaSize(void);
+NSRect DPLittleDiaSavedFrame(void);  // NSZeroRect until a window has been left somewhere.
+void DPSaveLittleDiaFrame(NSRect frame);
 NSArray<NSView *> *DPLittleDiaRows(void);
 
 void DPInstallLittleDiaRoute(void);

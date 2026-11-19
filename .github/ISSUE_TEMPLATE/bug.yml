@@ -86,6 +86,7 @@ body:
         - Little Dia
         - Close with Escape
         - Follow Link Rules
+        - Remember Size and Position
         - Open Links from Tabs
         - Split TLS ClientHello
         - Patches pane in Settings

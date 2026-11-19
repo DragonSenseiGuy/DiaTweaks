@@ -2,7 +2,16 @@
 #import "Patches/HideToolbar/HideToolbar.h"
 #import <Carbon/Carbon.h>
 
+static BOOL DPOnScreens(NSRect frame, NSArray<NSValue *> *screens) {
+    if (NSIsEmptyRect(frame)) return NO;
+    for (NSValue *screen in screens)
+        if (NSContainsRect(screen.rectValue, frame)) return YES;
+    return NO;
+}
+
 static NSRect DPLittleDiaFrame(void) {
+    NSRect left = DPLittleDiaRemember.on ? DPLittleDiaSavedFrame() : NSZeroRect;
+    if (DPOnScreens(left, [NSScreen.screens valueForKey:@"frame"])) return left;
     NSScreen *screen = NSScreen.mainScreen;
     for (NSScreen *each in NSScreen.screens)
         if (NSMouseInRect(NSEvent.mouseLocation, each.frame, NO)) screen = each;

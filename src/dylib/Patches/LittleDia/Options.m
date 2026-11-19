@@ -1,7 +1,7 @@
 #import "LittleDia.h"
 #import "Patches/Peek/Peek.h"
 
-static NSString *const DPWidthKey = @"littleDiaWidth", *const DPHeightKey = @"littleDiaHeight";
+static NSString *const DPWidthKey = @"littleDiaWidth", *const DPHeightKey = @"littleDiaHeight", *const DPFrameKey = @"littleDiaFrame";
 
 static NSUserDefaults *DPSettings(void) {
     static NSUserDefaults *settings;
@@ -14,6 +14,13 @@ NSSize DPLittleDiaSize(void) {
     NSNumber *width = [DPSettings() objectForKey:DPWidthKey], *height = [DPSettings() objectForKey:DPHeightKey];
     return NSMakeSize(width ? width.doubleValue : 1180, height ? height.doubleValue : 860);
 }
+
+NSRect DPLittleDiaSavedFrame(void) {
+    NSString *saved = [DPSettings() stringForKey:DPFrameKey];
+    return saved ? NSRectFromString(saved) : NSZeroRect;
+}
+
+void DPSaveLittleDiaFrame(NSRect frame) { [DPSettings() setObject:NSStringFromRect(frame) forKey:DPFrameKey]; }
 
 @interface DPSizeRow : NSStackView <NSTextFieldDelegate>
 @property (nonatomic, copy) NSString *key;
@@ -28,6 +35,7 @@ NSSize DPLittleDiaSize(void) {
     self.slider.doubleValue = value;
     self.field.doubleValue = value;
     [DPSettings() setDouble:value forKey:self.key];
+    [DPSettings() removeObjectForKey:DPFrameKey];  // The new size should show, not the one left behind.
 }
 
 - (BOOL)control:(NSControl *)control textView:(NSTextView *)textView doCommandBySelector:(SEL)command {
@@ -114,6 +122,17 @@ DP_PATCH(DPLittleDiaFollowRules) {
     .detail = @"Hands links from other apps to Dia untouched, so its Link Rules pick the profile and they open as tabs, not in Little Dia. "
               @"Right-clicking a link and choosing Open Link in Little Dia still works.",
     .symbol = @"signpost.right.and.left",
+    .tint = @"systemMintColor",
+    .requires = @"littleDia",
+};
+
+DP_PATCH(DPLittleDiaRemember) {
+    .key = @"littleDiaRemember",
+    .order = 104,
+    .title = @"Remember Size and Position",
+    .detail = @"Opens Little Dia where and how big you last left it, not centred at the Window Width and Height. Changing either of those forgets it. "
+              @"If that spot isn’t on a screen, it opens centred. Experimental.",
+    .symbol = @"arrow.up.left.and.arrow.down.right",
     .tint = @"systemMintColor",
     .requires = @"littleDia",
 };

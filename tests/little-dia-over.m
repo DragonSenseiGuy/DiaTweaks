@@ -1,8 +1,9 @@
 #import "Patches/LittleDia/Route.m"
 
 // Stand-ins for what Route.m asks of the rest of Little Dia, and for Dia's content pane.
-DPPatch DPLittleDia, DPLittleDiaFollowRules;
+DPPatch DPLittleDia, DPLittleDiaFollowRules, DPLittleDiaRemember;
 NSSize DPLittleDiaSize(void) { return NSZeroSize; }
+NSRect DPLittleDiaSavedFrame(void) { return NSZeroRect; }
 BOOL DPSendToLittleDia(NSDictionary *request) { return NO; }
 void DPExpectLittleDiaWindow(NSRect frame, NSDictionary *noted, void (^missed)(void), void (^claimed)(NSWindow *window)) {}
 void DPLinkArrived(void) {}
@@ -37,6 +38,11 @@ static void frame(NSString *what, BOOL tabsAtTop, NSSize size, NSRect pane, NSRe
     [window orderOut:nil];
 }
 
+static void remembered(NSString *what, NSRect saved, BOOL want) {
+    NSArray *screens = @[ [NSValue valueWithRect:NSMakeRect(0, 0, 1440, 900)], [NSValue valueWithRect:NSMakeRect(1440, -100, 1920, 1080)] ];
+    if (DPOnScreens(saved, screens) != want) printf("FAIL %s: %s should be %s\n", what.UTF8String, NSStringFromRect(saved).UTF8String, want ? "kept" : "dropped"), failures++;
+}
+
 int main(void) {
     @autoreleasepool {
         [NSApplication sharedApplication];
@@ -50,8 +56,16 @@ int main(void) {
         // Too short for the popup: the floor holds and it stays centred.
         frame(@"short", NO, NSMakeSize(1200, 300), NSMakeRect(190, 0, 1010, 300), NSMakeRect(291, -30, 808, 360));
         frame(@"short, tabs at the top", YES, NSMakeSize(1200, 300), NSMakeRect(0, 0, 1200, 260), NSMakeRect(120, -50, 960, 360));
+        // A remembered frame stays only while one screen holds all of it.
+        remembered(@"on the first screen", NSMakeRect(100, 20, 1180, 860), YES);
+        remembered(@"on the second screen", NSMakeRect(1500, -50, 1180, 860), YES);
+        remembered(@"filling a screen", NSMakeRect(0, 0, 1440, 900), YES);
+        remembered(@"across two screens", NSMakeRect(1000, 50, 800, 600), NO);
+        remembered(@"screen gone", NSMakeRect(3600, 50, 1180, 860), NO);
+        remembered(@"too big", NSMakeRect(0, 0, 1500, 900), NO);
+        remembered(@"never saved", NSZeroRect, NO);
     }
     if (failures) return 1;
-    puts("PASS: over-the-page frame in both layouts");
+    puts("PASS: over-the-page frame in both layouts, remembered frame on screen");
     return 0;
 }
