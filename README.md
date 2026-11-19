@@ -138,6 +138,13 @@ Dia shows a QR code or asks for a USB security key because it can't reach the pa
 </details>
 
 <details>
+<summary><strong>Why don't website notifications show a banner?</strong></summary>
+
+Once DiaTweaks has patched Dia, you sign it instead of The Browser Company, and on some Macs macOS then takes Dia's website notifications and shows nothing, even with **Dia** switched on under **System Settings → Notifications**. The page reports the notification as failed, and sound from the site still plays. We don't know why macOS does this, and we haven't found a way to stop it. Run `diatweaks restore` to go back to the original Dia: banners come back, and the tweaks turn off. [What we found →](https://github.com/JaceThings/DiaTweaks/wiki/Discoveries-Notifications)
+
+</details>
+
+<details>
 <summary><strong>What if Dia keeps crashing?</strong></summary>
 
 If Dia crashes twice in a row right after opening, it opens next time with the tweaks off. **Settings → Patches** has a button to turn them back on.
