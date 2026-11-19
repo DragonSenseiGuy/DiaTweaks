@@ -24,7 +24,7 @@ use crate::{env::Env, signals::Cancelled, ui::Ui};
 ///
 /// Run it without a command in a terminal for a menu.
 #[derive(Parser)]
-#[command(name = "diatweaks", version = concat!(env!("CARGO_PKG_VERSION"), " (", env!("DIATWEAKS_COMMIT"), ")"))]
+#[command(name = "diatweaks", version = env!("DIATWEAKS_VERSION"))]
 struct Cli {
     /// Answer yes to every question
     #[arg(short, long, global = true)]
