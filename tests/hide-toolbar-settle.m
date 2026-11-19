@@ -3,6 +3,7 @@
 
 // Stand-ins for what the toolbar asks of the other tweaks.
 BOOL DPBesideSidebar(NSView *container) { return NO; }
+BOOL DPSidebarOnRightOf(NSView *container) { return NO; }
 BOOL DPLittleDiaIsOver(NSWindow *window) { return NO; }
 void DPRepaintTabs(NSWindow *window) {}
 void DPOnLaunch(void (^block)(void)) {}
