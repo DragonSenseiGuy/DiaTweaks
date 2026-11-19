@@ -71,6 +71,7 @@ body:
         - Window Corners
         - App Icon
         - Hide Window Controls
+        - Private Window Theme
         - Skip Account
         - Allow 1Password
         - Allow Bitwarden

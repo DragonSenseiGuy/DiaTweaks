@@ -30,6 +30,7 @@
 #define DPDiaWindowFrame       "_TtC6Window24PlatformWindowThemeFrame"
 #define DPDiaWindowTint         "_TtC15WindowTreatment31WindowBackgroundOverlayTintView"
 #define DPDiaColorView          "_TtC5ARCUI19BackgroundColorView"
+#define DPDiaGradientView       "_TtC5ARCUI12GradientView"
 #define DPDiaBrowser            "ArcBrowser"
 #define DPDiaAppDelegate       "_TtC15BoostBrowserMac11AppDelegate"
 #define DPDiaBrowserDelegate    "_TtC3ADK15ChromiumBrowser"
