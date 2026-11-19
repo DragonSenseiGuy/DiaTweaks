@@ -2,7 +2,7 @@
 #import "Patches/CompactTabRows/CompactTabRows.h"
 #import <objc/message.h>
 
-static const CGFloat DPExtra = 14, DPTabHeight = 37;
+static const CGFloat DPExtra = 14;
 static NSMutableSet<NSString *> *DPTallTabs;
 static char DPStatusKey, DPLineKey, DPAdjustedKey, DPEditsKey;
 
@@ -127,7 +127,7 @@ static void DPContent_layout(NSView *self, SEL _cmd) {
     NSString *status = DPPullRequestRepo.on ? DPGet(self, &DPStatusKey) : nil;
     NSView *title = DPPart(self, "$__lazy_storage_$_titleView"), *subtitle = DPPart(self, "subtitleView"), *icon = DPPart(self, "subtitleIconView");
     NSTextField *line = DPGet(self, &DPLineKey), *source = (NSTextField *)DPSubview(subtitle, DPDiaFeatheredLabel);
-    BOOL tall = status && title && source && NSHeight(self.bounds) >= DPTabHeight + DPExtra - 1;
+    BOOL tall = status && title && source && NSHeight(self.bounds) >= DPCompactRowHeight() + DPExtra - 1;
     line.hidden = !tall;
     if (!tall) return;
     if (!line) DPSet(self, &DPLineKey, line = [DPPRStatusLine labelWithString:@""]);

@@ -53,6 +53,21 @@ static id DPBrowser_createWebContents(id self, SEL _cmd, id params) {
     return contents;
 }
 
+// A tab Chromium opens for a link or a script is handed to the page that asked, and Dia's browser is never told: it belongs to the opener's.
+static void DPWebContent_didCreate(id self, SEL _cmd, id webContents, id newContents, NSURL *url, NSInteger disposition) {
+    DPCallOriginal(DPWebContent_didCreate, self, webContents, newContents, url, disposition);
+    id browser = DPBrowserOfContents(webContents);
+    DPRemember(newContents, nil, browser, [DPDelegateByBrowser objectForKey:browser]);
+}
+
+// So is a duplicate, which belongs to its original's.
+static id DPContents_clone(id self, SEL _cmd) {
+    id clone = DPCallOriginal(DPContents_clone, self);
+    id browser = DPBrowserOfContents(self);
+    DPRemember(clone, nil, browser, [DPDelegateByBrowser objectForKey:browser]);
+    return clone;
+}
+
 static void DPBrowser_takeOwnership(id self, SEL _cmd, id contents) {
     DPCallOriginal(DPBrowser_takeOwnership, self, contents);
     DPRemember(contents, nil, self, [DPDelegateByBrowser objectForKey:self]);
@@ -125,6 +140,10 @@ void DPInstallGroupTabs(void) {
     DPHook(DPDiaBrowser, @selector(takeOwnershipOfWebContents:), (IMP)DPBrowser_takeOwnership);
     DPHook(DPDiaBrowserDelegate, @selector(browser:didRestoreWebContents:withSessionId:), (IMP)DPBrowser_didRestore);
     DPHook(DPDiaBrowserDelegate, @selector(browser:didCreateNewWebContents:isActive:), (IMP)DPBrowser_didCreate);
+    DPHook(DPDiaWebContents, @selector(clone), (IMP)DPContents_clone);
+    DPOnLaunch(^{
+        DPHook(DPDiaWebContent, @selector(webContents:didCreateNewWebContent:targetURL:disposition:), (IMP)DPWebContent_didCreate);
+    });
     DPInstallGroupMenus();
     DPInstallGroupTabsShortcut();
 }

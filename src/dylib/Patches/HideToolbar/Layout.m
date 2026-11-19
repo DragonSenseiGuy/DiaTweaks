@@ -37,20 +37,20 @@ static BOOL DPShowsNewTab(NSView *pane) {
 }
 
 // Only the sidebar layout has a footer, even with the sidebar hidden.
-static BOOL DPTabsAtTop(NSView *pane) {
-    return pane.window && !DPFindView(pane.window.contentView, ^BOOL(NSView *view) { return DPIsKind(view, DPDiaSidebarFooter); });
+BOOL DPTabsAtTop(NSWindow *window) {
+    return window && !DPFindView(window.contentView, ^BOOL(NSView *view) { return DPIsKind(view, DPDiaSidebarFooter); });
 }
 
 BOOL DPKeptInPlace(NSView *pane) {
     return (DPShowToolbarWithSidebar.on && DPSidebarDocked(pane)) || (DPShowToolbarOnNewTab.on && DPShowsNewTab(pane)) ||
-           (DPShowToolbarWithTopTabs.on && DPTabsAtTop(pane));
+           (DPShowToolbarWithTopTabs.on && DPTabsAtTop(pane.window));
 }
 
 NSString *DPVerifyKeptInPlace(DPPatch *patch) {
     for (NSView *pane in DPFindViews(DPDiaContentPane)) {
         DPToolbarHover *hover = [DPToolbarHover forPane:pane];
         NSView *bar = DPSubview(pane, DPDiaToolbar);
-        if (!DPHideToolbar.on || !bar || bar.hiddenOrHasHiddenAncestor || hover.revealed) continue;
+        if (!DPHideToolbar.on || !bar || bar.hiddenOrHasHiddenAncestor || hover.revealed || DPToolbarHasPermissionRequest(hover)) continue;
         BOOL kept = DPKeptInPlace(pane);
         if (kept && bar.alphaValue < 0.99) return @"toolbar stays hidden where an option keeps it";
         if (!kept && bar.alphaValue > 0.01) return @"toolbar shows where nothing keeps it";
@@ -58,7 +58,9 @@ NSString *DPVerifyKeptInPlace(DPPatch *patch) {
     return nil;
 }
 
-static CGFloat DPHidden(DPToolbarHover *hover) { return DPHideToolbar.progress * (1 - hover.inPlaceProgress); }
+static CGFloat DPHidden(DPToolbarHover *hover) {
+    return DPToolbarHasPermissionRequest(hover) ? 0 : DPHideToolbar.progress * (1 - hover.inPlaceProgress);
+}
 
 void DPApplyToolbarOpacity(DPToolbarHover *hover) {
     CGFloat alpha = DPLittleDiaIsOver(hover.pane.window) ? 0 : 1 - DPHidden(hover) * (1 - hover.progress);

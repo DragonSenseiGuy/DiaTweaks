@@ -1,7 +1,17 @@
 #import "LittleDia.h"
+#import "Patches/HideToolbar/HideToolbar.h"
 #import <Carbon/Carbon.h>
 
+static BOOL DPOnScreens(NSRect frame, NSArray<NSValue *> *screens) {
+    if (NSIsEmptyRect(frame)) return NO;
+    for (NSValue *screen in screens)
+        if (NSContainsRect(screen.rectValue, frame)) return YES;
+    return NO;
+}
+
 static NSRect DPLittleDiaFrame(void) {
+    NSRect left = DPLittleDiaRemember.on ? DPLittleDiaSavedFrame() : NSZeroRect;
+    if (DPOnScreens(left, [NSScreen.screens valueForKey:@"frame"])) return left;
     NSScreen *screen = NSScreen.mainScreen;
     for (NSScreen *each in NSScreen.screens)
         if (NSMouseInRect(NSEvent.mouseLocation, each.frame, NO)) screen = each;
@@ -46,12 +56,13 @@ static NSRect DPPageArea(NSWindow *window) {
     return NSIsEmptyRect(area) ? window.frame : area;
 }
 
-// 80% of the page area's width, centred on it, and the window's height less a sliver top and bottom.
+// 80% of the page area's width, centred on it, and the window's height less a sliver top and bottom. Tabs at the top stay clear: it starts at the page.
 static NSRect DPOverWindowFrame(NSWindow *source) {
     if (!source.visible) return DPLittleDiaFrame();
     // macOS keeps windows below the menu bar, which would take the margin from the bottom.
     NSRect page = DPPageArea(source), window = NSIntersectionRect(source.frame, (source.screen ?: NSScreen.mainScreen).visibleFrame);
     if (NSIsEmptyRect(window)) window = source.frame;
+    if (DPTabsAtTop(source)) window.size.height = MIN(NSMaxY(window), NSMaxY(page)) - NSMinY(window);
     CGFloat width = MAX(round(NSWidth(page) * DPTabLinkWidth), 480), height = MAX(NSHeight(window) - 2 * DPTabLinkEdge, 360);
     return NSMakeRect(round(NSMidX(page) - width / 2), round(NSMidY(window) - height / 2), width, height);
 }
@@ -64,7 +75,7 @@ static void DPOpenWhenReady(NSURL *url, NSDictionary *noted, void (^fallback)(vo
 }
 
 static void DPOpenURLEvents_handle(id self, SEL _cmd, NSAppleEventDescriptor *event, NSAppleEventDescriptor *reply) {
-    NSURL *url = DPLittleDia.on ? DPLittleDiaLink(event) : nil;
+    NSURL *url = DPLittleDia.on && !DPLittleDiaFollowRules.on ? DPLittleDiaLink(event) : nil;
     if (!url) return DPCallOriginal(DPOpenURLEvents_handle, self, event, reply);
     DPLinkArrived();
     NSAppleEventDescriptor *kept = [event copy];  // The event is the system's and is gone once this returns.

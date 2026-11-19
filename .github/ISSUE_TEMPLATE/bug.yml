@@ -55,6 +55,7 @@ body:
         - Shadow Behind Bar
         - Scroll Page Behind
         - Remember What You Typed
+        - Hide New Tab Until Opened
         - Hide History Suggestions
         - Hide New Tab Logo
         - Turn Off AI
@@ -70,6 +71,7 @@ body:
         - Window Corners
         - App Icon
         - Hide Window Controls
+        - Private Window Theme
         - Skip Account
         - Allow 1Password
         - Allow Bitwarden
@@ -83,6 +85,8 @@ body:
         - Hide Link Address
         - Little Dia
         - Close with Escape
+        - Follow Link Rules
+        - Remember Size and Position
         - Open Links from Tabs
         - Split TLS ClientHello
         - Patches pane in Settings

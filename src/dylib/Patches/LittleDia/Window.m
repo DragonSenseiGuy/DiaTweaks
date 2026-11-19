@@ -1,7 +1,8 @@
 #import "LittleDia.h"
+#import "Commands/GroupTabs/GroupTabs.h"
 #import <objc/message.h>
 
-static char DPLittleKey, DPPageKey, DPChromeKey, DPSourceKey, DPPromotedKey;
+static char DPLittleKey, DPPageKey, DPChromeKey, DPSourceKey, DPPromotedKey, DPOpenedKey, DPProfileKey;
 
 static NSMutableArray<NSDictionary *> *DPExpected;
 static NSMutableArray *DPPendingPages;
@@ -26,6 +27,14 @@ id DPLittleDiaPage(NSWindow *window) {
     BOOL usable = [page respondsToSelector:@selector(url)] && [page respondsToSelector:@selector(title)]
         && [page respondsToSelector:@selector(canGoBack)] && [page respondsToSelector:@selector(canGoForward)];
     return usable ? page : nil;
+}
+
+// The page carries the name of the profile its window opened in, which is where the window's tab goes.
+NSString *DPLittleDiaProfileName(NSWindow *window) { return DPGet(DPGet(window, &DPPageKey), &DPProfileKey); }
+
+static NSString *DPProfileNameOf(id browser) {
+    id context = [browser respondsToSelector:@selector(context)] ? DPMsg(browser, @selector(context)) : nil;
+    return [context respondsToSelector:@selector(userVisibleName)] ? DPText(DPMsg(context, @selector(userVisibleName))) : nil;
 }
 
 static void DPSetChrome(NSWindow *window, BOOL little) {
@@ -61,6 +70,7 @@ static void DPClaim(NSWindow *window) {
     if (!DPExpected.count) [DPPendingPages removeAllObjects];
     // Chromium adds its title bar to the size it's given, and the title bar is gone here.
     NSRect frame = [link[@"frame"] rectValue];
+    DPSet(window, &DPOpenedKey, link[@"frame"]);
     [window setFrame:frame display:YES];
     [window makeKeyAndOrderFront:nil];
     [NSApp activateIgnoringOtherApps:YES];
@@ -79,6 +89,7 @@ static void DPBrowser_didCreate(id self, SEL _cmd, id browser, id page, BOOL act
     DPCallOriginal(DPBrowser_didCreate, self, browser, page, active);
     long (*type)(id, SEL) = (void *)objc_msgSend;
     if (!page || ![browser respondsToSelector:@selector(type)] || type(browser, @selector(type)) != 2) return;  // 2: a popup
+    DPSet(page, &DPProfileKey, DPProfileNameOf(browser));
     [DPWindowsAwaitingPage compact];
     if (DPWindowsAwaitingPage.count) {
         NSWindow *window = (__bridge NSWindow *)[DPWindowsAwaitingPage pointerAtIndex:0];
@@ -138,15 +149,24 @@ void DPRefreshLittleDiaWindows(void) {
     DPRelayoutLittleDiaBars();
 }
 
+// Only a window that was moved or resized counts, so one opened over a tab doesn't become where the next link opens.
+static void DPRememberFrame(NSWindow *window) {
+    NSValue *opened = DPGet(window, &DPOpenedKey);
+    if (!opened || NSEqualRects(window.frame, opened.rectValue) || (window.styleMask & NSWindowStyleMaskFullScreen)) return;
+    DPSaveLittleDiaFrame(window.frame);
+}
+
 static void DPWindowWillClose(NSWindow *window) {
     if (!DPLittleDia.on || !DPIsLittleDiaWindow(window)) return;
+    if (DPLittleDiaRemember.on) DPRememberFrame(window);
     pid_t source = [DPGet(window, &DPSourceKey) intValue];
     BOOL key = window.isKeyWindow, promoted = [DPGet(window, &DPPromotedKey) boolValue];
+    NSArray<NSDictionary *> *stack = DPWindowStack();  // Closing brings another of Dia's windows forward; this is how the rest were.
     dispatch_async(dispatch_get_main_queue(), ^{
         if (promoted) {
             DPBringBackPutAway(nil);
             DPShowMainWindow();
-        } else if (!DPHideAgain() && key && source) DPReturnToSource(source);
+        } else if (!DPHideAgain() && key && source) DPReturnToSource(source, window, stack);
     });
 }
 

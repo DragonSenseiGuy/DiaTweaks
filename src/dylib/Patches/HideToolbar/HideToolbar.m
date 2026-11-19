@@ -3,7 +3,8 @@
 // Hidden bars stay in Dia's layout: hiding them makes Dia reflow in ways it won't undo.
 static NSView *DPToolbar_hitTest(NSView *self, SEL _cmd, NSPoint point) {
     DPToolbarHover *hover = [DPToolbarHover forPane:self.superview];
-    BOOL hidden = DPHideToolbar.on && hover.progress == 0 && hover.inPlaceProgress == 0 && (self == hover.bar || self == hover.bookmarks);
+    BOOL hidden = DPHideToolbar.on && hover.progress == 0 && hover.inPlaceProgress == 0
+        && !DPToolbarHasPermissionRequest(hover) && (self == hover.bar || self == hover.bookmarks);
     return hidden ? nil : DPCallOriginal(DPToolbar_hitTest, self, point);
 }
 
@@ -18,6 +19,15 @@ static void DPInstallHideToolbar(void) {
     DPHook(DPDiaContentPane, @selector(layout), (IMP)DPPane_layout);
     DPHook(DPDiaToolbar, @selector(hitTest:), (IMP)DPToolbar_hitTest);
     DPHook(DPDiaBookmarksBar, @selector(hitTest:), (IMP)DPToolbar_hitTest);
+    DPInstallToolbarPermissionReveal();
+}
+
+static BOOL DPToolbarAnimating(void) {
+    for (NSView *pane in DPPanes) {
+        DPToolbarHover *hover = [DPToolbarHover forPane:pane];
+        if (hover.animation.valid || hover.inPlaceAnimation.valid) return YES;
+    }
+    return NO;
 }
 
 static NSString *DPVerifyHideToolbar(DPPatch *patch) {
@@ -30,7 +40,7 @@ static NSString *DPVerifyHideToolbar(DPPatch *patch) {
         if (hover.progress > 0 || hover.inPlaceProgress > 0) continue;
         NSView *bookmarks = DPBookmarksUnder(pane, bar);
         NSArray<NSView *> *bars = bookmarks ? @[bar, bookmarks] : @[bar];
-        BOOL hidden = patch->on, found = NO;
+        BOOL hidden = patch->on && !DPToolbarHasPermissionRequest(hover), found = NO;
         for (NSView *view in bars) {
             if (fabs(view.alphaValue - (hidden ? 0 : 1)) > 0.01) return hidden ? @"toolbar still shows" : @"toolbar is invisible";
             if (hidden && [view hitTest:NSMakePoint(NSMidX(view.frame), NSMidY(view.frame))]) return @"toolbar still takes clicks";
@@ -54,7 +64,7 @@ DP_PATCH(DPHideToolbar) {
     .key = @"hideToolbar",
     .order = 30,
     .title = @"Hide Toolbar",
-    .detail = @"Hide the bar with the address field, navigation buttons and extensions. Experimental.",
+    .detail = @"Hide the bar with the address field, navigation buttons and extensions. It opens for website permission prompts. Experimental.",
     .symbol = @"menubar.arrow.up.rectangle",
     .tint = @"systemIndigoColor",
     .section = @"Toolbar",
@@ -62,4 +72,5 @@ DP_PATCH(DPHideToolbar) {
     .install = DPInstallHideToolbar,
     .relayout = DPRelayoutPanes,
     .verify = DPVerifyHideToolbar,
+    .animating = DPToolbarAnimating,
 };

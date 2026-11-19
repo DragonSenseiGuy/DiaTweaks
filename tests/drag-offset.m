@@ -27,6 +27,8 @@
 @implementation Drag
 @end
 
+NSString *DPChoice(DPPatch *patch) { return patch->defaultChoice; }
+
 #import "Patches/CompactTabRows/CompactTabRows.m"
 
 static NSView *DPListIn(NSView *tabList, NSArray<NSArray<NSValue *> *> *moves) {
@@ -72,6 +74,11 @@ int main(void) {
         [(id<NSDraggingDestination>)compacted prepareForDragOperation:info];
         [(id<NSDraggingDestination>)plain draggingUpdated:info];
         NSCAssert(NSEqualPoints(tab.frame.origin, home), @"nor one a drop left after its first step");
+
+        // A smaller row (30 pt, laid out by Dia at 41): a point halfway down it is halfway down Dia's row, and a point below it keeps its distance from the row's end.
+        NSArray *small = @[ @[ [NSValue valueWithRect:NSMakeRect(0, 100, 200, 30)], [NSValue valueWithRect:NSMakeRect(0, 100, 200, 41)] ] ];
+        NSCAssert(fabs(DPTabListDiaY(small, 115) - 120.5) < 0.01, @"inside a smaller row");
+        NSCAssert(fabs(DPTabListDiaY(small, 140) - 151) < 0.01, @"below a smaller row");
         puts("all drag offset checks passed");
     }
 }

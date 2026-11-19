@@ -2,7 +2,14 @@
 
 extern DPPatch DPCompactTabRows;
 
-static const CGFloat DPOldRowHeight = 37;
+static NSString *const DPSmallRows = @"small";
+static const CGFloat DPOldRowHeight = 37, DPSmallRowHeight = 30;
+
+static BOOL DPSmall(void) { return DPCompactTabRows.on && [DPChoice(&DPCompactTabRows) isEqual:DPSmallRows]; }
+
+static CGFloat DPRowTarget(void) { return DPSmall() ? DPSmallRowHeight : DPOldRowHeight; }
+
+CGFloat DPCompactRowHeight(void) { return DPRowTarget(); }
 
 // The attributes Dia keeps, not the moved copies Collapse Pinned Tabs hands out.
 static NSArray<NSCollectionViewLayoutAttributes *> *DPKeptAttributes(NSCollectionViewLayout *layout) {
@@ -36,7 +43,7 @@ static void DPLayout_prepareLayout(NSCollectionViewLayout *self, SEL _cmd) {
     if (!DPCompactTabRows.on) return DPSet(self, &DPMovesKey, nil);
     double *contentHeight = DPIvar(self, "contentHeight");  // Dia's layout hands out the attributes it keeps, so changing them changes it.
     NSArray<NSCollectionViewLayoutAttributes *> *all = DPKeptAttributes(self);
-    CGFloat height = DPRowHeight(all), cut = height - DPOldRowHeight;
+    CGFloat height = DPRowHeight(all), cut = height - DPRowTarget();
     if (!contentHeight || cut < 0.5) return;
     NSMutableArray<NSValue *> *rows = [NSMutableArray new];
     for (NSCollectionViewLayoutAttributes *a in all)
@@ -144,12 +151,33 @@ static BOOL DPDropped(BOOL result) {
 static BOOL DPTabList_prepare(NSView *self, SEL _cmd, id<NSDraggingInfo> info) { return DPDropped(DPCallOriginal(DPTabList_prepare, self, DPDiaDrag(self, info))); }
 static BOOL DPTabList_perform(NSView *self, SEL _cmd, id<NSDraggingInfo> info) { return DPDropped(DPCallOriginal(DPTabList_perform, self, DPDiaDrag(self, info))); }
 
+static char DPDiaFontKey;
+
+// A tab's, folder's or New Tab row's title: the labels in the list that aren't a tab's second line.
+static BOOL DPIsRowTitle(NSView *label) {
+    if (DPIsKind(label.superview, DPDiaTransitioningLabel)) return NO;
+    for (NSView *view = label.superview; view; view = view.superview) if (DPIsKind(view, DPDiaTabListCollection)) return YES;
+    return NO;
+}
+
+static void DPLabel_layout(NSTextField *self, SEL _cmd) {
+    DPCallOriginal(DPLabel_layout, self);
+    BOOL small = DPSmall();
+    if ((!small && !DPGet(self, &DPDiaFontKey)) || !DPIsRowTitle(self) || !DPMayAdjust(self)) return;
+    NSFont *dia = DPDiaValue(self, &DPDiaFontKey, self.font), *shown = small ? [NSFont fontWithDescriptor:dia.fontDescriptor size:dia.pointSize - 1] : dia;
+    if ([self.font isEqual:shown]) return;
+    DPSet(self, &DPDiaFontKey, nil);
+    if (small) DPOverride(self, &DPDiaFontKey, dia, shown);
+    self.font = shown;
+    self.superview.needsLayout = YES;
+}
+
 static void DPGroupCell_layout(NSView *self, SEL _cmd) {
     DPCallOriginal(DPGroupCell_layout, self);
-    if (!DPCompactTabRows.on || NSHeight(self.bounds) <= DPOldRowHeight + 0.5) return;
+    if (!DPCompactTabRows.on || NSHeight(self.bounds) <= DPRowTarget() + 0.5) return;
     for (NSView *header in self.subviews) {
-        CGFloat extra = NSHeight(header.frame) - (DPOldRowHeight - 3);
-        if (!DPIsKind(header, DPDiaTabGroupBackground) && extra > 0.5 && extra < 4.5 && NSMinY(header.frame) > 1)
+        CGFloat extra = NSHeight(header.frame) - (DPRowTarget() - 3);
+        if (!DPIsKind(header, DPDiaTabGroupBackground) && extra > 0.5 && NSHeight(header.frame) < DPOldRowHeight + 1.5 && NSMinY(header.frame) > 1)
             [header setFrameOrigin:NSMakePoint(NSMinX(header.frame), NSMinY(header.frame) - extra / 2)];
     }
 }
@@ -157,6 +185,7 @@ static void DPGroupCell_layout(NSView *self, SEL _cmd) {
 static void DPInstallCompactTabRows(void) {
     DPHook(DPDiaTabListLayout, @selector(prepareLayout), (IMP)DPLayout_prepareLayout);
     DPHook(DPDiaTabGroupCell, @selector(layout), (IMP)DPGroupCell_layout);
+    DPHook(DPDiaFeatheredLabel, @selector(layout), (IMP)DPLabel_layout);
     DPHook(DPDiaTabList, @selector(draggingEntered:), (IMP)DPTabList_entered);
     DPHook(DPDiaTabList, @selector(draggingUpdated:), (IMP)DPTabList_updated);
     DPHook(DPDiaTabList, @selector(prepareForDragOperation:), (IMP)DPTabList_prepare);
@@ -165,14 +194,29 @@ static void DPInstallCompactTabRows(void) {
 
 static void DPApplyCompactTabRows(DPPatch *patch) {
     for (NSView *view in DPFindViews(DPDiaTabListCollection)) [((NSCollectionView *)view).collectionViewLayout invalidateLayout];
+    for (NSView *label in DPFindViews(DPDiaFeatheredLabel)) {
+        label.needsLayout = YES;
+        [label layoutSubtreeIfNeeded];
+    }
 }
 
 static NSString *DPVerifyCompactTabRows(DPPatch *patch) {
     for (NSView *view in DPFindViews(DPDiaTabListCollection)) {
         NSArray *all = DPKeptAttributes(((NSCollectionView *)view).collectionViewLayout);
-        if (patch->on && DPRowHeight(all) > DPOldRowHeight + 0.5) return @"tab rows are taller than 37 pt";
+        if (patch->on && DPRowHeight(all) > DPRowTarget() + 0.5) return [NSString stringWithFormat:@"tab rows are taller than %g pt", DPRowTarget()];
+    }
+    for (NSTextField *label in DPFindViews(DPDiaFeatheredLabel)) {
+        if (!DPIsRowTitle(label) || label.hiddenOrHasHiddenAncestor) continue;
+        if ((label.font.pointSize < ((NSFont *)DPDiaValue(label, &DPDiaFontKey, label.font)).pointSize) != DPSmall()) return @"a row's title has the wrong size";
     }
     return nil;
+}
+
+static NSMenu *DPRowSizeChoices(void) {
+    NSMenu *menu = [[NSMenu alloc] initWithTitle:@"Row Size"];
+    [menu addItemWithTitle:@"Compact" action:nil keyEquivalent:@""].representedObject = @"compact";
+    [menu addItemWithTitle:@"Small" action:nil keyEquivalent:@""].representedObject = DPSmallRows;
+    return menu;
 }
 
 DP_PATCH(DPCompactTabRows) {
@@ -180,10 +224,13 @@ DP_PATCH(DPCompactTabRows) {
     .order = 77,
     .section = @"Sidebar & Tab Bar",
     .title = @"Compact Tab Rows",
-    .detail = @"Make the sidebar's tabs and folders as short as before Dia 1.57, so more fit.",
+    .detail = @"Make the sidebar's tabs and folders as short as before Dia 1.57, so more fit. Choose Small for rows shorter still, with smaller titles.",
     .symbol = @"rectangle.compress.vertical",
     .tint = @"systemTealColor",
-    .classes = DPClasses(DPDiaTabListLayout, DPDiaTabListCollection, DPDiaTabList, DPDiaTabGroupCell, DPDiaTabGroupBackground),
+    .choice = @"compactTabRowsSize",
+    .defaultChoice = @"compact",
+    .choices = DPRowSizeChoices,
+    .classes = DPClasses(DPDiaTabListLayout, DPDiaTabListCollection, DPDiaTabList, DPDiaTabGroupCell, DPDiaTabGroupBackground, DPDiaFeatheredLabel, DPDiaTransitioningLabel),
     .install = DPInstallCompactTabRows,
     .apply = DPApplyCompactTabRows,
     .verify = DPVerifyCompactTabRows,

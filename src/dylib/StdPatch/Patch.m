@@ -23,15 +23,16 @@ DPPatch *DPRequired(DPPatch *patch) {
     return DPPatchNamed(patch->requires);
 }
 
+static NSTimer *DPEaseTimer;
+
 static void DPAnimate(void) {
-    static NSTimer *timer;
     static CFTimeInterval start;
     static CGFloat *from;
     from = from ?: calloc(DPPatchCount, sizeof *from);
     start = CACurrentMediaTime();
     for (NSUInteger i = 0; i < DPPatchCount; i++) from[i] = DPPatches[i]->progress;
-    if (timer) return;
-    timer = [NSTimer timerWithTimeInterval:1.0 / 120 repeats:YES block:^(NSTimer *t) {
+    if (DPEaseTimer) return;
+    DPEaseTimer = [NSTimer timerWithTimeInterval:1.0 / 120 repeats:YES block:^(NSTimer *t) {
         CGFloat elapsed = CACurrentMediaTime() - start, omega = 22;
         BOOL done = elapsed >= DPAnimationDuration * 2;
         CGFloat eased = done ? 1 : 1 - (1 + omega * elapsed) * exp(-omega * elapsed);
@@ -39,10 +40,16 @@ static void DPAnimate(void) {
         for (NSUInteger i = 0; i < DPPatchCount; i++) if (DPPatches[i]->relayout) DPPatches[i]->relayout();
         if (done) {
             [t invalidate];
-            timer = nil;
+            DPEaseTimer = nil;
         }
     }];
-    [NSRunLoop.mainRunLoop addTimer:timer forMode:NSRunLoopCommonModes];
+    [NSRunLoop.mainRunLoop addTimer:DPEaseTimer forMode:NSRunLoopCommonModes];
+}
+
+BOOL DPAnimating(void) {
+    BOOL animating = DPEaseTimer != nil;
+    for (NSUInteger i = 0; i < DPPatchCount; i++) animating |= DPPatches[i]->animating && DPPatches[i]->animating();
+    return animating;
 }
 
 BOOL DPTesting;
