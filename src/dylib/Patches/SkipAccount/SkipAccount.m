@@ -20,12 +20,12 @@ static void DPWaitForBrowser(void) {
         BOOL restored = [DPSwiftValue(controller, @"hasFinishedRestoringWindows") boolValue];
         if (!restored && ++polls < 120) return;
         [timer invalidate];
-        if (!restored) return;
+        if (!restored) return (void)NSLog(@"DiaPatches: Skip Account timed out waiting for Dia to restore windows");
         for (NSWindow *window in NSApp.windows) if (DPIsKind(window, DPDiaWindow)) return;
         // The File item carries the default profile even before any windows have been opened.
         NSMenu *file = [NSApp.mainMenu itemWithTitle:@"File"].submenu;
         for (NSMenuItem *item in file.itemArray) {
-            if (![item.title hasPrefix:@"New Window"]) continue;
+            if (![item.title hasPrefix:@"New Window"] || !item.action) continue;
             [NSApp sendAction:item.action to:item.target from:item];
             break;
         }

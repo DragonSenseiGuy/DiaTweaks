@@ -2,15 +2,15 @@
 
 static BOOL DPIsSignIn(NSMenuItem *item) {
     return item.menu && item.menu == NSApp.mainMenu.itemArray.firstObject.submenu
-        && [@[ @"Sign In…", @"Sign In..." ] containsObject:item.title];
+        && [item.title hasPrefix:@"Sign In"];
 }
 
 static BOOL DPIsLocalAction(NSMenuItem *item) {
     if (!item.menu) return NO;
     NSMenu *bar = NSApp.mainMenu;
     if (item.menu == bar.itemArray.firstObject.submenu)
-        return [@[ @"Settings…", @"Settings...", @"Set as Default Browser", @"Import from Another Browser…" ] containsObject:item.title];
-    return item.menu && item.menu == [bar itemWithTitle:@"File"].submenu
+        return [@[ @"Settings…", @"Settings...", @"Set as Default Browser", @"Import from Another Browser…", @"Import from Another Browser..." ] containsObject:item.title];
+    return item.menu == [bar itemWithTitle:@"File"].submenu
         && [@[ @"New Window", @"New Incognito Window" ] containsObject:item.title];
 }
 
@@ -52,5 +52,8 @@ void DPSkipAccountMenus(void) {
     DPHookClass(NSMenu.class, @selector(addItem:), (IMP)DPMenu_addItem);
     DPHookClass(NSMenu.class, @selector(insertItem:atIndex:), (IMP)DPMenu_insertItem);
     DPHookClass(NSMenu.class, @selector(update), (IMP)DPMenu_update);
-    DPOnLaunch(^{ DPUpdateMenu(NSApp.mainMenu.itemArray.firstObject.submenu); });
+    DPOnLaunch(^{
+        DPUpdateMenu(NSApp.mainMenu.itemArray.firstObject.submenu);
+        DPUpdateMenu([NSApp.mainMenu itemWithTitle:@"File"].submenu);
+    });
 }
