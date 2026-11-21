@@ -323,7 +323,7 @@ id DPDismiss(DPCommandBarOverlay *overlay, BOOL closing) {
     overlay.keyMonitor = nil;
     [overlay.shade removeFromSuperview];
     if (!overlay.host) return nil;
-    if (overlay.openedTab) DPStandInFor(overlay.host, nil);
+    if (overlay.openedTab) DPStandInForTab(overlay.host, DPTabID(overlay.openedTab));
     if (DPGet(overlay.host, &DPOverlayKey) == overlay) DPSet(overlay.host, &DPOverlayKey, nil);
     overlay.host = nil;
     NSView *page = overlay.page, *panel = overlay.panel, *home = DPGet(panel, &DPHomeKey);
@@ -527,8 +527,15 @@ static DPCommandBarOverlay *DPLiftBar(NSView *page, id tabBehind) {
 
 static BOOL DPHasURL(id tab) { return [[[tab valueForKey:@"URL"] description] length] > 0; }
 
+// Once Dia has gone back to the tab the bar was opened from, so ⌘L's bar opens for that tab's page, not the new one.
+static void DPCaughtUpSoon(NSWindow *window) {
+    __weak NSWindow *weak = window;
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 150 * NSEC_PER_MSEC), dispatch_get_main_queue(), ^{ DPDiaCaughtUp(weak); });
+}
+
 static void DPPresentCommandBar(NSView *page, BOOL overBlank) {
     NSWindow *window = page.window;
+    DPCaughtUpSoon(window);
     DPCloseCommandBarPopover(window);
     id scriptWindow = DPScriptWindow(window), openedTab = [scriptWindow valueForKey:@"activeTab"];
     NSString *openedID = DPTabID(openedTab), *returnID = DPPreviousTabID(window);
@@ -688,6 +695,8 @@ static void DPTabList_backgroundDoubleClick(NSView *self, SEL _cmd, id gesture) 
     if (!DPHiding() || !DPClickedNewTab(self.window)) DPCallOriginal(DPTabList_backgroundDoubleClick, self, gesture);
 }
 
+static BOOL DPToolbarShowing(NSWindow *window);
+
 static NSEvent *DPCommandBarKey(NSEvent *event) {
     NSWindow *window = event.window;
     if (!DPCommandBar.on || !window) return event;
@@ -702,14 +711,26 @@ static NSEvent *DPCommandBarKey(NSEvent *event) {
     if (!(newTab || DPIsShortcut(event, @"Open Command Bar"))) return event;
     DPSet(window, &DPClosedAtKey, nil);  // Closing a tab that wasn't the last leaves the stamp unread, which would hide this new tab as a blank.
     DPCommandBarOverlay *overlay = DPGet(window, &DPOverlayKey);
+    if (event.isARepeat) {  // Holding it down neither flickers the bar nor opens it again once closed.
+        if (overlay) DPFocusBar(overlay);
+        return nil;
+    }
+    if (DPWaitForDia(window, event, newTab)) return nil;
     if (newTab && DPIsKind(overlay.page, DPDiaPopover)) {  // The new tab page swaps ⌘L's bar for its own, so nothing shows between them.
         DPExpectNewTab(window);
-        return event;
+        return DPHandToDia(window, event, newTab);
     }
-    if (overlay) DPFocusBar(overlay);
-    if (overlay || DPOpenOverBlank(window)) return nil;
+    if (overlay && !newTab && overlay.openedTab) {
+        DPHandOver(overlay);
+        return DPToolbarShowing(window) ? event : DPHandToDia(window, event, newTab);  // There, ⌘L's bar stays in the toolbar.
+    }
+    if (overlay) {
+        DPCancelCommandBar(overlay);
+        if (newTab == (overlay.openedTab != nil)) return nil;
+    }
+    if (DPOpenOverBlank(window)) return nil;
     if (newTab) DPExpectNewTab(window);
-    return event;
+    return newTab || !DPToolbarShowing(window) ? DPHandToDia(window, event, newTab) : event;
 }
 
 static BOOL DPToolbarShowing(NSWindow *window) {
@@ -735,6 +756,8 @@ static void DPShowWhenBuilt(DPCommandBarOverlay *overlay) {
         [timer invalidate];
         DPRemoveAnimations(overlay.panel.layer);
         overlay.alphaValue = overlay.shade.alphaValue = 1;
+        DPFinishHandOver(overlay.host);
+        DPDiaCaughtUp(overlay.host);
     }];
     [NSRunLoop.mainRunLoop addTimer:check forMode:NSRunLoopCommonModes];
 }
@@ -996,7 +1019,7 @@ DP_PATCH(DPCommandBar) {
     .key = @"commandBar",
     .order = 87,
     .title = @"Open New Tabs in Command Bar",
-    .detail = @"Open new tabs as Dia’s command bar over the current page, like Arc. Choose a result to open it in a new tab, or press Escape to go back.",
+    .detail = @"Open new tabs as Dia’s command bar over the current page, like Arc. Choose a result to open it in a new tab, or press Escape or ⌘T again to go back.",
     .symbol = @"command.square.fill",
     .tint = @"systemOrangeColor",
     .section = @"Command Bar",

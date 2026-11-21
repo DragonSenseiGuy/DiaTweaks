@@ -53,6 +53,7 @@ void DPInstallStandIn(void);
 BOOL DPIsNewTabButton(NSView *view);
 void DPInstallPress(void);
 void DPStandInFor(NSWindow *window, NSString *tabID);  // The hidden tab the window's bar is over, or nil once it closes.
+void DPStandInForTab(NSWindow *window, NSString *tabID);  // Clears only if it is still that tab's.
 void DPStandInWhileSwitching(NSWindow *window, NSString *tabID, NSString *leaving);
 BOOL DPSwitchingTo(NSView *background);
 void DPEndSwitch(NSWindow *window);

@@ -99,7 +99,10 @@ build/hide-toolbar-settle: tests/hide-toolbar-settle.m src/dylib/Test/Test.m $(S
 build/launch-flags: tests/launch-flags.m src/dylib/StdPatch/Extensions.m src/dylib/StdPatch/Hook.m $(wildcard src/dylib/StdPatch/*.h) | build
 	clang $(CFLAGS) -Isrc/dylib -framework AppKit -o $@ tests/launch-flags.m src/dylib/StdPatch/Hook.m
 
-check: build/diapatch build/group-tabs build/mouse-back-forward build/vertical-tab-glow build/split-client-hello build/peek-cursor build/peek-link build/safe-mode build/hook-table build/tidy-tabs build/drag-offset build/toolbar-permission build/launch-flags build/little-dia-stack build/little-dia-profile build/little-dia-over build/tracking build/hide-toolbar-settle build/patches.json
+build/command-bar-swap: tests/command-bar-swap.m src/dylib/Patches/CommandBar/CommandBarSwap.m src/dylib/Patches/CommandBar/HideTabButton.m src/dylib/Patches/CommandBar/CommandBarOverlay.h src/dylib/Patches/CommandBar/HideTab.h src/dylib/StdPatch/Hook.m src/dylib/StdPatch/Views.m $(wildcard src/dylib/StdPatch/*.h) | build
+	clang $(CFLAGS) -Isrc/dylib -framework AppKit -o $@ tests/command-bar-swap.m src/dylib/StdPatch/Hook.m src/dylib/StdPatch/Views.m
+
+check: build/diapatch build/group-tabs build/mouse-back-forward build/vertical-tab-glow build/split-client-hello build/peek-cursor build/peek-link build/safe-mode build/hook-table build/tidy-tabs build/drag-offset build/toolbar-permission build/launch-flags build/little-dia-stack build/little-dia-profile build/little-dia-over build/tracking build/hide-toolbar-settle build/command-bar-swap build/patches.json
 	tests/tweaks-update
 	build/group-tabs
 	build/tidy-tabs
@@ -118,6 +121,7 @@ check: build/diapatch build/group-tabs build/mouse-back-forward build/vertical-t
 	build/tracking
 	build/little-dia-over
 	build/hide-toolbar-settle
+	build/command-bar-swap
 	tests/sidebar-grain
 	scripts/check-patches
 

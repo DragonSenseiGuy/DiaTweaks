@@ -66,6 +66,10 @@ void DPStandInFor(NSWindow *window, NSString *tabID) {
     DPRefresh(window);
 }
 
+void DPStandInForTab(NSWindow *window, NSString *tabID) {
+    if (window && [DPGet(window, &DPTabKey) isEqual:tabID]) DPStandInFor(window, nil);
+}
+
 void DPRefreshStandIns(void) {
     for (NSWindow *window in NSApp.windows) DPRefresh(window);
 }

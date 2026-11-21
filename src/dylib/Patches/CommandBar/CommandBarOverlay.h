@@ -36,3 +36,9 @@ BOOL DPHasStrip(NSWindow *window);  // Tabs at the top.
 BOOL DPInTabLayout(NSView *view);
 NSEvent *DPTabLayoutMouseDown(DPCommandBarOverlay *overlay, NSEvent *event);  // nil if the click stops there.
 void DPTabLayoutMouseUp(DPCommandBarOverlay *overlay);
+
+void DPHandOver(DPCommandBarOverlay *overlay);
+void DPFinishHandOver(NSWindow *window);
+NSEvent *DPHandToDia(NSWindow *window, NSEvent *event, BOOL newTab);  // ⌘T or ⌘L goes on to Dia, which opens its tab or bar.
+BOOL DPWaitForDia(NSWindow *window, NSEvent *event, BOOL newTab);     // Pressed before Dia has: noted, and nothing else to do.
+void DPDiaCaughtUp(NSWindow *window);                                  // The tab or bar is up.
