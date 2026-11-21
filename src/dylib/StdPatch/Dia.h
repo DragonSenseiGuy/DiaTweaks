@@ -1,4 +1,5 @@
 #define DPDiaToolbar            "_TtC13NavigationBar17NavigationBarView"
+#define DPDiaCapsuleButton      "_TtC13NavigationBar26NavigationBarCapsuleButton"
 #define DPDiaWebsitePermissionPopover "_TtC13NavigationBar31WebsitePermissionRequestPopover"
 #define DPDiaBookmarksBar       "_TtC11BookmarkBar15BookmarkBarView"
 #define DPDiaAddressField       "_TtC13NavigationBar16AssistantBarView"

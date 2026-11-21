@@ -20,7 +20,7 @@ BOOL DPIsAITitle(NSString *title) {
 }
 
 static BOOL DPIsAIView(NSView *view) {
-    return DPHasLabel(view, @"Chat with this tab") || DPIsKind(view, DPDiaLibraryButton) || DPIsKind(view, DPDiaLibraryCell)
+    return DPIsChatButton(view) || DPIsKind(view, DPDiaLibraryButton) || DPIsKind(view, DPDiaLibraryCell)
         || DPIsKind(view, DPDiaSkillsSuggestions) || DPIsKind(view, DPDiaPersonalizeButton) || DPIsKind(view, DPDiaChatUsage)
         || DPIsKind(view, DPDiaCapabilityButton);
 }

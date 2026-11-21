@@ -50,6 +50,15 @@ BOOL DPIsFloatingChat(NSView *popover) {
     return cls && DPFindView(popover, ^BOOL(NSView *view) { return [view isKindOfClass:cls]; }) != nil;
 }
 
+// Dia 1.58.1+ replaces the Ask button's tooltip with an intro popover, dropping its accessibility label.
+BOOL DPIsChatButton(NSView *view) {
+    if (DPHasLabel(view, @"Chat with this tab")) return YES;
+    if (!DPIsKind(view, DPDiaCapsuleButton)) return NO;
+    return ([view isKindOfClass:NSControl.class] && ((NSControl *)view).action == @selector(didClickAskButton:))
+        || [view.toolTip isEqualToString:@"Chat with this tab"]
+        || DPFindView(view, ^BOOL(NSView *sub) { return DPHasLabel(sub, @"chat fill"); }) != nil;
+}
+
 BOOL DPHasLabel(NSView *view, NSString *accessibilityLabel) {
     return [view.accessibilityLabel isEqualToString:accessibilityLabel];
 }
