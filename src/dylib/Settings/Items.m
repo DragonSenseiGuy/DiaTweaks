@@ -48,8 +48,8 @@ void DPSetTweaksPaused(BOOL paused, NSWindow *window) {
     if (!paused && DPPausedAtLaunch && !DPSafeMode) {
         DPPatch *icon = DPPatchNamed(@"appIcon");
         BOOL catalog = [NSBundle.mainBundle.infoDictionary[@"CFBundleIconName"] isEqual:@"DiaChosenIcon"];
-        if (icon && DPSavedOn(icon) && catalog)
-            return DPRunCLI(@[@"set-icon"], ^(NSString *output) { DPHandOffAndQuit(@[@"apply"]); });
+        if (icon && DPSavedOn(icon))
+            return DPRunCLI(@[catalog ? @"set-icon" : @"build"], ^(NSString *output) { DPHandOffAndQuit(@[@"apply"]); });
         return DPHandOffAndQuit(@[@"apply"]);
     }
     DPApplySavedSettings();

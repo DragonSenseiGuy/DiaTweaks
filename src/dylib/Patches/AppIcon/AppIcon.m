@@ -1,8 +1,9 @@
 #import "AppIcon.h"
 #import "Updates/Updates.h"
+#include <sys/stat.h>
 
 static NSUInteger DPSwitches;
-
+static BOOL DPBuilding, DPStale, DPBuilt;
 static NSString *DPUnlinkable;
 
 static void DPAlert(NSString *message, NSString *detail) {
@@ -27,28 +28,46 @@ static void DPAlertUnlinkable(void) {
                                        @"and relaunching won’t change that. Updating or reinstalling DiaTweaks may fix it.", DPUnlinkable]);
 }
 
-static void DPLinkCatalog(void) {
-    if (DPUnlinkable) return DPAlertUnlinkable();
+static BOOL DPCatalogLinked(void) {
+    if (![NSBundle.mainBundle.infoDictionary[@"CFBundleIconName"] isEqual:@"DiaChosenIcon"]) return NO;
+    struct stat info;
+    NSString *catalog = [NSBundle.mainBundle.bundlePath stringByAppendingPathComponent:@"Contents/Resources/Assets.car"];
+    return lstat(catalog.fileSystemRepresentation, &info) == 0 && S_ISLNK(info.st_mode);
+}
+
+static void DPRebuildCatalog(void) {
+    if (DPUnlinkable && DPSavedOn(&DPAppIcon)) return DPAlertUnlinkable();
+    if (DPBuilding) return (void)(DPStale = YES);
+    DPBuilding = YES;
+    CFPreferencesAppSynchronize(CFSTR("com.diapatches"));
     DPRunCLI(@[ @"build" ], ^(NSString *output) {
-        if (!output) return DPAlert(@"Couldn’t change Dia’s icon", @"Dia keeps its current icon.");
-        if ((DPUnlinkable = DPLinkProblem(output))) return DPAlertUnlinkable();
+        DPBuilding = NO;
+        DPBuilt = YES;
+        if (DPStale) return DPStale = NO, DPRebuildCatalog();
+        BOOL wantLinked = DPSavedOn(&DPAppIcon);
+        if (!output) {
+            if (wantLinked) DPAlert(@"Couldn’t change Dia’s icon", @"Dia keeps its current icon.");
+            return;
+        }
+        if (wantLinked && (DPUnlinkable = DPLinkProblem(output))) return DPAlertUnlinkable();
+        if (wantLinked == DPCatalogLinked()) return;
         NSAlert *alert = [NSAlert new];
-        alert.messageText = @"Relaunch Dia to change its icon";
-        alert.informativeText = @"Until then, Dia keeps its current icon.";
+        alert.messageText = wantLinked ? @"Relaunch Dia to change its icon" : @"Relaunch Dia to finish turning off App Icon";
+        alert.informativeText = wantLinked ? @"Until then, Dia keeps its current icon."
+                                           : @"Dia’s own icon is back in the Dock. Relaunching restores its sealed asset catalog.";
         [alert addButtonWithTitle:@"Relaunch"];
         [alert addButtonWithTitle:@"Later"];
         if ([alert runModal] == NSAlertFirstButtonReturn) DPHandOffAndQuit(@[ @"apply" ]);
     });
 }
 
-static BOOL DPCatalogLinked(void) {
-    return [NSBundle.mainBundle.infoDictionary[@"CFBundleIconName"] isEqual:@"DiaChosenIcon"];
-}
-
 static void DPApplyAppIcon(DPPatch *patch) {
     if (DPTesting) return;
-    if (!DPCatalogLinked()) {
-        if (patch->on) DPLinkCatalog();
+    BOOL linked = DPCatalogLinked(), saved = DPSavedOn(patch);
+    if (!linked) {
+        // Paused turns patches off without saving: keep the bundle as built instead of rebuilding.
+        if (patch->on != saved) return;
+        if (saved || DPBuilt || DPBuilding) DPRebuildCatalog();
         return;
     }
     CFPreferencesAppSynchronize(CFSTR("com.diapatches"));
@@ -56,6 +75,7 @@ static void DPApplyAppIcon(DPPatch *patch) {
     DPRunCLI(@[ @"set-icon" ], ^(NSString *output) {
         if (current != DPSwitches) return;
         output ? DPDrawOwnTile() : DPAlert(@"Couldn’t change Dia’s icon", @"Dia keeps its current icon.");
+        if (patch->on == DPSavedOn(patch) && (!DPSavedOn(patch) || DPBuilt || DPBuilding)) DPRebuildCatalog();
     });
 }
 
