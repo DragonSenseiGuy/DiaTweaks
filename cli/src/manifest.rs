@@ -20,6 +20,9 @@ pub struct Patch {
     pub default_on: bool,
     pub requires: Option<String>,
     pub disabled_by: Option<String>,
+    /// Only changes at launch: pausing or resuming it finishes when Dia next opens.
+    #[serde(default)]
+    pub relaunch: bool,
 }
 
 impl Manifest {

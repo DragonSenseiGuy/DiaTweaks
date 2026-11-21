@@ -26,6 +26,47 @@ NSURL *DPWikiURL(DPPatch *patch) {
     return [NSURL URLWithString:[@"https://github.com/JaceThings/DiaTweaks/wiki/" stringByAppendingString:page]];
 }
 
+NSArray<NSString *> *DPRelaunchingOnPause(void) {
+    NSMutableArray<NSString *> *waiting = [NSMutableArray new];
+    if (DPSafeMode || DPPausedAtLaunch) return waiting;
+    for (NSUInteger i = 0; i < DPPatchCount; i++)
+        if (DPPatches[i]->relaunch && DPPatches[i]->on) [waiting addObject:DPPatches[i]->title];
+    return waiting;
+}
+
+void DPSyncPauseRow(NSTextField *label, NSButton *button) {
+    label.stringValue = DPPaused ? @"Tweaks are paused, so none of them are running. Your settings are kept."
+                                 : @"Pause every tweak and keep their settings.";
+    button.title = !DPPaused ? @"Pause Tweaks"
+        : DPPausedAtLaunch && !DPSafeMode ? @"Resume and Relaunch" : @"Resume Tweaks";
+}
+
+void DPSetTweaksPaused(BOOL paused, NSWindow *window) {
+    if (DPPaused == paused) return;
+    NSArray<NSString *> *waiting = paused ? DPRelaunchingOnPause() : @[];
+    DPSetPaused(paused);
+    if (!paused && DPPausedAtLaunch && !DPSafeMode) {
+        DPPatch *icon = DPPatchNamed(@"appIcon");
+        BOOL catalog = [NSBundle.mainBundle.infoDictionary[@"CFBundleIconName"] isEqual:@"DiaChosenIcon"];
+        if (icon && DPSavedOn(icon) && catalog)
+            return DPRunCLI(@[@"set-icon"], ^(NSString *output) { DPHandOffAndQuit(@[@"apply"]); });
+        return DPHandOffAndQuit(@[@"apply"]);
+    }
+    DPApplySavedSettings();
+    if (!waiting.count) return;
+    NSAlert *alert = [NSAlert new];
+    alert.messageText = @"Relaunch Dia to finish pausing?";
+    alert.informativeText = [NSString stringWithFormat:@"%@ only %@ after a relaunch. Every other tweak is already off.",
+                             [waiting componentsJoinedByString:@", "], waiting.count == 1 ? @"stops" : @"stop"];
+    [alert addButtonWithTitle:@"Relaunch"];
+    [alert addButtonWithTitle:@"Later"];
+    void (^finish)(NSModalResponse) = ^(NSModalResponse response) {
+        if (response == NSAlertFirstButtonReturn) DPHandOffAndQuit(@[@"apply"]);
+    };
+    if (window) [alert beginSheetModalForWindow:window completionHandler:finish];
+    else finish([alert runModal]);
+}
+
 @implementation DPPatchSwitch
 
 - (instancetype)initWithPatch:(DPPatch *)patch {
@@ -61,8 +102,9 @@ NSURL *DPWikiURL(DPPatch *patch) {
 }
 
 - (void)sync {
-    self.state = self.patch->on;
-    self.enabled = !DPWhyDisabled(self.patch);
+    // Paused: show what comes back, but nothing can be turned on until it does.
+    self.state = DPPaused ? DPSavedOn(self.patch) : self.patch->on;
+    self.enabled = !DPWhyDisabled(self.patch) && !DPPaused;
     DPSetHint(self.hiddenIcon, DPWhyHidden(self.patch));
     self.hiddenIcon.hidden = !DPHintOf(self.hiddenIcon);
 }

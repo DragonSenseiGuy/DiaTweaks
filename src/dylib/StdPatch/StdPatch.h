@@ -16,6 +16,7 @@ struct DPPatch {
     __unsafe_unretained NSString *requires;
     __unsafe_unretained NSString *disabledBy;
     __unsafe_unretained NSString *coveredBy;
+    BOOL relaunch;  // Only changes at launch: pausing or resuming it finishes when Dia next opens.
     __unsafe_unretained NSString *choice, *defaultChoice;  // Saved as the chosen item's representedObject.
     NSMenu *(*choices)(void);
     NSArray<NSView *> *(*rows)(void);
@@ -45,6 +46,8 @@ extern NSUInteger DPPatchCount;
 DPPatch *DPPatchNamed(NSString *key);
 DPPatch *DPRequired(DPPatch *patch);
 void DPSetPatch(DPPatch *patch, BOOL on, BOOL save);
+void DPApplySavedSettings(void);
+BOOL DPEffectiveOn(DPPatch *patch);  // Its saved setting, unless tweaks are paused.
 BOOL DPAnimating(void);  // Whether any easing is still running.
 BOOL DPSavedOn(DPPatch *patch);
 NSString *DPChoice(DPPatch *patch);

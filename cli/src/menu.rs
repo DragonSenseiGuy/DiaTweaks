@@ -1,8 +1,9 @@
 use anyhow::Result;
 
 use crate::{
+    dia,
     env::Env,
-    restore,
+    pause, restore,
     signals::{self, Cancelled},
     status, tweaks,
     ui::{self, Ui},
@@ -12,6 +13,7 @@ use crate::{
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Action {
     Tweaks,
+    Pause,
     UpdateDia,
     UpdateDiaTweaks,
     Status,
@@ -24,9 +26,15 @@ pub fn run(env: &Env, ui: &Ui) -> Result<()> {
     ui.enter_menu(true);
     let mut action = Action::Tweaks;
     loop {
+        let paused = dia::paused(&env.support);
+        let (pause_label, pause_hint) = match paused {
+            true => ("Resume tweaks", "turn tweaks back on"),
+            false => ("Pause tweaks", "turn every tweak off, keeping settings"),
+        };
         action = ui::prompt(
             cliclack::select("What do you want to do?")
                 .item(Action::Tweaks, "Tweaks", "turn tweaks on or off")
+                .item(Action::Pause, pause_label, pause_hint)
                 .item(Action::UpdateDia, "Update Dia", "")
                 .item(Action::UpdateDiaTweaks, "Update DiaTweaks", "")
                 .item(Action::Status, "Status", "")
@@ -41,6 +49,7 @@ pub fn run(env: &Env, ui: &Ui) -> Result<()> {
         )?;
         let result = match action {
             Action::Tweaks => tweaks::menu(env, ui),
+            Action::Pause => pause::set(env, ui, !paused),
             Action::UpdateDia => update_dia::run(env, ui),
             Action::UpdateDiaTweaks => update::run(env, ui),
             Action::Status => status::show(env, ui),

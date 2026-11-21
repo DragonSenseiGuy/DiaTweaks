@@ -6,8 +6,18 @@
 static const int64_t DPSurviveSeconds = 180;
 
 NSInteger DPSafeMode;
-static NSURL *DPStateURL;
+BOOL DPPaused, DPPausedAtLaunch;
+static NSURL *DPStateURL, *DPPauseURL;
 static NSMutableDictionary *DPState;
+
+// Pausing is a file, not a setting: it can't be confused with a tweak's own, an update leaves it, and leaving safe mode can't clear it.
+BOOL DPPauseSaved(void) { return [NSFileManager.defaultManager fileExistsAtPath:DPPauseURL.path]; }
+
+void DPSetPaused(BOOL paused) {
+    DPPaused = paused;
+    if (paused) [NSData.data writeToFile:DPPauseURL.path atomically:YES];
+    else [NSFileManager.defaultManager removeItemAtURL:DPPauseURL error:nil];
+}
 
 static NSString *DPBuildUUID(const struct mach_header_64 *header) {
     const struct load_command *command = (const void *)(header + 1);
@@ -49,12 +59,17 @@ void DPBeginLaunch(void) {
     Dl_info info;
     dladdr((const void *)DPBeginLaunch, &info);
     DPStateURL = [NSURL fileURLWithPath:[@(info.dli_fname).stringByDeletingLastPathComponent stringByAppendingPathComponent:@"safe-mode.plist"]];
+    DPPauseURL = [DPStateURL.URLByDeletingLastPathComponent URLByAppendingPathComponent:@"paused"];
+    DPPaused = DPPausedAtLaunch = DPPauseSaved();
     NSString *build = DPBuildUUID(info.dli_fbase);
     NSDictionary *saved = [NSDictionary dictionaryWithContentsOfURL:DPStateURL error:nil];
     DPState = [saved[@"build"] isEqual:build] ? [saved mutableCopy] : [NSMutableDictionary dictionaryWithObject:build forKey:@"build"];
     NSInteger crashes = [DPState[@"crashes"] integerValue];
-    if ([DPState[@"launching"] boolValue]) crashes += DPCrashed(DPState);
-    else crashes = 0;
+    // Paused tweaks can't crash Dia, so a crash while paused is Dia's own: it neither counts nor clears the count.
+    if (!DPPaused) {
+        if ([DPState[@"launching"] boolValue]) crashes += DPCrashed(DPState);
+        else crashes = 0;
+    }
     DPSafeMode = [DPState[@"level"] integerValue];
     if (crashes == 2 && DPSafeMode < 2) DPSafeMode++, crashes = 0;
     [DPState addEntriesFromDictionary:@{@"level": @(DPSafeMode), @"crashes": @(crashes), @"launching": @YES, @"launched": NSDate.date, @"pid": @(getpid())}];

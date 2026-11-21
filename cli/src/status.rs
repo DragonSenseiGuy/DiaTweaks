@@ -47,6 +47,7 @@ fn report(env: &Env, spinner: &Spinner) -> Result<Vec<String>> {
         _ if dia::safe_mode_parked(&env.support) => "on: DiaTweaks is off because Dia kept quitting right after opening, even after it was tried again; it stays off until the next DiaTweaks update",
         _ => "on: DiaTweaks is off because Dia kept quitting right after opening; it comes back with tweaks off after one launch where Dia stays open for three minutes or quits normally",
     };
+    let paused = dia::paused(&env.support);
     let mut lines = vec![
         format!("Dia        {installed}"),
         format!("Official   {}", status.official.unwrap_or_else(none)),
@@ -54,8 +55,14 @@ fn report(env: &Env, spinner: &Spinner) -> Result<Vec<String>> {
         format!("Latest     {latest}"),
         format!("Safe mode  {safe_mode}"),
         format!("DiaTweaks  {}", COMMIT.get(..7).unwrap_or(COMMIT)),
-        "Tweaks".into(),
     ];
+    if paused {
+        lines.push("Paused     yes: every tweak is off and keeps its settings; run `diatweaks resume` to turn them back on".into());
+    }
+    lines.push(match paused {
+        true => "Tweaks (paused: these settings come back with `diatweaks resume`)".into(),
+        false => "Tweaks".into(),
+    });
 
     let state = manifest.state(&Prefs::new(&env.domain));
     for (index, patch) in manifest.patches.iter().enumerate() {

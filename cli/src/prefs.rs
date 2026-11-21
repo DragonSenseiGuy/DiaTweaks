@@ -64,13 +64,18 @@ impl Prefs {
         if unsafe { CFPreferencesAppSynchronize(self.domain.as_concrete_TypeRef()) } == 0 {
             bail!("Couldn't save the settings in {}.", self.name);
         }
-        let notification = CString::new(format!("{}.changed", self.name))?;
-        let status = unsafe { notify_post(notification.as_ptr()) };
-        if status != 0 {
-            bail!("Saved, but couldn't tell Dia (notify_post returned {status}). Restart Dia to see the changes.");
-        }
-        Ok(())
+        notify(&self.name)
     }
+}
+
+/// Tells a running Dia to read its settings again.
+pub fn notify(domain: &str) -> Result<()> {
+    let notification = CString::new(format!("{domain}.changed"))?;
+    let status = unsafe { notify_post(notification.as_ptr()) };
+    if status != 0 {
+        bail!("Saved, but couldn't tell Dia (notify_post returned {status}). Restart Dia to see the changes.");
+    }
+    Ok(())
 }
 
 /// Reads strings the way NSString's boolValue, and so Dia, does.

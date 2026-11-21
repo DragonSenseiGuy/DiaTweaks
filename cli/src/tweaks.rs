@@ -13,6 +13,9 @@ use crate::{
 pub fn list(env: &Env) -> Result<()> {
     let manifest = Manifest::load(&env.manifest())?;
     let state = manifest.state(&Prefs::new(&env.domain));
+    if dia::paused(&env.support) {
+        ui::say("Tweaks are paused: every one is off until `diatweaks resume`. The settings below are kept.");
+    }
     let width = manifest
         .patches
         .iter()
@@ -61,8 +64,16 @@ pub fn set(env: &Env, ui: &Ui, names: &[String], on: bool) -> Result<()> {
     for note in notes(&manifest, &current, &wanted) {
         ui.warn(note);
     }
-    ui.done(where_it_shows(env));
+    ui.done(where_it_applies(env));
     Ok(())
+}
+
+/// A saved change does nothing while tweaks are paused, so say that instead of where it would show.
+fn where_it_applies(env: &Env) -> String {
+    match dia::paused(&env.support) {
+        true => "Tweaks are paused, so nothing changes until you run `diatweaks resume`.".into(),
+        false => where_it_shows(env),
+    }
 }
 
 pub fn menu(env: &Env, ui: &Ui) -> Result<()> {
@@ -104,7 +115,7 @@ pub fn menu(env: &Env, ui: &Ui) -> Result<()> {
         return Err(Cancelled::nothing_changed().into());
     }
     save(env, &manifest, &current, &wanted)?;
-    ui.done(format_args!("Saved. {}", where_it_shows(env)));
+    ui.done(format_args!("Saved. {}", where_it_applies(env)));
     Ok(())
 }
 
@@ -195,12 +206,12 @@ fn save(env: &Env, manifest: &Manifest, current: &[bool], wanted: &[bool]) -> Re
     Ok(changes)
 }
 
-fn where_it_shows(env: &Env) -> String {
+pub fn where_it_shows(env: &Env) -> String {
     match dia::safe_mode(&env.support) {
         0 => {}
-        1 => return "Tweaks are paused because Dia quit unexpectedly right after opening. Turn them back on in Dia → Settings → Patches.".into(),
+        1 => return "Tweaks are off because Dia quit unexpectedly right after opening. Turn them back on in Dia → Settings → Patches.".into(),
         _ if dia::safe_mode_parked(&env.support) => return "DiaTweaks is off because Dia kept quitting right after opening, even after it was tried again. It stays off until the next DiaTweaks update.".into(),
-        _ => return "DiaTweaks is off because Dia kept quitting right after opening. After one launch where Dia stays open for three minutes or quits normally, the next launch brings Settings back with tweaks still paused. Turn them back on in Dia → Settings → Patches.".into(),
+        _ => return "DiaTweaks is off because Dia kept quitting right after opening. After one launch where Dia stays open for three minutes or quits normally, the next launch brings Settings back with tweaks still off. Turn them back on in Dia → Settings → Patches.".into(),
     }
     if !dia::is_patched(&env.app) {
         return "Dia isn't patched right now, so they won't show. Run `diatweaks update` to patch it again.".into();

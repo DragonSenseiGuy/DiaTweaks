@@ -16,6 +16,7 @@ static NSView *DPWideRow(NSView *view) {
 @implementation DPPageView {
     DPPatch *_patch;
     NSMutableArray<DPPatchSwitch *> *_switches;
+    NSMutableArray<NSPopUpButton *> *_pickers;
     NSTextField *_note;
     NSArray<NSView *> *_rows;
     NSMutableArray<NSView *> *_optionChoices;
@@ -25,6 +26,7 @@ static NSView *DPWideRow(NSView *view) {
     if (!(self = [super initWithFrame:NSZeroRect])) return nil;
     _patch = patch;
     _switches = [NSMutableArray new];
+    _pickers = [NSMutableArray new];
     _optionChoices = [NSMutableArray new];
     _note = DPLabel(@"", 11, NSFontWeightRegular, NSColor.secondaryLabelColor);
 
@@ -124,6 +126,7 @@ static NSView *DPWideRow(NSView *view) {
     picker.action = @selector(choose:);
     DPSet(picker, &DPChoicePatchKey, [NSValue valueWithPointer:patch]);
     for (NSMenuItem *item in menu.itemArray) if ([item.representedObject isEqual:DPChoice(patch)]) [picker selectItem:item];
+    [_pickers addObject:picker];
     return DPRow(DPLabel(menu.title, 13, NSFontWeightRegular, NSColor.labelColor), picker);
 }
 
@@ -133,10 +136,11 @@ static NSView *DPWideRow(NSView *view) {
 
 - (void)sync {
     for (DPPatchSwitch *toggle in _switches) [toggle sync];
+    for (NSPopUpButton *picker in _pickers) picker.enabled = !DPPaused;
     for (NSView *row in _rows)
         DPFindView(row, ^BOOL(NSView *view) {
             BOOL label = [view isKindOfClass:NSTextField.class] && !((NSTextField *)view).editable;
-            if ([view isKindOfClass:NSControl.class] && !label) ((NSControl *)view).enabled = self->_patch->on && !DPSafeMode;
+            if ([view isKindOfClass:NSControl.class] && !label) ((NSControl *)view).enabled = self->_patch->on && !DPSafeMode && !DPPaused;
             return NO;
         });
     // Fade in after the group has grown, or the row rides over the one above.

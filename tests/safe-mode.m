@@ -24,7 +24,7 @@ static void child(const char *support, const char *home) {
         class_replaceMethod(NSFileManager.class, @selector(homeDirectoryForCurrentUser), imp_implementationWithBlock(^NSURL *(id self) { return reports; }), "@@:");
         DPTestDylib = [[@(support) stringByAppendingPathComponent:@"DiaPatches.dylib"] fileSystemRepresentation];
         DPBeginLaunch();
-        printf("level %ld\n", (long)DPSafeMode);
+        printf("level %ld paused %d\n", (long)DPSafeMode, DPPaused);
         fflush(stdout);
         char command[16] = "";
         if (fgets(command, sizeof command, stdin) && !strncmp(command, "quit", 4)) DPQuit();
@@ -38,6 +38,7 @@ static void child(const char *support, const char *home) {
 @property NSTask *task;
 @property NSFileHandle *input, *output;
 @property NSInteger level;
+@property BOOL paused;
 @end
 @implementation DPLaunch
 - (NSString *)line {
@@ -66,7 +67,9 @@ static DPLaunch *launch(void) {
     launch.input = in.fileHandleForWriting;
     launch.output = out.fileHandleForReading;
     [launch.task launchAndReturnError:nil];
-    launch.level = [[[launch line] substringFromIndex:6] integerValue];
+    NSString *line = [launch line];
+    launch.level = [[line substringFromIndex:6] integerValue];
+    launch.paused = [line containsString:@"paused 1"];
     return launch;
 }
 
@@ -112,6 +115,21 @@ int main(int argc, const char *argv[]) {
         DPLaunch *last = launch();
         expect(last.level == 1, @"two crashes of relaunched Dias turn safe mode on");
         [last end:@"quit"];
+
+        // Pausing is its own state: a crash while paused is Dia's own, so it neither counts nor clears the pause.
+        NSString *pause = [support stringByAppendingPathComponent:@"paused"];
+        [NSData.data writeToFile:pause atomically:YES];
+        DPLaunch *paused = launch();
+        expect(paused.paused, @"a launch with the pause file reports paused");
+        leaveCrashed(paused);
+        DPLaunch *stillPaused = launch();
+        expect(stillPaused.paused, @"a crash while paused leaves the pause alone");
+        expect([state()[@"crashes"] integerValue] == 0, @"a crash while paused isn't counted");
+        [stillPaused end:@"quit"];
+        [NSFileManager.defaultManager removeItemAtPath:pause error:nil];
+        DPLaunch *resumed = launch();
+        expect(!resumed.paused, @"removing the pause file resumes");
+        [resumed end:@"quit"];
 
         [NSFileManager.defaultManager removeItemAtPath:temporary error:nil];
     }

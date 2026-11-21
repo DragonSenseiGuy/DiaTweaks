@@ -12,7 +12,7 @@ __attribute__((constructor)) static void DPInit(void) {
     DPBeginLaunch();
     if (DPSafeMode == 2) return;
     DPLoadPatches();
-    if (!DPSafeMode) DPInstallPatches();
+    if (!DPSafeMode && !DPPaused) DPInstallPatches();
     DPInstallSettings();
     DPInstallUpdates();
     DPInstallDevTools();

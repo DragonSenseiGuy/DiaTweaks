@@ -170,6 +170,7 @@ DP_PATCH(DPTurnOffAI) {
     .symbol = @"bubble.left.and.exclamationmark.bubble.right.fill bubble.left.fill",
     .tint = @"systemPurpleColor",
     .hides = DPIsAIView,
+    .relaunch = YES,
     .install = DPInstallTurnOffAI,
     .apply = DPApplyTurnOffAI,
 };

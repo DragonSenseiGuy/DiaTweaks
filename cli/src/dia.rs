@@ -108,6 +108,11 @@ pub fn safe_mode_parked(support: &Path) -> bool {
         .unwrap_or(false)
 }
 
+/// The file the dylib reads at launch and on every change: tweaks are off, and keep their settings.
+pub fn paused(support: &Path) -> bool {
+    support.join("paused").is_file()
+}
+
 fn processes(app: &Path) -> Vec<(libc::pid_t, PathBuf)> {
     let Ok(root) = app.canonicalize() else {
         return Vec::new();

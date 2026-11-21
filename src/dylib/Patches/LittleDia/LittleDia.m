@@ -50,6 +50,7 @@ DP_PATCH(DPLittleDia) {
     .tint = @"systemMintColor",
     .classes = DPClasses(DPDiaOpenURLEvents, DPDiaPopupWindow, DPDiaPopupBar, DPDiaPopupTitle),
     .rows = DPLittleDiaRows,
+    .relaunch = YES,
     .install = DPInstallLittleDia,
     .apply = DPApplyLittleDia,
     .verify = DPVerifyLittleDia,

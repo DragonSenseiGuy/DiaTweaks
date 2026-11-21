@@ -75,14 +75,18 @@ static void DPEnsureReady(DPPatch *patch) {
 }
 
 void DPSetPatch(DPPatch *patch, BOOL on, BOOL save) {
+    if (save) [DPDefaults setBool:on forKey:patch->key];
+    if (DPPaused) on = NO;  // Paused: a tweak can be turned off, never on.
     if (patch->on == on) return;
     patch->on = on;
-    if (save) [DPDefaults setBool:on forKey:patch->key];
-    if (DPSafeMode) return;
+    if (DPSafeMode || DPPausedAtLaunch) return;
     if (patch->apply) patch->apply(patch);
     else DPAnimate();
     if (on && patch->ready) DPEnsureReady(patch);
 }
+
+// What a tweak should be doing now: its saved setting, unless tweaks are paused.
+BOOL DPEffectiveOn(DPPatch *patch) { return !DPPaused && DPSavedOn(patch); }
 
 NSString *DPAppSupport(NSString *path) {
     return [NSSearchPathForDirectoriesInDomains(NSApplicationSupportDirectory, NSUserDomainMask, YES).firstObject stringByAppendingPathComponent:path];
@@ -136,7 +140,7 @@ NSString *DPChoice(DPPatch *patch) {
 
 void DPSetChoice(DPPatch *patch, NSString *value) {
     [DPDefaults setObject:value forKey:patch->choice];
-    if (!DPSafeMode && patch->on && patch->apply) patch->apply(patch);
+    if (!DPSafeMode && !DPPausedAtLaunch && patch->on && patch->apply) patch->apply(patch);
 }
 
 static int DPCompareOrder(const void *a, const void *b) {
@@ -170,7 +174,7 @@ void DPLoadPatches(void) {
     for (NSUInteger i = 0; i < DPPatchCount; i++) {
         DPPatch *patch = DPPatches[i];
         for (DPPatch *required = DPRequired(patch); required; required = DPRequired(required)) patch->unavailable |= required->unavailable;
-        patch->on = DPSavedOn(patch);
+        patch->on = DPEffectiveOn(patch);
         patch->progress = patch->on;
         if (!patch->hides) continue;
         patch->apply = patch->apply ?: DPApplyHides;
@@ -178,13 +182,15 @@ void DPLoadPatches(void) {
     }
 }
 
-static void DPApplySavedSettings(void) {
+void DPApplySavedSettings(void) {
     CFPreferencesAppSynchronize(CFSTR("com.diapatches"));
-    for (NSUInteger i = 0; i < DPPatchCount; i++) DPSetPatch(DPPatches[i], DPSavedOn(DPPatches[i]), NO);
+    DPPaused = DPPauseSaved();
+    for (NSUInteger i = 0; i < DPPatchCount; i++) DPSetPatch(DPPatches[i], DPEffectiveOn(DPPatches[i]), NO);
     [NSNotificationCenter.defaultCenter postNotificationName:DPPatchesDidChangeNotification object:nil];
 }
 
 // Hooks install in Settings order (section, non-"Hide" first, then title length): a later hook runs first, and the sidebar drag tweaks rely on it.
+// Its notify handler is what applies a change live, so it is registered only here: a Dia that started with tweaks paused has nothing to apply to.
 void DPInstallPatches(void) {
     for (NSUInteger i = 0; i < DPPatchCount; i++) if (!DPPatches[i]->unavailable && DPPatches[i]->install) DPPatches[i]->install();
     DPOnLaunch(^{
@@ -207,6 +213,7 @@ BOOL DPWriteManifest(NSString *path) {
             @"defaultOn": @(patch->defaultOn),
             @"requires": required ? required->key : NSNull.null,
             @"disabledBy": disabler ? disabler->key : NSNull.null,
+            @"relaunch": @(patch->relaunch),
             @"section": patch->section ?: NSNull.null,
             @"tint": patch->tint ?: NSNull.null,
             @"symbol": patch->symbol ?: NSNull.null,

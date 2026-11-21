@@ -37,6 +37,9 @@ NSString *DPWhyDisabled(DPPatch *patch);
 NSString *DPWhyHidden(DPPatch *patch);
 NSString *DPWhyHiddenBy(DPPatch *disabler);
 NSURL *DPWikiURL(DPPatch *patch);
+NSArray<NSString *> *DPRelaunchingOnPause(void);
+void DPSyncPauseRow(NSTextField *label, NSButton *button);
+void DPSetTweaksPaused(BOOL paused, NSWindow *window);
 
 @interface DPPreviewView : DPFillView
 - (instancetype)initWithKey:(NSString *)key;

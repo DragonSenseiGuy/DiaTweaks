@@ -61,6 +61,7 @@ DP_PATCH(DPSplitClientHello) {
     .detail = @"Send each HTTPS connection’s first message in two pieces, cut inside the site’s name, to get past networks that block sites by name. Not HTTP/3, DNS or address blocks, and a few servers refuse it. While on, Dia’s network code runs inside Dia, outside its sandbox. Experimental.",
     .symbol = @"network.badge.shield.half.filled network",
     .tint = @"systemCyanColor",
+    .relaunch = YES,
     .install = DPInstallSplitClientHello,
     .apply = DPApplySplitClientHello,
 };

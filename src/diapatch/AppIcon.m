@@ -17,10 +17,11 @@ static NSString *DPIconsFolder(NSString *app, NSString *home) {
     return build ? [home stringByAppendingPathComponent:[@"icons/builds" stringByAppendingPathComponent:build]] : nil;
 }
 
-static NSString *DPChosenIcon(NSString *app, NSString *base) {
+static NSString *DPChosenIcon(NSString *app, NSString *base, NSString *home) {
     CFStringRef domain = CFSTR("com.diapatches");
     CFPreferencesAppSynchronize(domain);
     NSString *own = DPOwnIcon(app);
+    if ([NSFileManager.defaultManager fileExistsAtPath:[home stringByAppendingPathComponent:@"paused"]]) return own;
     if (!CFPreferencesGetAppBooleanValue(CFSTR("appIcon"), domain, NULL)) return own;
     NSString *icon = CFBridgingRelease(CFPreferencesCopyAppValue(CFSTR("appIconChoice"), domain));
     if (![icon isKindOfClass:NSString.class] || [icon isEqual:DPDefaultChoice]) return own;
@@ -42,13 +43,13 @@ static NSString *DPAddAlias(NSString *path, NSString *icon) {
 }
 
 // Write beside and rename: Dia keeps reading the old file until it reopens the catalog.
-static NSString *DPWriteCurrent(NSString *app, NSString *folder) {
+static NSString *DPWriteCurrent(NSString *app, NSString *folder, NSString *home) {
     NSFileManager *files = NSFileManager.defaultManager;
     NSString *base = [folder stringByAppendingPathComponent:@"base.car"], *current = [folder stringByAppendingPathComponent:@"current.car"];
     NSString *incoming = [current stringByAppendingString:@".new"];
     [files removeItemAtPath:incoming error:NULL];
     if (![files copyItemAtPath:base toPath:incoming error:NULL]) return @"couldn't copy the catalog";
-    NSString *problem = DPAddAlias(incoming, DPChosenIcon(app, base));
+    NSString *problem = DPAddAlias(incoming, DPChosenIcon(app, base, home));
     if (!problem && rename(incoming.fileSystemRepresentation, current.fileSystemRepresentation) != 0) problem = @"couldn't replace the catalog";
     [files removeItemAtPath:incoming error:NULL];
     return problem;
@@ -89,7 +90,7 @@ NSString *DPPrepareIcons(NSString *app, NSString *installed, NSString *home) {
     NSString *folder = DPIconsFolder(app, home);
     NSString *catalog = [app stringByAppendingPathComponent:@"Contents/Resources/Assets.car"];
     if (!folder) return @"kept Dia's icons: no build number";
-    NSString *problem = DPWriteBase(catalog, folder, home) ?: DPWriteCurrent(app, folder);
+    NSString *problem = DPWriteBase(catalog, folder, home) ?: DPWriteCurrent(app, folder, home);
     if (problem) return [@"kept Dia's icons: " stringByAppendingString:problem];
     NSString *link = [catalog stringByAppendingString:@".link"];
     NSFileManager *files = NSFileManager.defaultManager;
@@ -109,7 +110,7 @@ NSString *DPPrepareIcons(NSString *app, NSString *installed, NSString *home) {
 NSString *DPSwitchIcon(NSString *app, NSString *home) {
     NSString *folder = DPIconsFolder(app, home), *base = [folder stringByAppendingPathComponent:@"base.car"];
     if (!folder || ![NSFileManager.defaultManager fileExistsAtPath:base]) return @"this Dia wasn't built for icon switching; run `diapatch install`";
-    NSString *problem = (DPMissingIcons(base, home).count ? DPWriteBase(base, folder, home) : nil) ?: DPWriteCurrent(app, folder);
+    NSString *problem = (DPMissingIcons(base, home).count ? DPWriteBase(base, folder, home) : nil) ?: DPWriteCurrent(app, folder, home);
     if (problem) return problem;
     // IconServices caches by the bundle's date.
     [NSFileManager.defaultManager setAttributes:@{NSFileModificationDate : NSDate.date} ofItemAtPath:app error:NULL];

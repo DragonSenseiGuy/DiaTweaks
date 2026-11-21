@@ -46,6 +46,8 @@ Run `diatweaks` on its own for a menu, or:
 | `diatweaks list` | Shows every tweak and whether it's on |
 | `diatweaks enable hideToolbar` | Turns tweaks on; Dia changes straight away |
 | `diatweaks disable hideToolbar` | Turns tweaks off |
+| `diatweaks pause` | Turns every tweak off, keeping their settings, until `diatweaks resume` |
+| `diatweaks resume` | Turns the tweaks back on as they were |
 | `diatweaks status` | Shows Dia's version, safe mode and which tweaks are on |
 | `diatweaks update` | Installs the latest DiaTweaks release and patches Dia again |
 | `diatweaks update-dia` | Downloads a newer Dia and patches it |

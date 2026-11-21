@@ -10,6 +10,8 @@ void DPApplyHides(DPPatch *patch) {}
 NSString *DPVerifyHides(DPPatch *patch) { return nil; }
 void DPInstallHides(void) {}
 NSInteger DPSafeMode;
+BOOL DPPaused, DPPausedAtLaunch;
+BOOL DPPauseSaved(void) { return NO; }
 
 static NSView *gPane;
 static BOOL gStalledAtTheEnd, gStalledFading;

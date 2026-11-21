@@ -98,6 +98,7 @@ DP_PATCH(DPPasskeys) {
     .symbol = @"person.badge.key.fill",
     .tint = @"systemGreenColor",
     .section = @"Passwords",
+    .relaunch = YES,
     .install = DPInstallPasskeys,
     .apply = DPApplyPasskeys,
     .ready = DPPasskeysProblem,

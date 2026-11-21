@@ -63,6 +63,8 @@ static void DPRebuild(void) {
 
 static void DPApplyBriefLanguage(DPPatch *patch) {
     if (DPTesting || !DPBriefPrompt()) return;
+    // Paused turns patches off without saving: Dia keeps the language it was built with rather than rebuilding.
+    if (patch->on != DPSavedOn(patch)) return;
     // diapatch reads only saved settings, so save the language picked from macOS before it builds.
     NSUserDefaults *defaults = [[NSUserDefaults alloc] initWithSuiteName:@"com.diapatches"];
     if (patch->on && ![defaults stringForKey:patch->choice]) [defaults setObject:DPChoice(patch) forKey:patch->choice];

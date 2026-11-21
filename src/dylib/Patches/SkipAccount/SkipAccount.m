@@ -84,6 +84,7 @@ DP_PATCH(DPSkipAccount) {
     .tint = @"systemBrownColor",
     .section = @"Window",
     .classes = DPClasses(DPDiaAppDelegate, DPDiaSettingsHeader),
+    .relaunch = YES,
     .install = DPInstallSkipAccount,
     .apply = DPApplySkipAccount,
     .verify = DPVerifySkipAccount,

@@ -6,6 +6,9 @@
 @property (nonatomic, strong) NSMutableDictionary<NSString *, NSString *> *sectionHiders;
 @property (nonatomic, strong) NSMutableDictionary<NSString *, NSImageView *> *sectionEyes;
 @property (nonatomic, strong) NSTextField *noResults;
+@property (nonatomic, strong) NSView *pausedRow;
+@property (nonatomic, strong) NSTextField *pauseLabel;
+@property (nonatomic, strong) NSButton *pauseButton;
 @end
 
 @implementation DPOverviewView
@@ -29,6 +32,8 @@
         [rows[title] addObject:row];
     };
     if (DPSafeMode) add(@"Safe Mode", [self makeSafeModeRow]);
+    // Always built, so pausing from Terminal shows up here without reopening Settings.
+    add(@"Paused", self.pausedRow = [self makePausedRow]);
     for (NSUInteger i = 0; i < DPPatchCount; i++) {
         DPPatch *patch = DPPatches[i];
         if (DPRequired(patch)) continue;
@@ -71,6 +76,19 @@
     DPHandOffAndQuit(@[@"apply"]);
 }
 
+- (NSView *)makePausedRow {
+    self.pauseLabel = DPLabel(@"", 13, NSFontWeightRegular, NSColor.labelColor);
+    self.pauseButton = [NSButton buttonWithTitle:@"" target:self action:@selector(togglePause:)];
+    DPSyncPauseRow(self.pauseLabel, self.pauseButton);
+    NSView *row = DPRow(self.pauseLabel, self.pauseButton);
+    [self.searchText setObject:@"pause paused pause tweaks disable all turn off all resume turn patches back on" forKey:row];
+    return row;
+}
+
+- (void)togglePause:(id)sender {
+    DPSetTweaksPaused(!DPPaused, self.window);
+}
+
 - (NSView *)rowForPatch:(DPPatch *)patch {
     NSTextField *note = DPLabel(@"", 11, NSFontWeightRegular, NSColor.secondaryLabelColor);
     note.hidden = YES;
@@ -94,6 +112,7 @@
 }
 
 - (void)syncWithQuery:(NSString *)query {
+    DPSyncPauseRow(self.pauseLabel, self.pauseButton);
     [self.sectionEyes enumerateKeysAndObjectsUsingBlock:^(NSString *section, NSImageView *eye, BOOL *stop) {
         DPSetHint(eye, DPWhyHiddenBy(DPPatchNamed(self.sectionHiders[section])));
         eye.hidden = !DPHintOf(eye);
@@ -102,7 +121,10 @@
         [toggle sync];
         if (self.sectionEyes[toggle.patch->section ?: @"Other"]) toggle.hiddenIcon.hidden = YES;
         NSMutableArray<NSString *> *options = [NSMutableArray new];
-        if (toggle.patch->on) DPForEachOption(toggle.patch, ^(DPPatch *option) { if (option->on) [options addObject:option->title]; });
+        BOOL shownOn = DPPaused ? DPSavedOn(toggle.patch) : toggle.patch->on;
+        if (shownOn) DPForEachOption(toggle.patch, ^(DPPatch *option) {
+            if (DPPaused ? DPSavedOn(option) : option->on) [options addObject:option->title];
+        });
         NSTextField *note = [self.notes objectForKey:toggle];
         note.stringValue = DPWhyDisabled(toggle.patch) ?: [options componentsJoinedByString:@" · "];
         note.hidden = !note.stringValue.length;
@@ -115,13 +137,16 @@
         for (NSView *row in section[2]) {
             BOOL visible = YES;
             for (NSString *word in words) visible &= !word.length || [[self.searchText objectForKey:row] localizedStandardContainsString:word];
+            if (row == self.pausedRow) visible &= DPPaused || !DPSafeMode;
             NSArray<NSView *> *arranged = ((NSStackView *)row.superview).arrangedSubviews;
             NSUInteger index = [arranged indexOfObject:row];
             row.hidden = !visible;
             if (index > 0) arranged[index - 1].hidden = !visible || !any;
             any |= visible;
         }
-        for (NSView *view in @[section[0], section[1]]) view.hidden = !any;
+        BOOL pauseSection = [section[2] containsObject:self.pausedRow];
+        ((NSView *)section[0]).hidden = !any || (pauseSection && !DPPaused);
+        ((NSView *)section[1]).hidden = !any;
         anything |= any;
     }
     self.noResults.hidden = anything;
