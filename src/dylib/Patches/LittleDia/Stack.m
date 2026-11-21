@@ -45,10 +45,14 @@ static void DPUnveil(void) {
 }
 
 void DPLinkArrived(void) {
+    for (NSWindow *window in NSApp.orderedWindows)
+        if ([DPVeiled objectForKey:window] && window.visible) DPPutAwayWindow(window);
     for (NSWindow *window in DPVeiled)
         if (window.visible) DPPutAwayWindow(window);
     DPUnveil();
 }
+
+NSArray<NSWindow *> *DPPutAwayWindows(void) { return DPPutAway.copy ?: @[]; }
 
 void DPBringBackPutAway(NSWindow *little) {
     for (NSWindow *window in DPPutAway) {

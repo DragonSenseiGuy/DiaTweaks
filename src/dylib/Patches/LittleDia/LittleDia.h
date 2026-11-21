@@ -53,6 +53,7 @@ void DPRestoreStack(NSWindow *little, NSDictionary *noted);
 NSArray<NSDictionary *> *DPWindowStack(void);
 void DPReturnToSource(pid_t pid, NSWindow *little, NSArray<NSDictionary *> *stack);
 void DPBringBackPutAway(NSWindow *little);
+NSArray<NSWindow *> *DPPutAwayWindows(void);
 void DPLinkArrived(void);
 BOOL DPHideAgain(void);
 
