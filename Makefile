@@ -74,7 +74,10 @@ build/tidy-tabs: tests/tidy-tabs.m $(TIDY) | build
 	clang $(CFLAGS) -Isrc/dylib -framework AppKit -framework QuartzCore -o $@ $^
 
 build/drag-offset: tests/drag-offset.m src/dylib/Patches/CompactTabRows/CompactTabRows.m src/dylib/StdPatch/Hook.m src/dylib/StdPatch/Views.m $(wildcard src/dylib/StdPatch/*.h) | build
-	clang $(CFLAGS) -Isrc/dylib -framework AppKit -o $@ tests/drag-offset.m src/dylib/StdPatch/Hook.m src/dylib/StdPatch/Views.m
+	clang $(CFLAGS) -Isrc/dylib -framework AppKit -framework QuartzCore -o $@ tests/drag-offset.m src/dylib/StdPatch/Hook.m src/dylib/StdPatch/Views.m
+
+build/small-tab-shape: tests/small-tab-shape.m src/dylib/Patches/CompactTabRows/CompactTabRows.m src/dylib/StdPatch/Hook.m src/dylib/StdPatch/Views.m $(wildcard src/dylib/StdPatch/*.h) | build
+	clang $(CFLAGS) -Isrc/dylib -framework AppKit -framework QuartzCore -o $@ tests/small-tab-shape.m src/dylib/StdPatch/Hook.m src/dylib/StdPatch/Views.m
 
 build/little-dia-stack: tests/little-dia-stack.m src/dylib/Patches/LittleDia/Stack.m $(wildcard src/dylib/StdPatch/*.h) | build
 	clang $(CFLAGS) -Isrc/dylib -framework AppKit -o $@ $<
@@ -117,7 +120,7 @@ build/command-bar-spare: tests/command-bar-spare.m src/dylib/Patches/CommandBar/
 build/tab-titles: tests/tab-titles.m src/dylib/Patches/TabTitles/Title.m src/dylib/Patches/TabTitles/Title.h | build
 	clang $(CFLAGS) -Isrc/dylib -framework Foundation -o $@ tests/tab-titles.m src/dylib/Patches/TabTitles/Title.m
 
-check: build/diapatch build/group-tabs build/mouse-back-forward build/vertical-tab-glow build/split-client-hello build/peek-cursor build/peek-link build/safe-mode build/pause build/hook-table build/tidy-tabs build/drag-offset build/toolbar-permission build/launch-flags build/little-dia-stack build/little-dia-profile build/little-dia-over build/little-dia-focus build/tracking build/hide-toolbar-settle build/command-bar-swap build/command-bar-spare build/tab-titles build/show-address-field build/patches.json
+check: build/diapatch build/group-tabs build/mouse-back-forward build/vertical-tab-glow build/split-client-hello build/peek-cursor build/peek-link build/safe-mode build/pause build/hook-table build/tidy-tabs build/drag-offset build/small-tab-shape build/toolbar-permission build/launch-flags build/little-dia-stack build/little-dia-profile build/little-dia-over build/little-dia-focus build/tracking build/hide-toolbar-settle build/command-bar-swap build/command-bar-spare build/tab-titles build/show-address-field build/patches.json
 	tests/tweaks-update
 	build/group-tabs
 	build/tidy-tabs
@@ -130,6 +133,7 @@ check: build/diapatch build/group-tabs build/mouse-back-forward build/vertical-t
 	build/pause
 	build/hook-table
 	build/drag-offset
+	build/small-tab-shape
 	build/toolbar-permission
 	build/launch-flags
 	build/little-dia-stack

@@ -179,9 +179,112 @@ static void DPGroupCell_layout(NSView *self, SEL _cmd) {
     }
 }
 
+static id DPIvarObject(id object, const char *name) {
+    void **slot = DPIvar(object, name);
+    return slot ? (__bridge id)*slot : nil;
+}
+
+static CGPathRef DPFitTabPath(CGPathRef source, CGRect box, CGFloat height) {
+    CGFloat from = CGRectGetHeight(box), cut = from - height;
+    if (height < from * 0.7) {
+        CGRect rect = CGRectMake(CGRectGetMinX(box), CGRectGetMinY(box), CGRectGetWidth(box), height);
+        CGFloat radius = MIN(10, MIN(CGRectGetWidth(rect), height) / 2);
+        return CGPathCreateWithRoundedRect(rect, radius, radius, NULL);
+    }
+    CGFloat midFrom = CGRectGetMinY(box) + from / 2, midTo = CGRectGetMinY(box) + height / 2;
+    CGPoint (^fit)(CGPoint) = ^CGPoint(CGPoint p) {
+        if (p.y < midFrom - 0.001) return CGPointMake(p.x, MIN(p.y, midTo));
+        if (p.y > midFrom + 0.001) return CGPointMake(p.x, MAX(p.y - cut, midTo));
+        return CGPointMake(p.x, midTo);
+    };
+    CGMutablePathRef path = CGPathCreateMutable();
+    CGPathApplyWithBlock(source, ^(const CGPathElement *element) {
+        CGPoint *pts = element->points;
+        switch (element->type) {
+            case kCGPathElementMoveToPoint: {
+                CGPoint p = fit(pts[0]);
+                CGPathMoveToPoint(path, NULL, p.x, p.y);
+                break;
+            }
+            case kCGPathElementAddLineToPoint: {
+                CGPoint p = fit(pts[0]);
+                CGPathAddLineToPoint(path, NULL, p.x, p.y);
+                break;
+            }
+            case kCGPathElementAddQuadCurveToPoint: {
+                CGPoint c = fit(pts[0]), e = fit(pts[1]);
+                CGPathAddQuadCurveToPoint(path, NULL, c.x, c.y, e.x, e.y);
+                break;
+            }
+            case kCGPathElementAddCurveToPoint: {
+                CGPoint c1 = fit(pts[0]), c2 = fit(pts[1]), e = fit(pts[2]);
+                CGPathAddCurveToPoint(path, NULL, c1.x, c1.y, c2.x, c2.y, e.x, e.y);
+                break;
+            }
+            case kCGPathElementCloseSubpath:
+                CGPathCloseSubpath(path);
+                break;
+        }
+    });
+    return path;
+}
+
+// TabShapeView clamps its path to 30 pt tall even inside a 27 pt Small row, clipping the bottom.
+static void DPTabShape_layout(NSView *self, SEL _cmd) {
+    DPCallOriginal(DPTabShape_layout, self);
+    if (!DPCompactTabRows.on) return;
+    uint8_t *shape = DPIvar(self, "shape");
+    if (!shape || *shape != 0) return;
+    CGFloat height = NSHeight(self.bounds);
+    if (height < 0.5) return;
+    CAShapeLayer *shapeLayer = DPIvarObject(self, "$__lazy_storage_$_shapeLayer");
+    if (![shapeLayer isKindOfClass:CAShapeLayer.class] || !shapeLayer.path || CGPathIsEmpty(shapeLayer.path)) return;
+    CGRect box = CGPathGetPathBoundingBox(shapeLayer.path);
+    if (CGRectGetHeight(box) <= height + 0.5) return;
+    CGPathRef path = DPFitTabPath(shapeLayer.path, box, height);
+    if (!path) return;
+    [CATransaction begin];
+    [CATransaction setDisableActions:YES];
+    shapeLayer.path = path;
+    CAShapeLayer *borderMask = DPIvarObject(self, "$__lazy_storage_$_gradientBorderMaskLayer");
+    if ([borderMask isKindOfClass:CAShapeLayer.class]) borderMask.path = path;
+    CALayer *shadow = DPIvarObject(self, "$__lazy_storage_$_shadowLayer");
+    if ([shadow isKindOfClass:CALayer.class]) {
+        NSEdgeInsets *outsets = DPIvar(self, "horizontalShadowOutsets");
+        CGAffineTransform shift = CGAffineTransformMakeTranslation(outsets ? outsets->left : 0, 0);
+        CGPathRef shifted = CGPathCreateCopyByTransformingPath(path, &shift);
+        shadow.shadowPath = shifted;
+        CGPathRelease(shifted);
+    }
+    CAShapeLayer *bottomMask = DPIvarObject(self, "bottomShadowMaskLayer");
+    if ([bottomMask isKindOfClass:CAShapeLayer.class]) {
+        CGMutablePathRef cutout = CGPathCreateMutable();
+        CGPathAddRect(cutout, NULL, bottomMask.bounds);
+        CGAffineTransform shift = CGAffineTransformMakeTranslation(20, 20);
+        CGPathAddPath(cutout, &shift, path);
+        bottomMask.path = cutout;
+        CGPathRelease(cutout);
+    }
+    NSView *rim = DPIvarObject(self, "rimHighlightView");
+    if (rim) {
+        void **slot = DPIvar(rim, "path");
+        if (slot) {
+            CGPathRef old = (CGPathRef)*slot;
+            *slot = (void *)CGPathRetain(path);
+            if (old) CGPathRelease(old);
+        }
+        CAShapeLayer *rimShape = DPIvarObject(rim, "$__lazy_storage_$_shapeLayer");
+        if ([rimShape isKindOfClass:CAShapeLayer.class]) rimShape.path = path;
+        rim.needsLayout = YES;
+    }
+    [CATransaction commit];
+    CGPathRelease(path);
+}
+
 static void DPInstallCompactTabRows(void) {
     DPHook(DPDiaTabListLayout, @selector(prepareLayout), (IMP)DPLayout_prepareLayout);
     DPHook(DPDiaTabGroupCell, @selector(layout), (IMP)DPGroupCell_layout);
+    DPHook(DPDiaTabShape, @selector(layout), (IMP)DPTabShape_layout);
     DPHook(DPDiaFeatheredLabel, @selector(layout), (IMP)DPLabel_layout);
     DPHook(DPDiaTabList, @selector(draggingEntered:), (IMP)DPTabList_entered);
     DPHook(DPDiaTabList, @selector(draggingUpdated:), (IMP)DPTabList_updated);
@@ -191,6 +294,7 @@ static void DPInstallCompactTabRows(void) {
 
 static void DPApplyCompactTabRows(DPPatch *patch) {
     for (NSView *view in DPFindViews(DPDiaTabListCollection)) [((NSCollectionView *)view).collectionViewLayout invalidateLayout];
+    for (NSView *shape in DPFindViews(DPDiaTabShape)) shape.needsLayout = YES;
     for (NSView *label in DPFindViews(DPDiaFeatheredLabel)) {
         label.needsLayout = YES;
         [label layoutSubtreeIfNeeded];
@@ -202,6 +306,20 @@ static NSString *DPVerifyCompactTabRows(DPPatch *patch) {
     for (NSView *view in DPFindViews(DPDiaTabListCollection)) {
         NSArray *all = DPKeptAttributes(((NSCollectionView *)view).collectionViewLayout);
         if (patch->on && DPRowHeight(all) > target + 0.5) return [NSString stringWithFormat:@"tab rows are taller than %g pt", target];
+    }
+    if (patch->on) {
+        const char *const layers[] = { "$__lazy_storage_$_shapeLayer", "$__lazy_storage_$_gradientBorderMaskLayer", NULL };
+        for (NSView *shape in DPFindViews(DPDiaTabShape)) {
+            if (shape.hiddenOrHasHiddenAncestor || NSHeight(shape.bounds) < 0.5) continue;
+            uint8_t *kind = DPIvar(shape, "shape");
+            if (!kind || *kind != 0) continue;
+            for (const char *const *name = layers; *name; name++) {
+                CAShapeLayer *layer = DPIvarObject(shape, *name);
+                if ([layer isKindOfClass:CAShapeLayer.class] && layer.path && !CGPathIsEmpty(layer.path) &&
+                    CGRectGetHeight(CGPathGetPathBoundingBox(layer.path)) > NSHeight(shape.bounds) + 0.5)
+                    return @"a tab's shape is clipped by its row";
+            }
+        }
     }
     for (NSTextField *label in DPFindViews(DPDiaFeatheredLabel)) {
         if (!DPIsRowTitle(label) || label.hiddenOrHasHiddenAncestor) continue;
@@ -228,7 +346,7 @@ DP_PATCH(DPCompactTabRows) {
     .choice = @"compactTabRowsSize",
     .defaultChoice = @"compact",
     .choices = DPRowSizeChoices,
-    .classes = DPClasses(DPDiaTabListLayout, DPDiaTabListCollection, DPDiaTabList, DPDiaTabGroupCell, DPDiaTabGroupBackground, DPDiaFeatheredLabel, DPDiaTransitioningLabel),
+    .classes = DPClasses(DPDiaTabListLayout, DPDiaTabListCollection, DPDiaTabList, DPDiaTabGroupCell, DPDiaTabGroupBackground, DPDiaTabShape, DPDiaFeatheredLabel, DPDiaTransitioningLabel),
     .install = DPInstallCompactTabRows,
     .apply = DPApplyCompactTabRows,
     .verify = DPVerifyCompactTabRows,
