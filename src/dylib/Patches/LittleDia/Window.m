@@ -56,6 +56,14 @@ static void DPSetChrome(NSWindow *window, BOOL little) {
     titlebar.hidden = little;
 }
 
+// DPClaim makes the window key before Chromium inserts its page view, so Chromium never focuses it on its own.
+static void DPFocusPage(NSWindow *window) {
+    if (!DPLittleDia.on || !DPIsLittleDiaWindow(window) || DPGet(window, &DPPromotedKey) || !window.isKeyWindow) return;
+    if (window.firstResponder && window.firstResponder != window) return;
+    NSView *page = DPFindView(window.contentView, ^BOOL(NSView *view) { return DPIsKind(view, DPDiaRenderWidget) && !view.isHiddenOrHasHiddenAncestor; });
+    if (page) [window makeFirstResponder:page];
+}
+
 static void DPClaim(NSWindow *window) {
     if (!window || !DPIsKind(window, DPDiaPopupWindow) || DPGet(window, &DPLittleKey) || !DPExpected.count) return;
     NSDictionary *link = DPExpected.firstObject, *noted = link[@"noted"];
@@ -80,8 +88,10 @@ static void DPClaim(NSWindow *window) {
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 300 * NSEC_PER_MSEC), dispatch_get_main_queue(), ^{
         [weakWindow setFrame:frame display:YES];
         DPRestoreStack(weakWindow, noted);
+        DPFocusPage(weakWindow);
     });
     DPRefreshLittleDiaWindows();
+    DPFocusPage(window);
     if (link[@"claimed"]) ((void (^)(NSWindow *))link[@"claimed"])(window);
 }
 
@@ -102,6 +112,14 @@ static void DPBrowser_didCreate(id self, SEL _cmd, id browser, id page, BOOL act
 static void DPPopupBar_viewDidMoveToWindow(NSView *self, SEL _cmd) {
     DPCallOriginal(DPPopupBar_viewDidMoveToWindow, self);
     DPClaim(self.window);
+}
+
+static void DPPage_viewDidMoveToWindow(NSView *self, SEL _cmd) {
+    DPCallOriginal(DPPage_viewDidMoveToWindow, self);
+    NSWindow *window = self.window;
+    if (!DPLittleDia.on || !DPIsLittleDiaWindow(window)) return;
+    __weak NSWindow *weakWindow = window;
+    dispatch_async(dispatch_get_main_queue(), ^{ DPFocusPage(weakWindow); });
 }
 
 // Only plain new-tab links stay: sized popups keep their opener, which sign-in windows talk back to.
@@ -175,12 +193,16 @@ void DPInstallLittleDiaWindows(void) {
     DPPendingPages = [NSMutableArray array];
     DPWindowsAwaitingPage = [NSPointerArray weakObjectsPointerArray];
     DPHookClass(objc_getClass(DPDiaPopupBar), @selector(viewDidMoveToWindow), (IMP)DPPopupBar_viewDidMoveToWindow);
+    DPHook(DPDiaRenderWidget, @selector(viewDidMoveToWindow), (IMP)DPPage_viewDidMoveToWindow);
     DPHook(DPDiaBrowserDelegate, @selector(browser:didCreateNewWebContents:isActive:), (IMP)DPBrowser_didCreate);
     DPOnLaunch(^{
         DPHook(DPDiaWebContent, @selector(webContents:decidePolicyForNavigationAction:), (IMP)DPPage_decidePolicy);
     });
     NSNotificationCenter *center = NSNotificationCenter.defaultCenter;
-    [center addObserverForName:NSWindowDidBecomeKeyNotification object:nil queue:nil usingBlock:^(NSNotification *note) { DPClaim(note.object); }];
+    [center addObserverForName:NSWindowDidBecomeKeyNotification object:nil queue:nil usingBlock:^(NSNotification *note) {
+        DPClaim(note.object);
+        DPFocusPage(note.object);
+    }];
     [center addObserverForName:NSWindowWillCloseNotification object:nil queue:nil usingBlock:^(NSNotification *note) { DPWindowWillClose(note.object); }];
     DPInstallLittleDiaBar();
     DPInstallLittleDiaStack();
