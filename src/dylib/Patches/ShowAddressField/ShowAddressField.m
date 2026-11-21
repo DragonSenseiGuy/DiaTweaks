@@ -27,8 +27,12 @@ static void DPSetHover(NSView *field, BOOL hovered) {
     if (handler[0]) ((DPHoverHandler)handler[0])(hovered, handler[1]);
 }
 
+static Class DPAddressFieldClass;
+
 static BOOL DPKeepsHover(id tracker) {
-    return DPShowAddressField.on && DPIsKind(objc_loadWeak((__autoreleasing id *)DPIvar(tracker, "view")), DPDiaAddressField);
+    if (!DPShowAddressField.on) return NO;
+    id view = objc_loadWeak((__autoreleasing id *)DPIvar(tracker, "view"));
+    return DPAddressFieldClass && [view isKindOfClass:DPAddressFieldClass];
 }
 
 static void DPTracker_mouseEntered(id self, SEL _cmd, NSEvent *event) {
@@ -46,8 +50,15 @@ static void DPField_layout(NSView *self, SEL _cmd) {
     if (DPShowAddressField.on && !DPShowsHover(self)) DPSetHover(self, YES);
 }
 
+// Hide Toolbar lifts the invisible bar above the pane, where a bounds check still catches a pointer outside the pane.
 static BOOL DPPointerOver(NSView *field) {
-    return NSPointInRect([field convertPoint:field.window.mouseLocationOutsideOfEventStream fromView:nil], field.bounds);
+    NSWindow *window = field.window;
+    NSView *content = window.contentView;
+    if (!window.isKeyWindow || !content || field.hiddenOrHasHiddenAncestor) return NO;
+    for (NSView *view = field; view; view = view.superview) if (view.alphaValue <= 0.01) return NO;
+    NSPoint point = content.superview ? [content.superview convertPoint:window.mouseLocationOutsideOfEventStream fromView:nil]
+                                      : window.mouseLocationOutsideOfEventStream;
+    return [[content hitTest:point] isDescendantOf:field];
 }
 
 static void DPApplyShowAddressField(DPPatch *patch) {
@@ -64,6 +75,7 @@ static NSString *DPVerifyShowAddressField(DPPatch *patch) {
 }
 
 static void DPInstallShowAddressField(void) {
+    DPAddressFieldClass = objc_getClass(DPDiaAddressField);
     DPHook(DPDiaHoverTracker, @selector(mouseEntered:), (IMP)DPTracker_mouseEntered);
     DPHook(DPDiaHoverTracker, @selector(mouseMoved:), (IMP)DPTracker_mouseMoved);
     DPHook(DPDiaHoverTracker, @selector(mouseExited:), (IMP)DPTracker_mouseExited);
