@@ -19,7 +19,8 @@ static NSString *DPCopyNames(id<DPAssetStorage> source, id<DPAssetStorage> catal
     for (NSString *name in source.allRenditionNames) {
         CGPoint hotSpot = CGPointZero;
         const DPKeyToken *key = [source renditionKeyForName:name.UTF8String hotSpot:&hotSpot];
-        for (const DPKeyToken *token = key; token && (token->attribute || token->value); token++)
+        if (!key) return [@"missing key for " stringByAppendingString:name];
+        for (const DPKeyToken *token = key; token->attribute || token->value; token++)
             if (token->attribute == DPIdentifier && [taken containsObject:@(token->value)]) return [@"name collision on " stringByAppendingString:name];
         [catalog setRenditionKey:key hotSpot:hotSpot forName:name.UTF8String];
     }
@@ -28,12 +29,14 @@ static NSString *DPCopyNames(id<DPAssetStorage> source, id<DPAssetStorage> catal
 
 static NSData *DPTranslateKey(const DPKeyToken *key, id<DPAssetStorage> source, id<DPAssetStorage> catalog) {
     const DPKeyFormat *format = catalog.keyFormat;
+    if (!format || !format->count) return nil;
     NSMutableData *translated = [NSMutableData dataWithLength:format->count * sizeof(uint16_t)];
     uint16_t *slots = translated.mutableBytes;
     for (; key->attribute || key->value; key++) {
         uint16_t value = key->value;
         if (key->attribute == DPAppearance && value) {
-            value = [catalog appearanceIdentifierForName:[source nameForAppearanceIdentifier:value]];
+            NSString *appearance = [source nameForAppearanceIdentifier:value];
+            value = appearance ? [catalog appearanceIdentifierForName:appearance] : 0;
             if (!value) return nil;
         }
         int slot = DPKeyIndex(format, key->attribute);
@@ -46,17 +49,22 @@ static NSData *DPTranslateKey(const DPKeyToken *key, id<DPAssetStorage> source, 
 NSString *DPMergeCatalog(NSString *sourcePath, NSString *catalogPath) {
     id<DPAssetStorage> catalog = DPOpenCatalog(catalogPath, YES), source = DPOpenCatalog(sourcePath, NO);
     if (!catalog || !source) return @"couldn't open the catalogs";
+    if (!catalog.keyFormat || !catalog.keyFormat->count) return @"the catalogs' key formats don't match";
     __block unsigned count = 0;
     NSMutableSet *taken = [NSMutableSet set];
     [catalog enumerateKeysAndObjectsUsingBlock:^(const DPKeyToken *key, NSData *value) {
         count++;
-        for (; key->attribute || key->value; key++) if (key->attribute == DPIdentifier) [taken addObject:@(key->value)];
+        for (; key && (key->attribute || key->value); key++) if (key->attribute == DPIdentifier) [taken addObject:@(key->value)];
     }];
     NSString *problem = DPCopyNames(source, catalog, taken);
     if (problem) return problem;
     NSMutableArray<NSArray *> *assets = [NSMutableArray array];
     __block BOOL translated = YES;
     [source enumerateKeysAndObjectsUsingBlock:^(const DPKeyToken *key, NSData *value) {
+        if (!key) {
+            translated = NO;
+            return;
+        }
         uint16_t element = 0, part = 0;
         for (const DPKeyToken *token = key; token->attribute || token->value; token++) {
             if (token->attribute == DPElement) element = token->value;
