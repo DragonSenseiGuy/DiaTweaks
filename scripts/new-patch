@@ -3,8 +3,8 @@ set -eu
 cd "$(dirname "$0")/.."
 name="${1:-}"
 case "$name" in
-    [ABCDEFGHIJKLMNOPQRSTUVWXYZ]*) ;;
-    *) echo "usage: make patch NAME=HideFooButton" >&2; exit 1 ;;
+    ''|[!ABCDEFGHIJKLMNOPQRSTUVWXYZ]*|*[!ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789]*)
+        echo "usage: make patch NAME=HideFooButton" >&2; exit 1 ;;
 esac
 dir="src/dylib/Patches/$name"
 [ -e "$dir" ] && { echo "$dir already exists" >&2; exit 1; }

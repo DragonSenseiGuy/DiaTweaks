@@ -16,9 +16,20 @@ old=$(keys "$previous")
 tweaks='' skip=''
 for key in $(keys "$tag"); do
     printf '%s\n' "$old" | grep -qx "$key" && continue
-    patch=$(git grep -h -A8 "\.key = @\"$key\"" "$tag" -- src/dylib/Patches)
-    title=$(printf '%s\n' "$patch" | sed -n 's/.*\.title = @"\(.*\)",/\1/p' | head -1)
-    detail=$(printf '%s\n' "$patch" | sed -n 's/.*\.detail = @"\(.*\)",/\1/p' | head -1)
+    file=$(git grep -l "\.key = @\"$key\"" "$tag" -- src/dylib/Patches | head -1)
+    meta=$(git show "$file" | python3 -c '
+import re, sys
+key, src = sys.argv[1], sys.stdin.read()
+m = re.search(r"\.key\s*=\s*@\"" + re.escape(key) + r"\"(.*?)\};", src, re.S)
+block = m.group(1) if m else ""
+def field(name):
+    fm = re.search(r"\." + name + r"\s*=\s*((?:@\"(?:[^\"\\]|\\.)*\"\s*)+),", block, re.S)
+    return "".join(re.findall(r"@\"((?:[^\"\\]|\\.)*)\"", fm.group(1))) if fm else ""
+print(field("title"))
+print(field("detail"))
+' "$key")
+    title=$(printf '%s\n' "$meta" | sed -n '1p')
+    detail=$(printf '%s\n' "$meta" | sed -n '2p')
     tweaks="$tweaks- **[$title](https://github.com/$repo/wiki/$(printf '%s' "$title" | tr ' ' -))**\\
   $detail
 "

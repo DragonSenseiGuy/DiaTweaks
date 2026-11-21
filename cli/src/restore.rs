@@ -70,11 +70,14 @@ pub fn run(env: &Env, ui: &Ui, mut purge: bool) -> Result<()> {
     if !done.status.success() {
         return Err(spinner.fail(anyhow!("Couldn't restore Dia:\n{}", done.tail(5))));
     }
-    let version = dia::version_of(&env.app).unwrap_or_default();
+    let label = match dia::version_of(&env.app) {
+        Some(version) => format!("the original Dia {version}"),
+        None => "the original Dia".into(),
+    };
     spinner.stop(if was_running {
-        format!("Restored the original Dia {version} and reopened it")
+        format!("Restored {label} and reopened it")
     } else {
-        format!("Restored the original Dia {version}")
+        format!("Restored {label}")
     });
     ui.done(if purge {
         "DiaTweaks is removed. Your tweak settings stay in case you install it again."

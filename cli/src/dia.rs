@@ -1,4 +1,7 @@
 use std::{
+    cmp::Ordering,
+    fs,
+    os::unix::fs::MetadataExt,
     path::{Path, PathBuf},
     process::Command,
     thread,
@@ -71,20 +74,100 @@ impl Diapatch {
 }
 
 pub fn is_newer(version: &str, than: &str) -> bool {
-    let version_parts = build(version)
-        .split(|c: char| !c.is_ascii_digit())
-        .filter_map(|part| part.parse::<u64>().ok());
-    let than_parts = build(than)
-        .split(|c: char| !c.is_ascii_digit())
-        .filter_map(|part| part.parse::<u64>().ok());
-    version_parts.gt(than_parts)
+    let (a, b) = match (parenthesized_build(version), parenthesized_build(than)) {
+        (Some(a), Some(b)) => (a, b),
+        _ => (strip_build(version), strip_build(than)),
+    };
+    if a.trim().is_empty() {
+        return false;
+    }
+    if b.trim().is_empty() {
+        return true;
+    }
+    compare_versions(a, b) == Ordering::Greater
 }
 
-fn build(version: &str) -> &str {
+fn parenthesized_build(version: &str) -> Option<&str> {
     version
         .rsplit_once(" (")
         .and_then(|(_, build)| build.strip_suffix(')'))
-        .unwrap_or(version)
+        .filter(|build| !build.is_empty())
+}
+
+fn strip_build(version: &str) -> &str {
+    version
+        .rsplit_once(" (")
+        .filter(|(_, build)| build.ends_with(')'))
+        .map_or(version, |(short, _)| short)
+}
+
+fn compare_versions(a: &str, b: &str) -> Ordering {
+    let (a_core, a_pre) = split_version(a);
+    let (b_core, b_pre) = split_version(b);
+    let core = compare_core(a_core, b_core);
+    if core != Ordering::Equal {
+        return core;
+    }
+    match (a_pre, b_pre) {
+        (None, None) => Ordering::Equal,
+        (None, Some(_)) => Ordering::Greater,
+        (Some(_), None) => Ordering::Less,
+        (Some(a), Some(b)) => compare_prerelease(a, b),
+    }
+}
+
+fn split_version(version: &str) -> (&str, Option<&str>) {
+    let trimmed = version.trim();
+    let no_v = trimmed
+        .strip_prefix(['v', 'V'])
+        .filter(|rest| rest.as_bytes().first().is_some_and(u8::is_ascii_digit))
+        .unwrap_or(trimmed);
+    let no_meta = no_v.split_once('+').map_or(no_v, |(base, _)| base);
+    match no_meta.split_once('-') {
+        Some((core, pre)) if !pre.is_empty() => (core, Some(pre)),
+        _ => (no_meta, None),
+    }
+}
+
+fn compare_core(a: &str, b: &str) -> Ordering {
+    let a_parts: Vec<&str> = a.split('.').collect();
+    let b_parts: Vec<&str> = b.split('.').collect();
+    let len = a_parts.len().max(b_parts.len());
+    for i in 0..len {
+        let pa = a_parts.get(i).copied().unwrap_or("0");
+        let pb = b_parts.get(i).copied().unwrap_or("0");
+        let cmp = match (pa.parse::<u128>(), pb.parse::<u128>()) {
+            (Ok(na), Ok(nb)) => na.cmp(&nb),
+            _ => pa.cmp(pb),
+        };
+        if cmp != Ordering::Equal {
+            return cmp;
+        }
+    }
+    Ordering::Equal
+}
+
+fn compare_prerelease(a: &str, b: &str) -> Ordering {
+    let mut a_parts = a.split('.');
+    let mut b_parts = b.split('.');
+    loop {
+        match (a_parts.next(), b_parts.next()) {
+            (None, None) => return Ordering::Equal,
+            (None, Some(_)) => return Ordering::Less,
+            (Some(_), None) => return Ordering::Greater,
+            (Some(pa), Some(pb)) => {
+                let cmp = match (pa.parse::<u128>(), pb.parse::<u128>()) {
+                    (Ok(na), Ok(nb)) => na.cmp(&nb),
+                    (Ok(_), Err(_)) => Ordering::Less,
+                    (Err(_), Ok(_)) => Ordering::Greater,
+                    (Err(_), Err(_)) => pa.cmp(pb),
+                };
+                if cmp != Ordering::Equal {
+                    return cmp;
+                }
+            }
+        }
+    }
 }
 
 fn dictionary(path: PathBuf) -> Option<plist::Dictionary> {
@@ -133,6 +216,32 @@ pub fn is_paused(support: &Path) -> bool {
     support.join("paused").is_file()
 }
 
+pub fn staged_ready(support: &Path) -> bool {
+    let Ok(ready) = fs::read_to_string(support.join("staged/ready")) else {
+        return false;
+    };
+    let Ok(meta) = fs::symlink_metadata(support.join("staged/Dia.app")) else {
+        return false;
+    };
+    ready.trim() == meta.ino().to_string()
+}
+
+pub fn has_linked_icon_catalog(app: &Path) -> bool {
+    let is_symlink = fs::symlink_metadata(app.join("Contents/Resources/Assets.car"))
+        .is_ok_and(|meta| meta.file_type().is_symlink());
+    is_symlink
+        && dictionary(app.join("Contents/Info.plist"))
+            .and_then(|info| info.get("CFBundleIconName")?.as_string().map(str::to_owned))
+            .is_some_and(|name| name == "DiaChosenIcon")
+}
+
+pub fn sync_icon(env: &Env) {
+    let diapatch = env.diapatch();
+    if has_linked_icon_catalog(&env.app) && diapatch.is_file() {
+        child::quick(Command::new(diapatch).arg("set-icon"));
+    }
+}
+
 fn has_running_process(root: &Path) -> bool {
     child::all_pids()
         .into_iter()
@@ -149,6 +258,7 @@ pub fn is_running(app: &Path) -> bool {
 pub fn quit(app: &Path) -> Result<()> {
     let root = app.canonicalize()?;
     let macos = root.join("Contents/MacOS");
+    let mut sent_terminate = false;
     for pid in child::all_pids() {
         let Some(path) = child::pid_path(pid) else {
             continue;
@@ -156,19 +266,111 @@ pub fn quit(app: &Path) -> Result<()> {
         if path.parent() != Some(macos.as_path()) {
             continue;
         }
+        sent_terminate = true;
         let script = format!(
             "ObjC.import('AppKit'); $.NSRunningApplication.runningApplicationWithProcessIdentifier({pid}).terminate"
         );
         child::quick(Command::new("/usr/bin/osascript").args(["-l", "JavaScript", "-e", &script]));
     }
-    let deadline = Instant::now() + Duration::from_secs(60);
+    let timeout = if sent_terminate { 60 } else { 5 };
+    let deadline = Instant::now() + Duration::from_secs(timeout);
     while has_running_process(&root) {
+        if signals::interrupted() {
+            bail!(Cancelled("Stopped while waiting for Dia to quit.".into()));
+        }
         if Instant::now() > deadline {
+            if sent_terminate {
+                bail!(
+                    "Dia didn't quit. If it's showing a dialog, answer it, quit Dia, then try again."
+                );
+            }
             bail!(
-                "Dia didn't quit. If it's showing a dialog, answer it, quit Dia, then try again."
+                "A Dia background process is still running. Wait a moment or quit it, then try again."
             );
         }
         thread::sleep(Duration::from_millis(250));
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn compares_versions_and_builds() {
+        assert!(is_newer("1.58.1", "1.58.0"));
+        assert!(!is_newer("1.58.0", "1.58.1"));
+        assert!(is_newer("1.1.10", "1.1.9"));
+        assert!(!is_newer("1.1.9", "1.1.10"));
+        assert!(is_newer("v1.1.10", "v1.1.9"));
+        assert!(!is_newer("1.58.0", "1.58"));
+        assert!(!is_newer("1.58", "1.58.0"));
+        assert!(is_newer("1.58.1", "1.58.1-beta.1"));
+        assert!(!is_newer("1.58.1-beta.1", "1.58.1"));
+        assert!(is_newer("1.58.1-rc.1", "1.58.1-beta.10"));
+        assert!(is_newer("1.58.1-beta.10", "1.58.1-beta.2"));
+        assert!(!is_newer("1.58.1+build.2", "1.58.1+build.1"));
+        assert!(is_newer("1.59.0 (91402)", "1.58.0 (91177)"));
+        assert!(!is_newer("1.58.0 (91177)", "1.58.0 (91177)"));
+        assert!(is_newer("1.58.1 (91200)", "1.58.0"));
+        assert!(!is_newer("", "1.0.0"));
+        assert!(is_newer("1.0.0", ""));
+    }
+
+    #[test]
+    fn staged_ready_checks_inode() {
+        let dir = tempfile::tempdir().unwrap();
+        let staged = dir.path().join("staged/Dia.app");
+        fs::create_dir_all(&staged).unwrap();
+        assert!(!staged_ready(dir.path()));
+
+        let ino = fs::symlink_metadata(&staged).unwrap().ino();
+        fs::write(dir.path().join("staged/ready"), format!("{ino}\n")).unwrap();
+        assert!(staged_ready(dir.path()));
+
+        let swapped = dir.path().join("staged/other.app");
+        fs::create_dir_all(&swapped).unwrap();
+        fs::remove_dir(&staged).unwrap();
+        fs::rename(&swapped, &staged).unwrap();
+        assert!(!staged_ready(dir.path()));
+    }
+
+    #[test]
+    fn linked_icon_catalog_requires_symlink_and_alias_name() {
+        use std::os::unix::fs::symlink;
+
+        let dir = tempfile::tempdir().unwrap();
+        let app = dir.path().join("Dia.app");
+        let resources = app.join("Contents/Resources");
+        fs::create_dir_all(&resources).unwrap();
+        let info = app.join("Contents/Info.plist");
+        let car = resources.join("Assets.car");
+        let target = dir.path().join("current.car");
+        fs::write(&target, b"car").unwrap();
+
+        let write_icon = |name: &str| {
+            fs::write(
+                &info,
+                format!(
+                    "<plist version=\"1.0\"><dict><key>CFBundleIconName</key><string>{name}</string></dict></plist>"
+                ),
+            )
+            .unwrap();
+        };
+
+        // Regular Assets.car with default or alias name is not linked.
+        fs::write(&car, b"car").unwrap();
+        write_icon("AppIcon");
+        assert!(!has_linked_icon_catalog(&app));
+        write_icon("DiaChosenIcon");
+        assert!(!has_linked_icon_catalog(&app));
+
+        // Symlinked Assets.car requires CFBundleIconName == DiaChosenIcon.
+        fs::remove_file(&car).unwrap();
+        symlink(&target, &car).unwrap();
+        assert!(has_linked_icon_catalog(&app));
+        write_icon("AppIcon");
+        assert!(!has_linked_icon_catalog(&app));
+    }
 }

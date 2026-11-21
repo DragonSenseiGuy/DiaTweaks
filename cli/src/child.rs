@@ -6,18 +6,14 @@ use std::{
     path::{Path, PathBuf},
     process::{Command, ExitStatus, Stdio},
     thread,
-    time::{Duration, Instant},
+    time::Duration,
 };
 
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result};
 
-use crate::{
-    signals::{self, Cancelled},
-    ui::Spinner,
-};
+use crate::{signals, ui::Spinner};
 
 pub enum OnInterrupt {
-    Stop,
     // Only curl is stopped; diapatch moves whole bundles that must finish.
     StopDownloads,
     Finish(&'static str),
@@ -62,44 +58,30 @@ pub fn run(
             )
         })?;
     let pid = child.id() as libc::pid_t;
-    let mut stopping_since = None;
+    let mut stopping = false;
     let status = loop {
         if let Some(status) = child.try_wait()? {
             break status;
         }
         if signals::interrupted() {
             match on_interrupt {
-                OnInterrupt::Stop => match stopping_since {
-                    None => {
-                        spinner.set_message("Stopping…");
-                        unsafe { libc::killpg(pid, libc::SIGINT) };
-                        stopping_since = Some(Instant::now());
-                    }
-                    Some(since) if since.elapsed() > Duration::from_secs(10) => unsafe {
-                        libc::killpg(pid, libc::SIGKILL);
-                    },
-                    Some(_) => {}
-                },
                 OnInterrupt::StopDownloads => {
-                    if stopping_since.is_none() {
+                    if !stopping {
                         spinner.set_message("Stopping after the current step…");
-                        stopping_since = Some(Instant::now());
+                        stopping = true;
                     }
                     stop_downloads(pid);
                 }
                 OnInterrupt::Finish(why) => {
-                    if stopping_since.is_none() {
+                    if !stopping {
                         spinner.set_message(why);
-                        stopping_since = Some(Instant::now());
+                        stopping = true;
                     }
                 }
             }
         }
         thread::sleep(Duration::from_millis(50));
     };
-    if matches!(on_interrupt, OnInterrupt::Stop) && signals::interrupted() {
-        bail!(Cancelled::nothing_changed());
-    }
     let mut bytes = Vec::new();
     log.seek(SeekFrom::Start(0))?;
     log.read_to_end(&mut bytes)?;

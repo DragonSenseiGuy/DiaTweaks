@@ -12,7 +12,7 @@ failed=0
 i=0
 while [ "$i" -lt "$count" ]; do
     title=$(plutil -extract "patches.$i.title" raw -o - "$manifest")
-    page=$(echo "$title" | tr ' ' '-')
+    page=$(printf '%s\n' "$title" | tr ' ' '-')
     if [ ! -f "$wiki/$page.md" ]; then
         echo "the wiki has no page called \"$title\": add one from docs/tweak-page.md" >&2
         failed=1

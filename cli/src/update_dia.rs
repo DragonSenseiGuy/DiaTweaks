@@ -64,7 +64,13 @@ fn download(env: &Env, ui: &Ui, diapatch: &Diapatch, latest: &str) -> Result<Str
         "Downloading and patching Dia {latest}. This can take a few minutes"
     ));
     let done = spinner.check(diapatch.run(&["update"], OnInterrupt::StopDownloads, &spinner))?;
-    let staged = dia::version_of(&env.staged());
+    let staged = (done.status.success() || signals::interrupted())
+        .then(|| {
+            dia::staged_ready(&env.support)
+                .then(|| dia::version_of(&env.staged()))
+                .flatten()
+        })
+        .flatten();
     match (staged, signals::interrupted()) {
         (Some(staged), true) => Err(spinner.fail(
             Cancelled(format!(

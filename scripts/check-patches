@@ -19,7 +19,11 @@ patches = {p["key"]: p for p in json.load(open(sys.argv[1]))["patches"]}
 problems = [f'no SF Symbol called "{name}"' for name in sys.argv[2].split("\n") if name]
 
 def root(patch):
+    seen = set()
     while patch["requires"]:
+        if patch["key"] in seen:
+            break
+        seen.add(patch["key"])
         patch = patches[patch["requires"]]
     return patch
 

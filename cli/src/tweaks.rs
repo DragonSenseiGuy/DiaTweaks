@@ -66,8 +66,79 @@ pub fn set(env: &Env, ui: &Ui, names: &[String], on: bool) -> Result<()> {
     for note in notes(&manifest, &current, &wanted) {
         ui.warn(note);
     }
-    ui.done(where_it_applies(env));
+    finish_changes(env, ui, &manifest, &changes, &wanted, false);
     Ok(())
+}
+
+fn is_live_dia(env: &Env) -> bool {
+    !dia::is_paused(&env.support)
+        && dia::is_running(&env.app)
+        && dia::is_patched(&env.app)
+        && dia::safe_mode(&env.support) == SafeMode::Off
+}
+
+fn needs_relaunch(manifest: &Manifest, index: usize, wanted_on: bool, icon_linked: bool) -> bool {
+    let patch = &manifest.patches[index];
+    patch.relaunch || (patch.key == "appIcon" && wanted_on != icon_linked)
+}
+
+fn finish_changes(
+    env: &Env,
+    ui: &Ui,
+    manifest: &Manifest,
+    changes: &[usize],
+    wanted: &[bool],
+    saved_prefix: bool,
+) {
+    let icon_linked = dia::has_linked_icon_catalog(&env.app);
+    let live = is_live_dia(env);
+    let relaunching: Vec<&str> = if live {
+        changes
+            .iter()
+            .filter(|&&index| needs_relaunch(manifest, index, wanted[index], icon_linked))
+            .map(|&index| manifest.title(index))
+            .collect()
+    } else {
+        Vec::new()
+    };
+    if !live
+        && !dia::is_paused(&env.support)
+        && dia::is_patched(&env.app)
+        && dia::safe_mode(&env.support) == SafeMode::Off
+    {
+        if let Some(&index) = changes
+            .iter()
+            .find(|&&index| manifest.patches[index].key == "appIcon")
+        {
+            if wanted[index] && !icon_linked {
+                ui.warn(
+                    "App Icon needs a rebuild to link Dia's asset catalog. Run `diatweaks update` to apply it.",
+                );
+            } else if !wanted[index] && icon_linked {
+                ui.warn(
+                    "Dia's default icon is restored; run `diatweaks update` to restore its sealed asset catalog.",
+                );
+            }
+        }
+    }
+    let tail = if !relaunching.is_empty() {
+        ui.warn(format_args!(
+            "Relaunch Dia to apply: {}.",
+            relaunching.join(", ")
+        ));
+        if relaunching.len() == changes.len() {
+            "Relaunch Dia to see the changes.".into()
+        } else {
+            "Dia shows the rest now.".into()
+        }
+    } else {
+        where_it_applies(env)
+    };
+    if saved_prefix {
+        ui.done(format_args!("Saved. {tail}"));
+    } else {
+        ui.done(tail);
+    }
 }
 
 fn where_it_applies(env: &Env) -> String {
@@ -116,8 +187,8 @@ pub fn menu(env: &Env, ui: &Ui) -> Result<()> {
     if !ui.choose("Save these changes?", true)? {
         return Err(Cancelled::nothing_changed().into());
     }
-    save(env, &manifest, &current, &wanted)?;
-    ui.done(format_args!("Saved. {}", where_it_applies(env)));
+    let changes = save(env, &manifest, &current, &wanted)?;
+    finish_changes(env, ui, &manifest, &changes, &wanted, true);
     Ok(())
 }
 
@@ -180,7 +251,7 @@ fn notes(manifest: &Manifest, current: &[bool], wanted: &[bool]) -> Vec<String> 
             }
         }
         if let Some(disabler) = manifest.hidden_by(index, wanted) {
-            if changed(index) {
+            if wanted[index] && changed(index) {
                 notes.push(format!(
                     "{} makes no difference while {} is on.",
                     manifest.title(index),
@@ -206,6 +277,12 @@ fn save(env: &Env, manifest: &Manifest, current: &[bool], wanted: &[bool]) -> Re
         prefs.set(&manifest.patches[index].key, wanted[index]);
     }
     prefs.save()?;
+    if changes
+        .iter()
+        .any(|&index| manifest.patches[index].key == "appIcon")
+    {
+        dia::sync_icon(env);
+    }
     Ok(changes)
 }
 
@@ -230,5 +307,63 @@ fn on_off(on: bool) -> &'static str {
         "on"
     } else {
         "off"
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+
+    #[test]
+    fn notes_does_not_warn_when_disabling_hidden_tweak() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("patches.json");
+        fs::write(
+            &path,
+            r#"{
+                "version": 1,
+                "patches": [
+                    {"key": "turnOffAI", "title": "Turn Off AI", "detail": "A", "defaultOn": false, "requires": null, "disabledBy": null, "relaunch": true},
+                    {"key": "briefLanguage", "title": "Morning Brief Language", "detail": "B", "defaultOn": false, "requires": null, "disabledBy": "turnOffAI"}
+                ]
+            }"#,
+        )
+        .unwrap();
+        let manifest = Manifest::load(&path).unwrap();
+
+        // Turning briefLanguage OFF while turnOffAI is ON should NOT warn.
+        assert!(notes(&manifest, &[true, true], &[true, false]).is_empty());
+        // Turning briefLanguage ON while turnOffAI is ON SHOULD warn.
+        let warnings = notes(&manifest, &[true, false], &[true, true]);
+        assert_eq!(warnings.len(), 1);
+        assert!(warnings[0].contains("Morning Brief Language"));
+    }
+
+    #[test]
+    fn needs_relaunch_tracks_relaunch_and_app_icon_link_state() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("patches.json");
+        fs::write(
+            &path,
+            r#"{
+                "version": 1,
+                "patches": [
+                    {"key": "turnOffAI", "title": "Turn Off AI", "detail": "A", "defaultOn": false, "requires": null, "disabledBy": null, "relaunch": true},
+                    {"key": "appIcon", "title": "App Icon", "detail": "I", "defaultOn": false, "requires": null, "disabledBy": null},
+                    {"key": "hideToolbar", "title": "Hide Toolbar", "detail": "H", "defaultOn": false, "requires": null, "disabledBy": null}
+                ]
+            }"#,
+        )
+        .unwrap();
+        let manifest = Manifest::load(&path).unwrap();
+
+        assert!(needs_relaunch(&manifest, 0, true, false));
+        assert!(needs_relaunch(&manifest, 0, false, true));
+        assert!(needs_relaunch(&manifest, 1, true, false));
+        assert!(!needs_relaunch(&manifest, 1, true, true));
+        assert!(needs_relaunch(&manifest, 1, false, true));
+        assert!(!needs_relaunch(&manifest, 1, false, false));
+        assert!(!needs_relaunch(&manifest, 2, true, false));
     }
 }

@@ -14,6 +14,7 @@ use crate::{
 
 pub fn set(env: &Env, ui: &Ui, paused: bool) -> Result<()> {
     let manifest = Manifest::load(&env.manifest())?;
+    let _lock = lock::acquire(&env.support)?;
     if dia::is_paused(&env.support) == paused {
         ui.done(if paused {
             "Tweaks are already paused."
@@ -23,7 +24,6 @@ pub fn set(env: &Env, ui: &Ui, paused: bool) -> Result<()> {
         return Ok(());
     }
 
-    let _lock = lock::acquire(&env.support)?;
     let file = env.support.join("paused");
     if paused {
         fs::write(&file, b"").with_context(|| format!("Couldn't write {}", file.display()))?;
@@ -36,15 +36,31 @@ pub fn set(env: &Env, ui: &Ui, paused: bool) -> Result<()> {
             }
         }
     }
+    let state = manifest.state(&Prefs::new(&env.domain));
+    let app_icon_on = manifest
+        .index("appIcon")
+        .is_some_and(|index| state[index]);
+    if app_icon_on {
+        dia::sync_icon(env);
+    }
     prefs::notify(&env.domain)?;
 
     if !paused {
         ui.success("Tweaks are back on.");
+        if app_icon_on
+            && !is_live_dia(env)
+            && dia::is_patched(&env.app)
+            && dia::safe_mode(&env.support) == SafeMode::Off
+            && !dia::has_linked_icon_catalog(&env.app)
+        {
+            ui.warn(
+                "App Icon needs a rebuild to link Dia's asset catalog. Run `diatweaks update` to apply it.",
+            );
+        }
         ui.done(where_resumed(env));
         return Ok(());
     }
 
-    let state = manifest.state(&Prefs::new(&env.domain));
     let on: Vec<usize> = (0..state.len()).filter(|&index| state[index]).collect();
     match on.len() {
         0 => ui.success("Paused. No tweaks were on."),
