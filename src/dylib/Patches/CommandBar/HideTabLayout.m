@@ -17,7 +17,7 @@ void DPFreezeLists(NSWindow *window) {
             for (NSInteger item = 0; item < [list numberOfItemsInSection:section]; item++) {
                 NSIndexPath *path = [NSIndexPath indexPathForItem:item inSection:section];
                 NSString *name = DPRowName(list, path);
-                NSRect frame = DPDiaRowFrame(list.collectionViewLayout, path);  // As shown, closed up around parked rows.
+                NSRect frame = DPDiaRowFrame(list.collectionViewLayout, path);
                 if (name && !DPIsLeftOutRow(list, path)) frames[name] = [NSValue valueWithRect:NSOffsetRect(frame, 0, -DPClosedUp(list.collectionViewLayout, frame))];
             }
         DPSet(list, &DPFrozenSizeKey, [NSValue valueWithSize:list.collectionViewLayout.collectionViewContentSize]);
@@ -31,7 +31,6 @@ static NSDictionary<NSString *, NSValue *> *DPFrozen(NSCollectionView *list) {
     return frames;
 }
 
-// The tab bar too, which a tab shown again isn't put back in until it lays out.
 void DPRelayoutLists(void) {
     for (NSCollectionView *list in DPFindViews(DPDiaTabListCollection)) {
         DPFrozen(list);
@@ -64,8 +63,7 @@ static NSArray *DPLayout_elements(NSCollectionViewLayout *self, SEL _cmd, NSRect
         return shown;
     }
     NSMutableArray *kept = [NSMutableArray array];
-    // Where Dia has a row now may be a few rows from where it's kept. A row left out isn't listed, or its view would
-    // still take the pointer.
+    // Expand query rect to cover shifted frozen rows, and omit hidden rows so they can't intercept clicks.
     for (NSCollectionViewLayoutAttributes *each in DPCallOriginal(DPLayout_elements, self, NSInsetRect(rect, 0, -600))) {
         NSCollectionViewLayoutAttributes *frozen = DPFrozenAttributes(self, each);
         if (!frozen.hidden && NSIntersectsRect(frozen.frame, rect)) [kept addObject:frozen];
@@ -77,7 +75,6 @@ static NSCollectionViewLayoutAttributes *DPLayout_item(NSCollectionViewLayout *s
     return DPFrozenAttributes(self, DPCallOriginal(DPLayout_item, self, path));
 }
 
-// Where a row slides in from or out to as the list changes, which would show a hidden row, or slide a kept one.
 static NSCollectionViewLayoutAttributes *DPLayout_appearing(NSCollectionViewLayout *self, SEL _cmd, NSIndexPath *path) {
     return DPFrozenAttributes(self, DPCallOriginal(DPLayout_appearing, self, path));
 }

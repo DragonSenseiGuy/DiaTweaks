@@ -114,8 +114,10 @@ static __weak DPPaneView *DPShownPane;
     }
 
     for (NSToolbarItem *item in toolbar.items)
-        if ([item.itemIdentifier isEqualToString:@"PreferencesPaneTitle"])
+        if ([item.itemIdentifier isEqualToString:@"PreferencesPaneTitle"]) {
             self.title = (NSTextField *)DPFindView(item.view, ^BOOL(NSView *v) { return [v isKindOfClass:NSTextField.class]; });
+            break;
+        }
     self.originalTitle = self.title.stringValue;
     self.title.stringValue = self.shownTitle = pane.title;
 }

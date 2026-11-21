@@ -2,7 +2,7 @@
 #import "Commands/GroupTabs/GroupTabs.h"
 #import <objc/message.h>
 
-static const NSUInteger DPTidyMaxTabs = 50;  // Keeps the prompt inside the on-device model's context.
+static const NSUInteger DPTidyMaxTabs = 50;
 
 void DPTidyAskModel(NSArray *tabs, void (^done)(NSArray *groups, NSString *error));
 
@@ -38,8 +38,9 @@ static void DPTidyGroup(id browser, id delegate, NSArray<NSDictionary *> *tabs) 
         NSLog(@"DiaPatches: Tidy Tabs made %lu groups from %lu tabs", (unsigned long)ops.count, (unsigned long)tabs.count);
         if (!ops.count) { DPTidySetBusy(NO); return DPTidyFail(@"No tabs clearly belonged together."); }
         NSArray *ids = [ops valueForKeyPath:@"@unionOfArrays.ids"];
+        NSSet *idSet = [NSSet setWithArray:ids];
         NSMutableDictionary *urls = [NSMutableDictionary dictionary];
-        for (NSDictionary *tab in tabs) if ([ids containsObject:tab[@"session"]]) urls[tab[@"session"]] = tab[@"url"];
+        for (NSDictionary *tab in tabs) if ([idSet containsObject:tab[@"session"]]) urls[tab[@"session"]] = tab[@"url"];
         NSDictionary *places = DPTabPlaces(urls);
         DPRunOps(delegate, browser, ops, 0, ^{
             DPTidySetBusy(NO);
@@ -63,6 +64,7 @@ void DPTidyTabsNow(NSWindow *window) {
         if (sid <= 0 || !host || !loose[url]) continue;
         [candidates addObject:@{@"session": @(sid), @"url": url, @"address": DPTidyAddress(url, host), @"title": loose[url]}];
     }
+    if (candidates.count < 2) return DPTidyFail(@"There are no loose tabs to tidy.");
     DPTidySetBusy(YES);
     void (*ask)(id, SEL, id, void (^)(NSArray *)) = (void *)objc_msgSend;
     ask(delegate, @selector(browser:getAllTabGroupsWithCompletion:), browser, ^(NSArray *groups) {

@@ -29,7 +29,6 @@ id DPLittleDiaPage(NSWindow *window) {
     return usable ? page : nil;
 }
 
-// The page carries the name of the profile its window opened in, which is where the window's tab goes.
 NSString *DPLittleDiaProfileName(NSWindow *window) { return DPGet(DPGet(window, &DPPageKey), &DPProfileKey); }
 
 static NSString *DPProfileNameOf(id browser) {
@@ -56,7 +55,7 @@ static void DPSetChrome(NSWindow *window, BOOL little) {
     titlebar.hidden = little;
 }
 
-// DPClaim makes the window key before Chromium inserts its page view, so Chromium never focuses it on its own.
+// DPClaim makes the window key before Chromium adds its page view, so focus it explicitly.
 static void DPFocusPage(NSWindow *window) {
     if (!DPLittleDia.on || !DPIsLittleDiaWindow(window) || DPGet(window, &DPPromotedKey) || !window.isKeyWindow) return;
     if (window.firstResponder && window.firstResponder != window) return;
@@ -74,16 +73,15 @@ static void DPClaim(NSWindow *window) {
         DPSet(window, &DPPageKey, DPPendingPages.firstObject);
         [DPPendingPages removeObjectAtIndex:0];
     } else [DPWindowsAwaitingPage addPointer:(__bridge void *)window];
-    // With no link left a waiting page is some other popup's; kept, later windows would each take the wrong page.
+    // Discard unmatched pending pages so later popups don't inherit a non-Little-Dia page.
     if (!DPExpected.count) [DPPendingPages removeAllObjects];
-    // Chromium adds its title bar to the size it's given, and the title bar is gone here.
     NSRect frame = [link[@"frame"] rectValue];
     DPSet(window, &DPOpenedKey, link[@"frame"]);
     [window setFrame:frame display:YES];
     [window makeKeyAndOrderFront:nil];
     [NSApp activateIgnoringOtherApps:YES];
     DPRestoreStack(window, noted);
-    // Chromium sizes and focuses the new window again a moment later, which can bring Dia's windows forward again.
+    // Chromium re-sizes and re-focuses ~300 ms later; reassert frame, stack order, and page focus.
     __weak NSWindow *weakWindow = window;
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 300 * NSEC_PER_MSEC), dispatch_get_main_queue(), ^{
         [weakWindow setFrame:frame display:YES];
@@ -97,8 +95,9 @@ static void DPClaim(NSWindow *window) {
 
 static void DPBrowser_didCreate(id self, SEL _cmd, id browser, id page, BOOL active) {
     DPCallOriginal(DPBrowser_didCreate, self, browser, page, active);
+    if (!DPLittleDia.on || !page || (!DPExpected.count && !DPWindowsAwaitingPage.count)) return;
     long (*type)(id, SEL) = (void *)objc_msgSend;
-    if (!page || ![browser respondsToSelector:@selector(type)] || type(browser, @selector(type)) != 2) return;  // 2: a popup
+    if (![browser respondsToSelector:@selector(type)] || type(browser, @selector(type)) != 2) return;
     DPSet(page, &DPProfileKey, DPProfileNameOf(browser));
     [DPWindowsAwaitingPage compact];
     if (DPWindowsAwaitingPage.count) {
@@ -111,7 +110,7 @@ static void DPBrowser_didCreate(id self, SEL _cmd, id browser, id page, BOOL act
 
 static void DPPopupBar_viewDidMoveToWindow(NSView *self, SEL _cmd) {
     DPCallOriginal(DPPopupBar_viewDidMoveToWindow, self);
-    DPClaim(self.window);
+    if (DPLittleDia.on && DPExpected.count) DPClaim(self.window);
 }
 
 static void DPPage_viewDidMoveToWindow(NSView *self, SEL _cmd) {
@@ -122,7 +121,7 @@ static void DPPage_viewDidMoveToWindow(NSView *self, SEL _cmd) {
     dispatch_async(dispatch_get_main_queue(), ^{ DPFocusPage(weakWindow); });
 }
 
-// Only plain new-tab links stay: sized popups keep their opener, which sign-in windows talk back to.
+// Only plain new-tab links stay; sized popups keep their opener for sign-in flows.
 enum { DPCurrentTab = 1, DPForegroundTab = 2 };
 
 static BOOL DPStaysInLittleDia(id page, NSInteger disposition) {
@@ -143,7 +142,7 @@ static BOOL DPStaysInLittleDia(id page, NSInteger disposition) {
 @end
 
 static NSInteger DPPage_decidePolicy(id self, SEL _cmd, id page, id action) {
-    if (!DPStaysInLittleDia(page, [[action valueForKey:@"navigationDisposition"] integerValue]))
+    if (!DPLittleDia.on || !DPStaysInLittleDia(page, [[action valueForKey:@"navigationDisposition"] integerValue]))
         return DPCallOriginal(DPPage_decidePolicy, self, page, action);
     DPStayingLink *staying = [DPStayingLink alloc];
     staying.action = action;
@@ -167,7 +166,6 @@ void DPRefreshLittleDiaWindows(void) {
     DPRelayoutLittleDiaBars();
 }
 
-// Only a window that was moved or resized counts, so one opened over a tab doesn't become where the next link opens.
 static void DPRememberFrame(NSWindow *window) {
     NSValue *opened = DPGet(window, &DPOpenedKey);
     if (!opened || NSEqualRects(window.frame, opened.rectValue) || (window.styleMask & NSWindowStyleMaskFullScreen)) return;
@@ -179,7 +177,7 @@ static void DPWindowWillClose(NSWindow *window) {
     if (DPLittleDiaRemember.on) DPRememberFrame(window);
     pid_t source = [DPGet(window, &DPSourceKey) intValue];
     BOOL key = window.isKeyWindow, promoted = [DPGet(window, &DPPromotedKey) boolValue];
-    NSArray<NSDictionary *> *stack = DPWindowStack();  // Closing brings another of Dia's windows forward; this is how the rest were.
+    NSArray<NSDictionary *> *stack = DPWindowStack();
     dispatch_async(dispatch_get_main_queue(), ^{
         if (promoted) {
             DPBringBackPutAway(nil);
@@ -192,7 +190,7 @@ void DPInstallLittleDiaWindows(void) {
     DPExpected = [NSMutableArray array];
     DPPendingPages = [NSMutableArray array];
     DPWindowsAwaitingPage = [NSPointerArray weakObjectsPointerArray];
-    DPHookClass(objc_getClass(DPDiaPopupBar), @selector(viewDidMoveToWindow), (IMP)DPPopupBar_viewDidMoveToWindow);
+    DPHook(DPDiaPopupBar, @selector(viewDidMoveToWindow), (IMP)DPPopupBar_viewDidMoveToWindow);
     DPHook(DPDiaRenderWidget, @selector(viewDidMoveToWindow), (IMP)DPPage_viewDidMoveToWindow);
     DPHook(DPDiaBrowserDelegate, @selector(browser:didCreateNewWebContents:isActive:), (IMP)DPBrowser_didCreate);
     DPOnLaunch(^{
@@ -200,6 +198,7 @@ void DPInstallLittleDiaWindows(void) {
     });
     NSNotificationCenter *center = NSNotificationCenter.defaultCenter;
     [center addObserverForName:NSWindowDidBecomeKeyNotification object:nil queue:nil usingBlock:^(NSNotification *note) {
+        if (!DPLittleDia.on) return;
         DPClaim(note.object);
         DPFocusPage(note.object);
     }];

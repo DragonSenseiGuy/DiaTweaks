@@ -18,7 +18,8 @@ static void DPApplyLittleDia(DPPatch *patch) {
     DPRefreshLittleDiaWindows();
     DPRefreshLittleDiaNewWindow();
     if (patch->on && !gLoadedOn) DPWriteLittleDiaExtension(YES);
-    if (!patch->on || gLoadedOn || patch->on != DPSavedOn(patch) || DPLittleDiaExtensionProblem()) return;  // the self-test flips patches without saving
+    // Skip the relaunch prompt during self-tests, which flip patches without saving.
+    if (!patch->on || gLoadedOn || patch->on != DPSavedOn(patch) || DPLittleDiaExtensionProblem()) return;
     NSAlert *alert = [NSAlert new];
     alert.messageText = @"Relaunch Dia to use Little Dia";
     alert.informativeText = @"Until then, links from other apps keep opening in a tab.";

@@ -2,8 +2,7 @@
 
 extern DPPatch DPCommandBar;
 
-// Opening the bar switches to the new tab and back, and Dia asks for picture in picture as the page is left, then exits it on return.
-// Requests wait while a hold runs: the exit drops them, and any left when it ends came from a real switch, so they go ahead.
+// Defer PiP requests during bar-triggered tab round-trips so exitPictureInPicture cancels them while real switches still fire.
 static const double DPHoldSeconds = 0.6;
 static int DPHolds;
 static NSHashTable *DPHeld;
@@ -44,7 +43,7 @@ static void DPTabList_backgroundDoubleClick(NSView *self, SEL _cmd, id gesture) 
 }
 
 static void DPPlusButton_mouseDown(NSView *self, SEL _cmd, NSEvent *event) {
-    if (DPIsKind(self.superview, DPDiaTabStripTabs)) DPHoldAutoPip();
+    if (DPCommandBar.on && DPIsKind(self.superview, DPDiaTabStripTabs)) DPHoldAutoPip();
     DPCallOriginal(DPPlusButton_mouseDown, self, event);
 }
 
@@ -55,6 +54,6 @@ void DPInstallAutoPipHold(void) {
     DPHook(DPDiaTabList, @selector(handleBackgroundDoubleClick:), (IMP)DPTabList_backgroundDoubleClick);
     DPHook(DPDiaTabSurfaceButton, @selector(mouseDown:), (IMP)DPPlusButton_mouseDown);
     [NSNotificationCenter.defaultCenter addObserverForName:NSMenuWillSendActionNotification object:nil queue:nil usingBlock:^(NSNotification *note) {
-        if ([[note.userInfo[@"MenuItem"] title] isEqual:@"New Tab"]) DPHoldAutoPip();
+        if (DPCommandBar.on && [[note.userInfo[@"MenuItem"] title] isEqual:@"New Tab"]) DPHoldAutoPip();
     }];
 }

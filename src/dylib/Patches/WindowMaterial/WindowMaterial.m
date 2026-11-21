@@ -48,6 +48,7 @@ static void DPView_setHidden(NSView *self, SEL _cmd, BOOL hidden) {
 }
 
 static void DPHide(NSView *view, BOOL hide) {
+    if (!view) return;
     if (!DPGet(view, &DPDiaHiddenKey)) DPSet(view, &DPDiaHiddenKey, @(view.hidden));
     DPHookClass(view.class, @selector(setHidden:), (IMP)DPView_setHidden);
     DPSet(view, &DPHiddenKey, @(hide));
@@ -138,16 +139,17 @@ static NSArray<NSView *> *DPWindowFrames(void) {
 // A hidden tint stops laying out, the theme frame doesn't.
 static void DPWindowFrame_layout(NSView *self, SEL _cmd) {
     DPCallOriginal(DPWindowFrame_layout, self);
-    DPApplyMaterialUnder(DPTintIn(self), NO);
+    if (DPWindowMaterial.on) DPApplyMaterialUnder(DPTintIn(self), NO);
 }
 
 static void DPFloatingSidebar_layout(NSView *self, SEL _cmd) {
     DPCallOriginal(DPFloatingSidebar_layout, self);
-    DPApplyMaterialUnder(DPTintIn(self), YES);
+    if (DPWindowMaterial.on || DPTranslucentSidebar.on) DPApplyMaterialUnder(DPTintIn(self), YES);
 }
 
 static void DPBackgroundTile_updateLayer(NSView *self, SEL _cmd) {
     DPCallOriginal(DPBackgroundTile_updateLayer, self);
+    if (!DPWindowMaterial.on && !DPTranslucentSidebar.on) return;
     for (NSView *host = self.superview; host; host = host.superview) {
         NSView *tint = DPTintIn(host);
         if (tint) return DPApplyMaterialUnder(tint, DPIsKind(host, DPDiaFloatingSidebar));

@@ -16,15 +16,19 @@ static NSColor *DPHex(uint32_t light, uint32_t dark) {
 }
 
 static NSArray<NSColor *> *DPPreset(NSString *name) {
-    NSDictionary<NSString *, NSArray<NSColor *> *> *presets = @{
-        @"Blue" : @[NSColor.systemBlueColor, NSColor.systemTealColor],
-        @"Purple" : @[NSColor.systemPurpleColor, NSColor.systemIndigoColor],
-        @"Pink" : @[NSColor.systemPinkColor, NSColor.systemPurpleColor],
-        @"Orange" : @[NSColor.systemOrangeColor, NSColor.systemRedColor],
-        @"Green" : @[NSColor.systemGreenColor, NSColor.systemMintColor],
-        @"Graphite" : @[NSColor.systemGrayColor, NSColor.labelColor],
-        @"Jace" : @[DPHex(0x73574a, 0x9a918a), DPHex(0x432818, 0xfef1df)],
-    };
+    static NSDictionary<NSString *, NSArray<NSColor *> *> *presets;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        presets = @{
+            @"Blue" : @[NSColor.systemBlueColor, NSColor.systemTealColor],
+            @"Purple" : @[NSColor.systemPurpleColor, NSColor.systemIndigoColor],
+            @"Pink" : @[NSColor.systemPinkColor, NSColor.systemPurpleColor],
+            @"Orange" : @[NSColor.systemOrangeColor, NSColor.systemRedColor],
+            @"Green" : @[NSColor.systemGreenColor, NSColor.systemMintColor],
+            @"Graphite" : @[NSColor.systemGrayColor, NSColor.labelColor],
+            @"Jace" : @[DPHex(0x73574a, 0x9a918a), DPHex(0x432818, 0xfef1df)],
+        };
+    });
     return presets[name];
 }
 
@@ -73,10 +77,10 @@ static void DPIndicator_drawInMTKView(id self, SEL _cmd, id view) {
 
 static void DPEncoder_setFragmentBytes(id self, SEL _cmd, const void *bytes, NSUInteger length, NSUInteger index) {
     DPCallOriginal(DPEncoder_setFragmentBytes, self, bytes, length, index);
-    NSUInteger slots[2];
     id drawing = DPDrawing;
-    if (!drawing || length < 3 * sizeof(float) || !DPProgressColorSlots(slots)) return;
-    if (index != slots[0] && index != slots[1]) return;
+    if (!drawing || length < 3 * sizeof(float)) return;
+    NSUInteger slots[2];
+    if (!DPProgressColorSlots(slots) || (index != slots[0] && index != slots[1])) return;
     NSMutableData *colors = DPGet(drawing, &DPDiaColorsKey) ?: [NSMutableData dataWithLength:2 * sizeof(simd_float3)];
     memcpy((simd_float3 *)colors.mutableBytes + (index == slots[1]), bytes, 3 * sizeof(float));
     DPSet(drawing, &DPDiaColorsKey, colors);

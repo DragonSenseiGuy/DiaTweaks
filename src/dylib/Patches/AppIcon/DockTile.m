@@ -1,16 +1,21 @@
 #import "AppIcon.h"
 #import <objc/message.h>
 
-// Don't force a redraw by touching the system icon style: it blinks every icon and can leave other apps' tiles wrong.
 static NSUInteger DPHandbacks;
 static BOOL DPSettingDockIcon, DPDrawsOwnTile;
 static NSString *const DPOwnTileKey = @"appIconOwnTile";
 
-static NSUserDefaults *DPTileDefaults(void) { return [[NSUserDefaults alloc] initWithSuiteName:@"com.diapatches"]; }
+static NSUserDefaults *DPTileDefaults(void) {
+    static NSUserDefaults *defaults;
+    if (!defaults) defaults = [[NSUserDefaults alloc] initWithSuiteName:@"com.diapatches"];
+    return defaults;
+}
 
-// 0-2 are the default styles (automatic, light, dark), 3-5 clear, 6-8 tinted.
+// 0-2 default, 3-5 clear (3 auto, 5 dark), 6-8 tinted.
 static unsigned DPIconStyle(void) {
-    Class configuration = NSClassFromString(@"SLSIconAppearanceConfiguration");
+    static Class configuration;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{ configuration = NSClassFromString(@"SLSIconAppearanceConfiguration"); });
     id current = ((id (*)(id, SEL))objc_msgSend)(configuration, NSSelectorFromString(@"fetchCurrentIconAppearanceConfiguration"));
     return current ? ((unsigned (*)(id, SEL))objc_msgSend)(current, NSSelectorFromString(@"iconAppearanceTheme")) : 1;
 }

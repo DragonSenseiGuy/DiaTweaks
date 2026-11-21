@@ -22,7 +22,6 @@ static void DPWaitForBrowser(void) {
         [timer invalidate];
         if (!restored) return (void)NSLog(@"DiaPatches: Skip Account timed out waiting for Dia to restore windows");
         for (NSWindow *window in NSApp.windows) if (DPIsKind(window, DPDiaWindow)) return;
-        // The File item carries the default profile even before any windows have been opened.
         NSMenu *file = [NSApp.mainMenu itemWithTitle:@"File"].submenu;
         for (NSMenuItem *item in file.itemArray) {
             if (![item.title hasPrefix:@"New Window"] || !item.action) continue;
@@ -67,7 +66,7 @@ static void DPApplySkipAccount(DPPatch *patch) {
 }
 
 static NSString *DPVerifySkipAccount(DPPatch *patch) {
-    if (!gSkipping || !patch->on) return nil;  // Startup changes need separate launches, not the self-test's unsaved toggles.
+    if (!gSkipping || !patch->on) return nil;
     for (NSMenuItem *item in NSApp.mainMenu.itemArray.firstObject.submenu.itemArray)
         if ([item.title hasPrefix:@"Sign In"] && !item.hidden) return @"sign-in menu item is visible";
     NSString *settings = DPSkipVerifyAccountSettings();

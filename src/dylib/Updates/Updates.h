@@ -26,7 +26,7 @@ extern NSNotificationName const DPUpdatesDidChangeNotification;
 - (BOOL)downloading:(NSString *)part;
 - (BOOL)failed:(NSString *)part;
 - (NSString *)failure:(NSString *)part;
-- (double)progress:(NSString *)part;  // 0–1 while downloading, -1 while it's verified and patched.
+- (double)progress:(NSString *)part;
 - (void)download:(NSString *)part then:(void (^)(void))done;
 - (void)installAndRelaunch:(NSArray<NSString *> *)parts;
 

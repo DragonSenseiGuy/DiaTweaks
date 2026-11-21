@@ -85,7 +85,7 @@ static NSStackView *DPGrainLabeledRow(NSString *title, NSView *control) {
     [rows.widthAnchor constraintEqualToConstant:300].active = YES;
     NSViewController *controller = [NSViewController new];
     controller.view = rows;
-    controller.representedObject = self;  // Controls' targets are weak: this keeps the menu alive.
+    controller.representedObject = self;
     popover.contentViewController = controller;
     BOOL horizontal = DPIsKind(sidebar, DPDiaTabStrip);
     NSRect anchor = horizontal ? NSMakeRect(self.anchor.x, self.anchor.y, 1, 1) :

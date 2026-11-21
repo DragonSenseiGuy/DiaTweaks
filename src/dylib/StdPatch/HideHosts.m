@@ -4,12 +4,16 @@ const char *const DPHideHostClasses[] = {DPDiaToolbar, DPDiaSidebarHeader, DPDia
 static char DPGrownKey;
 
 static void DPCenterSpaceSwitcher(NSView *footer) {
+    if (!DPSuppressed.count) return;
     NSView *switcher = DPSubview(footer, DPDiaSpaceSwitcher);
+    if (!switcher) return;
     BOOL patched = NO;
-    for (NSView *sub in footer.subviews) patched |= [DPSuppressed containsObject:sub];
-    if (!switcher || !patched) return;
+    for (NSView *sub in footer.subviews)
+        if ([DPSuppressed containsObject:sub]) { patched = YES; break; }
+    if (!patched) return;
     CGFloat inset = MAX(NSMinX(switcher.frame), NSWidth(footer.bounds) - NSMaxX(switcher.frame));
-    switcher.frame = NSMakeRect(inset, NSMinY(switcher.frame), NSWidth(footer.bounds) - 2 * inset, NSHeight(switcher.frame));
+    NSRect frame = NSMakeRect(inset, NSMinY(switcher.frame), NSWidth(footer.bounds) - 2 * inset, NSHeight(switcher.frame));
+    if (!NSEqualRects(switcher.frame, frame)) switcher.frame = frame;
 }
 
 static void DPBar_layout(NSView *self, SEL _cmd) {
@@ -20,7 +24,7 @@ static void DPBar_layout(NSView *self, SEL _cmd) {
 }
 
 static void DPSetHeight(NSView *view, CGFloat height) {
-    [view setFrameSize:NSMakeSize(NSWidth(view.frame), height)];
+    if (NSHeight(view.frame) != height) [view setFrameSize:NSMakeSize(NSWidth(view.frame), height)];
 }
 
 static void DPSidebar_viewDidLayout(NSViewController *self, SEL _cmd) {

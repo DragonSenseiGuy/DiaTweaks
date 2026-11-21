@@ -75,7 +75,6 @@ int main(void) {
                                                                  backing:NSBackingStoreBuffered defer:NO];
         window.fakeKey = YES;
 
-        // A late hand-over cancel for tab-1 keeps tab-2's stand-in; cancelling tab-2 clears it.
         DPCommandBarOverlay *first = DPOverlay(window, @"tab-1");
         DPSet(window, &DPOverlayKey, first);
         DPStandInFor(window, @"tab-1");
@@ -93,7 +92,6 @@ int main(void) {
         CHECK(DPGet(window, &DPTabKey) == nil && !DPStandingIn(window), "clearing the active bar's own tab removes the stand-in");
         DPSet(window, &DPOverlayKey, nil);
 
-        // Catching up while key replays the queued swap and clears DPWantKey.
         NSEvent *cmdT = DPKeyEvent(window, 17, @"t"), *cmdL = DPKeyEvent(window, 37, @"l");
         DPHandToDia(window, cmdT, YES);
         CHECK(DPWaitForDia(window, cmdL, NO), "press while catching up is swallowed");
@@ -102,7 +100,6 @@ int main(void) {
         CHECK(gPosted.count == 1 && gPosted.firstObject.keyCode == 37, "key window replays the queued swap press");
         CHECK(DPGet(window, &DPCatchingUpKey) == nil && DPGet(window, &DPWantKey) == nil, "catching-up state and want key are cleared");
 
-        // Losing key focus drops the replay instead of posting to another window, without wedging the window.
         [gPosted removeAllObjects];
         DPHandToDia(window, cmdT, YES);
         CHECK(DPWaitForDia(window, cmdL, NO), "second swap press is swallowed while catching up");
@@ -112,7 +109,6 @@ int main(void) {
         CHECK(DPGet(window, &DPCatchingUpKey) == nil && DPGet(window, &DPWantKey) == nil, "non-key catch-up still clears state");
         CHECK(!DPWaitForDia(window, cmdT, YES), "window is not stuck catching up after losing key focus");
 
-        // Pressing the same shortcut twice while waiting closes the bar directly even without key focus.
         [gCancelled removeAllObjects];
         DPCommandBarOverlay *third = DPOverlay(window, @"tab-1");
         DPSet(window, &DPOverlayKey, third);

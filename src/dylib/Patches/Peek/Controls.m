@@ -174,12 +174,18 @@ static NSView *DPPeekMakeHint(NSString *text, NSArray<NSString *> *keys, CGFloat
     return pill;
 }
 
+static char DPHintsWidthKey;
+
 void DPPeekLayoutHints(NSView *controls, CGFloat availableRight) {
+    CGFloat maxWidth = MAX(40, availableRight - DPHintRightGap - 2 * DPHintPadX);
+    NSNumber *last = DPGet(controls, &DPHintsWidthKey);
+    if (last && fabs(last.doubleValue - maxWidth) < 0.5) return;
+    DPSet(controls, &DPHintsWidthKey, @(maxWidth));
     for (DPPeekButton *button in [controls.subviews copy]) {
         if (![button isKindOfClass:DPPeekButton.class]) continue;
         CGFloat shown = button.pill.alphaValue;
         [button.pill removeFromSuperview];
-        NSView *pill = DPPeekMakeHint(button.hintText, button.hintKeys, MAX(40, availableRight - DPHintRightGap - 2 * DPHintPadX));
+        NSView *pill = DPPeekMakeHint(button.hintText, button.hintKeys, maxWidth);
         pill.alphaValue = shown;
         pill.frame = NSMakeRect(NSMaxX(button.frame) + DPHintRightGap, NSMidY(button.frame) - NSHeight(pill.frame) / 2, NSWidth(pill.frame), NSHeight(pill.frame));
         button.pill = pill;
@@ -191,16 +197,16 @@ NSView *DPPeekControls(id target, SEL action) {
     static const CGFloat side = 28, gap = 8;
     CGFloat scale = NSScreen.mainScreen.backingScaleFactor ?: 2;
     NSArray<NSDictionary *> *specs = @[
-        @{@"symbol": @"xmark", @"a11y": @"Close Peek", @"hint": @"Close", @"keys": @[@"⌘", @"W"]},
-        @{@"symbol": @"arrow.up.left.and.arrow.down.right", @"a11y": @"Open as Tab", @"hint": @"Expand", @"keys": @[@"⌘", @"O"]},
-        @{@"symbol": @"rectangle.split.2x1", @"a11y": @"Create Split View", @"hint": @"Create Split View"},
+        @{@"tag": @(DPPeekClose), @"symbol": @"xmark", @"a11y": @"Close Peek", @"hint": @"Close", @"keys": @[@"⌘", @"W"]},
+        @{@"tag": @(DPPeekTab), @"symbol": @"arrow.up.left.and.arrow.down.right", @"a11y": @"Open as Tab", @"hint": @"Expand", @"keys": @[@"⌘", @"O"]},
+        @{@"tag": @(DPPeekSplit), @"symbol": @"rectangle.split.2x1", @"a11y": @"Create Split View", @"hint": @"Create Split View"},
     ];
     NSView *controls = [[NSView alloc] initWithFrame:NSMakeRect(0, 0, side, specs.count * side + (specs.count - 1) * gap)];
     controls.clipsToBounds = NO;
     for (NSUInteger i = 0; i < specs.count; i++) {
         NSDictionary *spec = specs[i];
         DPPeekButton *button = [DPPeekButton buttonWithTitle:@"" target:target action:action];
-        button.tag = i;
+        button.tag = [spec[@"tag"] integerValue];
         button.bordered = NO;
         button.accessibilityLabel = spec[@"a11y"];
         button.hintText = spec[@"hint"];

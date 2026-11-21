@@ -90,7 +90,8 @@ static char DPLineKey;
 
 - (void)placeIn:(NSView *)pane {
     CGFloat height = self.height;
-    self.frame = NSMakeRect(0, pane.isFlipped ? 0 : NSHeight(pane.bounds) - height, NSWidth(pane.bounds), height);
+    NSRect frame = NSMakeRect(0, pane.isFlipped ? 0 : NSHeight(pane.bounds) - height, NSWidth(pane.bounds), height);
+    if (!NSEqualRects(self.frame, frame)) self.frame = frame;
     self.autoresizingMask = NSViewWidthSizable | (pane.isFlipped ? NSViewMaxYMargin : NSViewMinYMargin);
     if (self.superview != pane || pane.subviews.lastObject != self) [pane addSubview:self positioned:NSWindowAbove relativeTo:nil];
 }

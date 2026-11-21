@@ -5,7 +5,6 @@ extern DPPatch DPICloudPasswords;
 
 static NSString *const kAppleHost = @"/Library/Google/Chrome/NativeMessagingHosts/com.apple.passwordmanager.json";
 
-// Dia reads hosts from Chrome's folder, not its own.
 static NSString *DPHostManifestPath(NSString *name) { return DPAppSupport([NSString stringWithFormat:@"Google/Chrome/NativeMessagingHosts/%@.json", name]); }
 
 static NSDictionary *DPHostAt(NSString *path) {
@@ -15,7 +14,6 @@ static NSDictionary *DPHostAt(NSString *path) {
 
 static NSError *gWriteError;
 
-// Replace another app's manifest only if it points at a helper a patched Dia can't start, and keep it aside to restore.
 static NSError *DPRegisterHost(NSString *name, NSString *description, NSArray<NSString *> *origins, BOOL on) {
     NSFileManager *files = NSFileManager.defaultManager;
     NSString *path = DPHostManifestPath(name), *relay = DPAppSupport(@"DiaPatches/bin/diapatch");
@@ -57,7 +55,7 @@ static NSString *DPICloudPasswordsProblem(DPPatch *patch) {
     return DPRelayProblem() ?: DPHostProblem(DPHostManifestPath(@"com.apple.passwordmanager"), @"com.apple.passwordmanager");
 }
 
-// The hand-off's original Dia outlives this one and blocks Dia's launch check, so this runs in install.
+// A lingering pristine Dia from a prior hand-off blocks Dia's launch check.
 static void DPStopOriginalDia(void) {
     char path[PROC_PIDPATHINFO_MAXSIZE];
     NSString *pristine = DPAppSupport(@"DiaPatches/pristine/Dia.app/Contents/MacOS/Dia").stringByResolvingSymlinksInPath;

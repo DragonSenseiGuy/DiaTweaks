@@ -3,7 +3,6 @@
 
 static const NSTimeInterval DPSettleSeconds = 1, DPSettleLimit = 5, DPPollSeconds = 0.1;
 
-// A slow frame can leave an ease unfinished when the delay ends, and the checks would read it halfway.
 static void DPWhenSettled(NSTimeInterval waited, void (^then)(void)) {
     NSTimeInterval wait = waited ? DPPollSeconds : DPSettleSeconds;
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(wait * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
@@ -58,7 +57,6 @@ void DPRunTests(NSString *path) {
             NSMutableArray<NSArray<NSString *> *> *scenarios = DPScenarios();
             int8_t saved[DPPatchCount];
             for (NSUInteger i = 0; i < DPPatchCount; i++) saved[i] = DPSavedOn(DPPatches[i]);
-            // First, before any scenario switches anything, so a patch that nothing applies at launch fails here.
             [scenarios insertObject:@[@"at launch", DPBits(saved)] atIndex:0];
             [scenarios addObject:@[@"saved settings", DPBits(saved)]];
             dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 2 * NSEC_PER_SEC), dispatch_get_main_queue(), ^{

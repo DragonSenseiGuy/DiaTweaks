@@ -5,13 +5,12 @@
 
 extern DPPatch DPPasskeys;
 
-static NSString *const kExtensionID = @"ljonmeeapeagnkmjklinbocjbjepecce";  // Derived from the key in extension/manifest.json.
+static NSString *const kExtensionID = @"ljonmeeapeagnkmjklinbocjbjepecce";
 
 static NSString *const kFiles[] = { @"manifest.json", @"page.js", @"bridge.js", @"worker.js" };
 
 static NSString *DPExtensionFolder(void) { return DPAppSupport(@"DiaPatches/passkeys-extension"); }
 
-// Dia's Chromium reads native messaging hosts from Chrome's folder.
 static NSString *DPHostManifestPath(void) { return DPAppSupport(@"Google/Chrome/NativeMessagingHosts/com.diapatches.passkeys.json"); }
 
 static NSError *gWriteError;
@@ -27,11 +26,12 @@ static BOOL DPWrite(NSData *data, NSString *path) {
 
 static BOOL DPSetUpPasskeys(void) {
     gWriteError = nil;
+    NSString *folder = DPExtensionFolder();
     for (int i = 0; i < 4; i++) {
         NSString *section = [@"__pk_" stringByAppendingString:kFiles[i].stringByDeletingPathExtension];
         unsigned long size = 0;
         uint8_t *bytes = getsectiondata(&_mh_dylib_header, "__TEXT", section.UTF8String, &size);
-        if (!bytes || !DPWrite([NSData dataWithBytes:bytes length:size], [DPExtensionFolder() stringByAppendingPathComponent:kFiles[i]])) return NO;
+        if (!bytes || !DPWrite([NSData dataWithBytes:bytes length:size], [folder stringByAppendingPathComponent:kFiles[i]])) return NO;
     }
     NSDictionary *manifest = @{
         @"name" : @"com.diapatches.passkeys",
@@ -44,10 +44,12 @@ static BOOL DPSetUpPasskeys(void) {
 }
 
 static NSString *DPPasskeysProblem(DPPatch *patch) {
-    if (gWriteError) return DPWriteProblem(DPExtensionFolder(), gWriteError);
+    NSString *folder = DPExtensionFolder();
+    if (gWriteError) return DPWriteProblem(folder, gWriteError);
+    NSFileManager *fm = NSFileManager.defaultManager;
     for (int i = 0; i < 4; i++) {
-        NSString *file = [DPExtensionFolder() stringByAppendingPathComponent:kFiles[i]];
-        if (![NSFileManager.defaultManager fileExistsAtPath:file]) return [NSString stringWithFormat:@"%@ is missing.", file];
+        NSString *file = [folder stringByAppendingPathComponent:kFiles[i]];
+        if (![fm fileExistsAtPath:file]) return [NSString stringWithFormat:@"%@ is missing.", file];
     }
     return DPRelayProblem() ?: DPHostProblem(DPHostManifestPath(), @"com.diapatches.passkeys");
 }
@@ -67,14 +69,16 @@ static void DPShowHelper(NSNotification *note) {
 }
 
 static void DPInstallPasskeys(void) {
+    NSString *folder = DPExtensionFolder();
     if (!DPPasskeys.on) {
-        [NSFileManager.defaultManager removeItemAtPath:DPExtensionFolder() error:nil];
-        [NSFileManager.defaultManager removeItemAtPath:DPHostManifestPath() error:nil];
-        DPDropExtension(DPExtensionFolder());
+        NSFileManager *fm = NSFileManager.defaultManager;
+        [fm removeItemAtPath:folder error:nil];
+        [fm removeItemAtPath:DPHostManifestPath() error:nil];
+        DPDropExtension(folder);
         return;
     }
     if (!DPSetUpPasskeys()) return;
-    DPLoadExtension(DPExtensionFolder());
+    DPLoadExtension(folder);
     gExtensionLoaded = YES;
     for (NSString *name in @[ @"com.diapatches.passkeys.show", @"com.diapatches.passkeys.signIn" ])
         [NSDistributedNotificationCenter.defaultCenter addObserverForName:name object:nil queue:NSOperationQueue.mainQueue usingBlock:^(NSNotification *note) { DPShowHelper(note); }];
@@ -82,7 +86,7 @@ static void DPInstallPasskeys(void) {
 
 static void DPApplyPasskeys(DPPatch *patch) {
     if (patch->on) DPSetUpPasskeys();
-    if (patch->on == gExtensionLoaded || patch->on != DPSavedOn(patch) || (patch->on && DPPasskeysProblem(patch))) return;  // The self-test flips patches without saving.
+    if (patch->on == gExtensionLoaded || patch->on != DPSavedOn(patch) || (patch->on && DPPasskeysProblem(patch))) return;
     NSAlert *alert = [NSAlert new];
     alert.messageText = patch->on ? @"Relaunch Dia to allow iCloud passkeys" : @"Relaunch Dia to stop using iCloud passkeys";
     [alert addButtonWithTitle:@"Relaunch"];

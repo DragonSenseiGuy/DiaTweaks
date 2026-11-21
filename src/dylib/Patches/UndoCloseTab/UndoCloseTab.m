@@ -31,7 +31,8 @@ static void DPInstallUndoCloseTab(void) {
     DPHook(DPDiaWebContents, @selector(closeWithForegroundCommitTiming:), (IMP)DPPage_close);
     NSEventMask mask = NSEventMaskKeyDown | NSEventMaskLeftMouseDown | NSEventMaskRightMouseDown | NSEventMaskOtherMouseDown;
     [NSEvent addLocalMonitorForEventsMatchingMask:mask handler:^NSEvent *(NSEvent *event) {
-        BOOL undo = DPJustClosed && event.type == NSEventTypeKeyDown && DPShortcutMatches(event, &DPUndoCloseTab)
+        if (!DPJustClosed) return event;
+        BOOL undo = event.type == NSEventTypeKeyDown && DPShortcutMatches(event, &DPUndoCloseTab)
             && !DPCanUndoGrouping() && !DPEditingWithUndo(event.window);
         DPJustClosed = NO;
         NSMenuItem *reopen = undo ? DPReopenItem() : nil;

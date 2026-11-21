@@ -1,6 +1,5 @@
 #import "GroupTabs.h"
 
-// ⌘G, ⇧⌘G and ⌃⌘N are Find Next, Find Previous and Dia's New Group with Selected Tabs.
 NSDictionary *DPDefaultGroupTabsShortcut(void) {
     return @{ @"keyCode" : @5, @"modifiers" : @(NSEventModifierFlagControl | NSEventModifierFlagShift), @"key" : @"G" };
 }

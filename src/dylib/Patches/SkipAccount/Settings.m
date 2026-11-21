@@ -13,7 +13,6 @@ static void DPSection_setHidden(NSView *self, SEL _cmd, BOOL hidden) {
 
 static void DPHeader_layout(NSView *self, SEL _cmd) {
     DPCallOriginal(DPHeader_layout, self);
-    // Hide the arranged section, including its heading, controls, and any account error message.
     if (!DPIsAccountHeader(self) || ![self.superview isKindOfClass:NSStackView.class]) return;
     [DPAccountSections addObject:self.superview];
     if (!self.superview.hidden) self.superview.hidden = YES;

@@ -46,9 +46,14 @@ static NSString *const kWorker = @"const popupTab = async ({ tabId, url }) => {\
 
 // Chromium keeps an extension's worker from its first run, so a changed worker needs a new folder.
 static NSString *DPExtensionFolder(void) {
-    uint32_t hash = 2166136261u;
-    for (const char *c = kWorker.UTF8String; *c; c++) hash = (hash ^ (uint8_t)*c) * 16777619u;
-    return DPAppSupport([NSString stringWithFormat:@"DiaPatches/little-dia-%08x", hash]);
+    static NSString *folder;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        uint32_t hash = 2166136261u;
+        for (const char *c = kWorker.UTF8String; *c; c++) hash = (hash ^ (uint8_t)*c) * 16777619u;
+        folder = DPAppSupport([NSString stringWithFormat:@"DiaPatches/little-dia-%08x", hash]);
+    });
+    return folder;
 }
 
 static NSString *gExtensionID;
@@ -60,9 +65,13 @@ static NSString *DPExtensionID(NSString *folder) {
     unsigned char digest[CC_SHA256_DIGEST_LENGTH];
     const char *path = folder.fileSystemRepresentation;
     CC_SHA256(path, (CC_LONG)strlen(path), digest);
-    NSMutableString *id = [NSMutableString string];
-    for (int i = 0; i < 16; i++) [id appendFormat:@"%c%c", 'a' + (digest[i] >> 4), 'a' + (digest[i] & 15)];
-    return id;
+    char buf[33];
+    for (int i = 0; i < 16; i++) {
+        buf[i * 2] = 'a' + (digest[i] >> 4);
+        buf[i * 2 + 1] = 'a' + (digest[i] & 15);
+    }
+    buf[32] = '\0';
+    return [NSString stringWithUTF8String:buf];
 }
 
 static NSDictionary<NSString *, NSString *> *DPExtensionFiles(void) {

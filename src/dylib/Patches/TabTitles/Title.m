@@ -1,16 +1,13 @@
 #import "Title.h"
 
 NSString *DPDisplayTitle(NSString *title) {
-    NSUInteger prefixLength = 0;
-    while (prefixLength < title.length) {
-        unichar character = [title characterAtIndex:prefixLength];
-        BOOL invisible = (character >= 0x200B && character <= 0x200F) ||
-                         (character >= 0x202A && character <= 0x202E) ||
-                         (character >= 0x2060 && character <= 0x206F) ||
-                         character == 0xFEFF;
+    NSUInteger length = title.length, prefix = 0;
+    while (prefix < length) {
+        unichar c = [title characterAtIndex:prefix];
+        BOOL invisible = (c >= 0x200B && c <= 0x200F) || (c >= 0x202A && c <= 0x202E)
+            || (c >= 0x2060 && c <= 0x206F) || c == 0xFEFF;
         if (!invisible) break;
-        prefixLength++;
+        prefix++;
     }
-    if (!prefixLength || prefixLength == title.length) return title;
-    return [title substringFromIndex:prefixLength];
+    return prefix && prefix < length ? [title substringFromIndex:prefix] : title;
 }

@@ -8,10 +8,15 @@
 
 BOOL DPIsAITitle(NSString *title) {
     if (![title isKindOfClass:NSString.class] || [title hasPrefix:@"Chat with Support"]) return NO;
-    NSString *lower = title.lowercaseString;
-    return [@[ @"Chat…", @"New Chat", @"Focus Chat", @"Send Chat Prompt Now", @"Open Daily Brief", @"Personalize Dia", @"Chat events", @"Daily report" ]
-               containsObject:title]
-        || [lower hasPrefix:@"chat with "] || [lower hasPrefix:@"ask dia"];
+    static NSSet<NSString *> *titles;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        titles = [NSSet setWithArray:@[ @"Chat…", @"New Chat", @"Focus Chat", @"Send Chat Prompt Now", @"Open Daily Brief", @"Personalize Dia", @"Chat events", @"Daily report" ]];
+    });
+    if ([titles containsObject:title]) return YES;
+    NSStringCompareOptions prefix = NSCaseInsensitiveSearch | NSAnchoredSearch;
+    return [title rangeOfString:@"chat with " options:prefix].location != NSNotFound
+        || [title rangeOfString:@"ask dia" options:prefix].location != NSNotFound;
 }
 
 static BOOL DPIsAIView(NSView *view) {
@@ -47,7 +52,7 @@ static void DPCloseChat(NSViewController *sidebar) {
 static void DPChatSidebar_viewWillLayout(NSViewController *self, SEL _cmd) {
     DPCallOriginal(DPChatSidebar_viewWillLayout, self);
     [DPChatSidebars addObject:self];
-    dispatch_async(dispatch_get_main_queue(), ^{ DPCloseChat(self); });
+    if (DPTurnOffAI.on) dispatch_async(dispatch_get_main_queue(), ^{ DPCloseChat(self); });
 }
 
 static NSHashTable<NSTextView *> *DPPlaceholderViews;
@@ -98,7 +103,7 @@ static void DPMenu_insertItem(NSMenu *self, SEL _cmd, NSMenuItem *item, NSIntege
 
 static const NSEventModifierFlags DPModifiers = NSEventModifierFlagCommand | NSEventModifierFlagControl | NSEventModifierFlagOption | NSEventModifierFlagShift;
 
-// Dia runs its shortcuts, including ones set in its settings, ahead of the menus, so a hidden menu item's shortcut still works.
+// Dia dispatches shortcuts ahead of menus, so hidden AI items must be blocked here.
 static BOOL DPIsAIShortcut(NSEvent *event) {
     NSEventModifierFlags mods = event.modifierFlags & DPModifiers;
     NSString *key = event.charactersIgnoringModifiers.lowercaseString;
@@ -121,7 +126,7 @@ static void DPCutOffAIServers(void) {
 }
 
 static void DPOfferRelaunch(DPPatch *patch) {
-    if (patch->on == gCutOff || patch->on != DPSavedOn(patch)) return;  // the self-test flips patches without saving
+    if (patch->on == gCutOff || patch->on != DPSavedOn(patch)) return;
     NSAlert *alert = [NSAlert new];
     alert.messageText = patch->on ? @"Relaunch Dia to cut off its AI servers" : @"Relaunch Dia to reconnect its AI servers";
     alert.informativeText = patch->on ? @"Until then, AI is hidden, but Dia can still reach its AI servers." : @"Until then, chat can’t reach them.";

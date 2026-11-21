@@ -42,7 +42,7 @@ static NSString *DPAddAlias(NSString *path, NSString *icon) {
     return [catalog writeToDiskAndCompact:YES] ? nil : @"couldn't write the catalog";
 }
 
-// Write beside and rename: Dia keeps reading the old file until it reopens the catalog.
+// Atomic rename so a running Dia keeps reading the old catalog.
 static NSString *DPWriteCurrent(NSString *app, NSString *folder, NSString *home) {
     NSFileManager *files = NSFileManager.defaultManager;
     NSString *base = [folder stringByAppendingPathComponent:@"base.car"], *current = [folder stringByAppendingPathComponent:@"current.car"];
@@ -57,10 +57,13 @@ static NSString *DPWriteCurrent(NSString *app, NSString *folder, NSString *home)
 
 static NSArray<NSString *> *DPMissingIcons(NSString *catalog, NSString *home) {
     NSString *icons = [home stringByAppendingPathComponent:@"app-icons"];
-    NSArray<NSString *> *present = DPOpenCatalog(catalog, NO).allRenditionNames;
+    NSArray<NSString *> *entries = [NSFileManager.defaultManager contentsOfDirectoryAtPath:icons error:NULL];
+    if (!entries.count) return @[];
+    NSSet<NSString *> *present = [NSSet setWithArray:DPOpenCatalog(catalog, NO).allRenditionNames];
     NSMutableArray<NSString *> *missing = [NSMutableArray array];
-    for (NSString *name in [[NSFileManager.defaultManager contentsOfDirectoryAtPath:icons error:NULL] sortedArrayUsingSelector:@selector(compare:)])
-        if ([name.pathExtension isEqual:@"car"] && ![present containsObject:name.stringByDeletingPathExtension]) [missing addObject:[icons stringByAppendingPathComponent:name]];
+    for (NSString *name in [entries sortedArrayUsingSelector:@selector(compare:)])
+        if ([name.pathExtension isEqual:@"car"] && ![present containsObject:name.stringByDeletingPathExtension])
+            [missing addObject:[icons stringByAppendingPathComponent:name]];
     return missing;
 }
 

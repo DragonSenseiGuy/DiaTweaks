@@ -34,7 +34,7 @@ static NSData *cdhashOfSelf(void) {
 
 static BOOL runs(NSDictionary *guest, NSData *cdhash) {
     if (!cdhash) return NO;
-    NSMutableString *hex = [NSMutableString string];
+    NSMutableString *hex = [NSMutableString stringWithCapacity:cdhash.length * 2];
     for (NSUInteger i = 0; i < cdhash.length; i++) [hex appendFormat:@"%02x", ((const uint8_t *)cdhash.bytes)[i]];
     SecCodeRef code = NULL;
     SecRequirementRef requirement = NULL;

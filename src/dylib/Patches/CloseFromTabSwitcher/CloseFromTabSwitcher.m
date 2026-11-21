@@ -67,23 +67,21 @@ static BOOL DPCloseFocusedTab(NSWindowController *switcher) {
 
 // The switcher picks the highlighted tab as soon as another modifier goes down, so it never sees ⌘.
 static BOOL DPTakeEvent(NSEvent *event) {
-    if (!DPCloseFromTabSwitcher.on || !(event.type == NSEventTypeKeyDown || event.type == NSEventTypeFlagsChanged)) return NO;
-    if (!(event.modifierFlags & NSEventModifierFlagControl)) return NO;
+    if (!(event.type == NSEventTypeKeyDown || event.type == NSEventTypeFlagsChanged) || !(event.modifierFlags & NSEventModifierFlagControl)) return NO;
     NSWindowController *switcher = DPOpenTabSwitcher();
     if (!switcher) return NO;
     if (event.type == NSEventTypeFlagsChanged) return event.keyCode == 54 || event.keyCode == 55;
-    // ⇧ may still be down from cycling backward, and ⌘⇧W would close the window.
     NSEventModifierFlags mods = event.modifierFlags & (NSEventModifierFlagCommand | NSEventModifierFlagOption);
-    // A layout with no Latin letters matches by the W key's position, others by the letter, so Dvorak's W works.
     NSString *typed = event.charactersIgnoringModifiers.lowercaseString;
     BOOL isW = (typed.length && [typed characterAtIndex:0] > 0x7f) ? event.keyCode == 13 : [typed isEqualToString:@"w"];
     return (mods == NSEventModifierFlagCommand || !mods) && isW && DPCloseFocusedTab(switcher);
 }
 
 static NSEvent *DPApplication_nextEvent(NSApplication *self, SEL _cmd, NSEventMask mask, NSDate *until, NSRunLoopMode mode, BOOL dequeue) {
+    if (!DPCloseFromTabSwitcher.on || !dequeue) return DPCallOriginal(DPApplication_nextEvent, self, mask, until, mode, dequeue);
     NSEvent *event;
     do event = DPCallOriginal(DPApplication_nextEvent, self, mask, until, mode, dequeue);
-    while (dequeue && event && DPTakeEvent(event));
+    while (event && DPTakeEvent(event));
     return event;
 }
 

@@ -3,15 +3,30 @@
 
 NSHashTable<NSView *> *DPHideHosts, *DPSuppressed;
 static char DPHidersKey;
+static DPPatch **DPHidePatches;
+static NSUInteger DPHidePatchCount;
+
+static void DPCacheHidePatches(void) {
+    if (DPHidePatches || !DPPatchCount) return;
+    DPHidePatches = calloc(DPPatchCount, sizeof *DPHidePatches);
+    for (NSUInteger i = 0; i < DPPatchCount; i++)
+        if (DPPatches[i]->hides) DPHidePatches[DPHidePatchCount++] = DPPatches[i];
+}
 
 // Only a match is cached: some views only match once Dia labels them.
 static NSArray<NSValue *> *DPHiders(NSView *view) {
     NSArray<NSValue *> *cached = DPGet(view, &DPHidersKey);
     if (cached) return cached;
-    NSMutableArray<NSValue *> *hiders = [NSMutableArray array];
-    for (NSUInteger i = 0; i < DPPatchCount; i++)
-        if (DPPatches[i]->hides && !DPPatches[i]->unavailable && DPPatches[i]->hides(view)) [hiders addObject:[NSValue valueWithPointer:DPPatches[i]]];
-    if (hiders.count) DPSet(view, &DPHidersKey, hiders);
+    if (!DPHidePatches) DPCacheHidePatches();
+    NSMutableArray<NSValue *> *hiders = nil;
+    for (NSUInteger i = 0; i < DPHidePatchCount; i++) {
+        DPPatch *patch = DPHidePatches[i];
+        if (!patch->unavailable && patch->hides(view)) {
+            if (!hiders) hiders = [NSMutableArray array];
+            [hiders addObject:[NSValue valueWithPointer:patch]];
+        }
+    }
+    if (hiders) DPSet(view, &DPHidersKey, hiders);
     return hiders;
 }
 
@@ -33,15 +48,13 @@ static void DPHidden_setHidden(NSView *self, SEL _cmd, BOOL hidden) {
 // Before the window shows, Dia only hides views that report visible, so lie to Dia's code then.
 static BOOL DPHidden_isHidden(NSView *self, SEL _cmd) {
     Dl_info caller;
-    if (!self.window.isVisible && [DPSuppressed containsObject:self] && dladdr(__builtin_return_address(0), &caller)
+    if (DPSuppressed.count && [DPSuppressed containsObject:self] && !self.window.isVisible && dladdr(__builtin_return_address(0), &caller)
         && strstr(caller.dli_fname, "/Dia.app/"))
         return NO;
     return DPCallOriginal(DPHidden_isHidden, self);
 }
 
-static void DPEnforce(NSView *view) {
-    DPPatch *patch = DPHider(view);
-    if (!patch) return;
+static void DPEnforcePatch(NSView *view, DPPatch *patch) {
     DPHookClass(view.class, @selector(setHidden:), (IMP)DPHidden_setHidden);
     DPHookClass(view.class, @selector(isHidden), (IMP)DPHidden_isHidden);
     if (!patch->on || view.hidden) return;
@@ -50,16 +63,18 @@ static void DPEnforce(NSView *view) {
 
 static void DPHidden_viewDidMoveToWindow(NSView *self, SEL _cmd) {
     DPCallOriginal(DPHidden_viewDidMoveToWindow, self);
-    DPEnforce(self);
+    DPPatch *patch = DPHider(self);
+    if (patch) DPEnforcePatch(self, patch);
 }
 
 void DPEnforceHides(NSView *root) {
-    if (!DPHider(root)) {
+    DPPatch *patch = DPHider(root);
+    if (!patch) {
         for (NSView *sub in root.subviews) DPEnforceHides(sub);
         return;
     }
     DPHookClass(root.class, @selector(viewDidMoveToWindow), (IMP)DPHidden_viewDidMoveToWindow);
-    DPEnforce(root);
+    DPEnforcePatch(root, patch);
 }
 
 void DPApplyHides(DPPatch *patch) {
@@ -96,5 +111,6 @@ NSString *DPVerifyHides(DPPatch *patch) {
 void DPInstallHides(void) {
     DPHideHosts = [NSHashTable weakObjectsHashTable];
     DPSuppressed = [NSHashTable weakObjectsHashTable];
-    for (NSUInteger i = 0; i < DPPatchCount; i++) if (DPPatches[i]->hides) return DPInstallHideHosts();
+    DPCacheHidePatches();
+    if (DPHidePatchCount) DPInstallHideHosts();
 }

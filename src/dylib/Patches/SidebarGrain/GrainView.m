@@ -28,11 +28,16 @@
 
 - (void)viewDidMoveToWindow {
     [super viewDidMoveToWindow];
+    static NSArray<NSNotificationName> *windowNames, *appNames;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        windowNames = @[NSWindowDidBecomeKeyNotification, NSWindowDidResignKeyNotification,
+                        NSWindowDidBecomeMainNotification, NSWindowDidResignMainNotification];
+        appNames = @[NSApplicationDidBecomeActiveNotification, NSApplicationDidResignActiveNotification];
+    });
     NSNotificationCenter *center = NSNotificationCenter.defaultCenter;
-    NSArray<NSNotificationName> *windowNames = @[NSWindowDidBecomeKeyNotification, NSWindowDidResignKeyNotification,
-                                                 NSWindowDidBecomeMainNotification, NSWindowDidResignMainNotification];
-    NSArray<NSNotificationName> *appNames = @[NSApplicationDidBecomeActiveNotification, NSApplicationDidResignActiveNotification];
-    for (NSNotificationName name in [windowNames arrayByAddingObjectsFromArray:appNames]) [center removeObserver:self name:name object:nil];
+    for (NSNotificationName name in windowNames) [center removeObserver:self name:name object:nil];
+    for (NSNotificationName name in appNames) [center removeObserver:self name:name object:nil];
     if (!self.window || !self.tracksWindowActivity) return;
     for (NSNotificationName name in windowNames) [center addObserver:self selector:@selector(refreshActivity:) name:name object:self.window];
     for (NSNotificationName name in appNames) [center addObserver:self selector:@selector(refreshActivity:) name:name object:NSApp];

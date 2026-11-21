@@ -16,7 +16,6 @@ static atomic_bool stop;
 static atomic_long calls, wrong;
 static DPTarget *target;
 
-// Walks the hook table the way every hooked method does, while the main thread keeps adding hooks.
 static void *reader(void *unused) {
     while (!atomic_load(&stop)) {
         if ([target work] != 2) atomic_fetch_add(&wrong, 1);

@@ -1,7 +1,7 @@
 #import "GroupTabs.h"
 #import <objc/message.h>
 
-static const NSInteger DPContentVisible = 2;  // content::Visibility: hidden, occluded, visible.
+static const NSInteger DPContentVisible = 2;  // content::Visibility::VISIBLE
 
 static long long DPVisibleSession(id browser) {
     long long found = 0;

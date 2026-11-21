@@ -1,9 +1,9 @@
-use std::{fs, io, path::PathBuf};
+use std::{fs, io};
 
 use anyhow::{Context, Result};
 
 use crate::{
-    dia,
+    dia::{self, SafeMode},
     env::Env,
     lock,
     manifest::Manifest,
@@ -12,25 +12,19 @@ use crate::{
     ui::Ui,
 };
 
-/// Beside the dylib and its safe-mode state: a file, so no tweak's own setting is touched.
-fn path(env: &Env) -> PathBuf {
-    env.support.join("paused")
-}
-
 pub fn set(env: &Env, ui: &Ui, paused: bool) -> Result<()> {
     let manifest = Manifest::load(&env.manifest())?;
-    let state = manifest.state(&Prefs::new(&env.domain));
-    let on: Vec<usize> = (0..state.len()).filter(|&index| state[index]).collect();
-    if dia::paused(&env.support) == paused {
-        ui.done(match paused {
-            true => "Tweaks are already paused.",
-            false => "Tweaks aren't paused.",
+    if dia::is_paused(&env.support) == paused {
+        ui.done(if paused {
+            "Tweaks are already paused."
+        } else {
+            "Tweaks aren't paused."
         });
         return Ok(());
     }
 
     let _lock = lock::acquire(&env.support)?;
-    let file = path(env);
+    let file = env.support.join("paused");
     if paused {
         fs::write(&file, b"").with_context(|| format!("Couldn't write {}", file.display()))?;
     } else {
@@ -38,7 +32,7 @@ pub fn set(env: &Env, ui: &Ui, paused: bool) -> Result<()> {
             Ok(()) => {}
             Err(err) if err.kind() == io::ErrorKind::NotFound => {}
             Err(err) => {
-                return Err(err).with_context(|| format!("Couldn't delete {}", file.display()))
+                return Err(err).with_context(|| format!("Couldn't delete {}", file.display()));
             }
         }
     }
@@ -49,6 +43,9 @@ pub fn set(env: &Env, ui: &Ui, paused: bool) -> Result<()> {
         ui.done(where_resumed(env));
         return Ok(());
     }
+
+    let state = manifest.state(&Prefs::new(&env.domain));
+    let on: Vec<usize> = (0..state.len()).filter(|&index| state[index]).collect();
     match on.len() {
         0 => ui.success("Paused. No tweaks were on."),
         1 => ui.success("Paused 1 tweak. Its settings are kept."),
@@ -56,17 +53,13 @@ pub fn set(env: &Env, ui: &Ui, paused: bool) -> Result<()> {
             "Paused {count} tweaks. Their settings are kept."
         )),
     }
-    // Only a Dia that is running has anything left to finish: one that opens later starts with them all off.
-    let waiting: Vec<&str> = match dia::is_running(&env.app)
-        && dia::is_patched(&env.app)
-        && dia::safe_mode(&env.support) == 0
-    {
-        true => on
-            .iter()
+    let waiting: Vec<&str> = if is_live_dia(env) {
+        on.iter()
             .filter(|&&index| manifest.patches[index].relaunch)
             .map(|&index| manifest.title(index))
-            .collect(),
-        false => Vec::new(),
+            .collect()
+    } else {
+        Vec::new()
     };
     if waiting.is_empty() {
         ui.done(tweaks::where_it_shows(env));
@@ -80,9 +73,15 @@ pub fn set(env: &Env, ui: &Ui, paused: bool) -> Result<()> {
     Ok(())
 }
 
-/// A Dia that started with tweaks paused has nothing hooked up to turn back on, so it always needs a relaunch.
+fn is_live_dia(env: &Env) -> bool {
+    dia::is_running(&env.app)
+        && dia::is_patched(&env.app)
+        && dia::safe_mode(&env.support) == SafeMode::Off
+}
+
+// A Dia launched while paused has no hooks installed, so resuming always needs a relaunch.
 fn where_resumed(env: &Env) -> String {
-    if dia::is_running(&env.app) && dia::is_patched(&env.app) && dia::safe_mode(&env.support) == 0 {
+    if is_live_dia(env) {
         return "Relaunch Dia to finish.".into();
     }
     tweaks::where_it_shows(env)

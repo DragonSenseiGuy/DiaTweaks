@@ -12,17 +12,17 @@ static void DPGrainStripDidLayout(NSViewController *self, SEL _cmd) {
 
 static void DPGrainSwitcherItemDidUpdate(NSView *self, SEL _cmd) {
     DPCallOriginal(DPGrainSwitcherItemDidUpdate, self);
-    if ([DPSwiftValue(self, @"isSelected") boolValue]) DPRefreshSidebarGrain();
+    if (DPSidebarGrain.on && [DPSwiftValue(self, @"isSelected") boolValue]) DPRefreshSidebarGrain();
 }
 
 static void DPGrainDotDidLayout(NSView *self, SEL _cmd) {
     DPCallOriginal(DPGrainDotDidLayout, self);
-    DPRefreshSidebarGrain();
+    if (DPSidebarGrain.on) DPRefreshSidebarGrain();
 }
 
 static void DPGrainDotDidUpdate(NSView *self, SEL _cmd) {
     DPCallOriginal(DPGrainDotDidUpdate, self);
-    if ([DPSwiftValue(self, @"isSelected") boolValue]) DPRefreshSidebarGrain();
+    if (DPSidebarGrain.on && [DPSwiftValue(self, @"isSelected") boolValue]) DPRefreshSidebarGrain();
 }
 
 static void DPInstallSidebarGrain(void) {

@@ -1,9 +1,9 @@
 #import "StdPatch/StdPatch.h"
 #import "Updates/Updates.h"
 
-DPPatch DPBriefLanguage;
+extern DPPatch DPBriefLanguage;
 
-// diapatch writes this heading into Dia's brief prompt as it builds: keep the two in step.
+// Shared with diapatch's BriefLanguage.m.
 static NSString *const DPBriefHeading = @"## Output language: ";
 static BOOL DPBuilding, DPStale, DPBuilt;
 
@@ -12,13 +12,13 @@ static NSString *DPBriefPrompt(void) {
     return [NSString stringWithContentsOfFile:path encoding:NSUTF8StringEncoding error:NULL];
 }
 
-// The language this Dia was built to write in, or nil for Dia's own.
 static NSString *DPInstalledLanguage(void) {
     NSString *prompt = DPBriefPrompt();
     NSRange heading = [prompt rangeOfString:DPBriefHeading options:NSBackwardsSearch];
     if (!heading.length) return nil;
     NSString *rest = [prompt substringFromIndex:NSMaxRange(heading)];
-    return [rest substringToIndex:[rest rangeOfString:@"\n"].location == NSNotFound ? rest.length : [rest rangeOfString:@"\n"].location];
+    NSUInteger end = [rest rangeOfString:@"\n"].location;
+    return end == NSNotFound ? rest : [rest substringToIndex:end];
 }
 
 static NSString *DPWantedLanguage(void) { return DPBriefLanguage.on ? DPChoice(&DPBriefLanguage) : nil; }
@@ -39,7 +39,6 @@ static void DPAlert(NSString *message, NSString *detail) {
     [alert runModal];
 }
 
-// The prompt is sealed by Dia's signature, so a new language means a new build, like a new icon catalog.
 static void DPRebuild(void) {
     if (DPBuilding) return (void)(DPStale = YES);
     DPBuilding = YES;
@@ -74,7 +73,6 @@ static void DPApplyBriefLanguage(DPPatch *patch) {
 
 static NSString *DPVerifyBriefLanguage(DPPatch *patch) { return DPBriefPrompt() ? nil : @"Dia’s Morning Brief prompt isn’t in its bundle"; }
 
-// Its own name, the name the prompt uses, and the macOS language that picks it before you choose.
 static NSArray<NSArray<NSString *> *> *DPLanguages(void) {
     return @[
         @[ @"English", @"English", @"en" ], @[ @"日本語", @"Japanese", @"ja" ], @[ @"简体中文", @"Chinese (Simplified)", @"zh-Hans" ],

@@ -42,6 +42,7 @@ static void DPMorph(CAShapeLayer *shape, CGPathRef to, CGFloat width, void (^don
 
 void DPTidyWave(CALayer *host, CALayer *line, CGColorRef color, BOOL busy) {
     CALayer *box = DPWaveIn(host);
+    if (!busy && !box) return;
     CAShapeLayer *shape = box.sublayers.firstObject;
     NSRect frame = line.frame;
     [CATransaction begin];

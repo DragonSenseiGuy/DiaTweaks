@@ -19,13 +19,14 @@ static NSPoint DPPopoverShift(NSView *popover, NSRect frame) {
     return NSZeroPoint;
 }
 
-// Dia may set the frame again from the origin it read back, so the origin we gave is mapped back to Dia's.
+// Dia may re-set the frame from the shifted origin it reads back, so map ours back to Dia's.
 static NSPoint DPPopoverOrigin(NSView *popover, NSRect frame) {
     NSArray<NSValue *> *last = DPGet(popover, &DPPopoverKey);
+    if (!DPEdgeToEdge.progress && !last) return frame.origin;
     NSPoint dia = last && NSEqualPoints(frame.origin, last[1].pointValue) ? last[0].pointValue : frame.origin;
     NSPoint shift = DPPopoverShift(popover, NSMakeRect(dia.x, dia.y, NSWidth(frame), NSHeight(frame)));
     NSPoint ours = NSMakePoint(dia.x + shift.x, dia.y + shift.y);
-    DPSet(popover, &DPPopoverKey, @[ [NSValue valueWithPoint:dia], [NSValue valueWithPoint:ours] ]);
+    DPSet(popover, &DPPopoverKey, NSEqualPoints(ours, dia) ? nil : @[ [NSValue valueWithPoint:dia], [NSValue valueWithPoint:ours] ]);
     return ours;
 }
 

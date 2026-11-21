@@ -7,11 +7,11 @@ void DPInstallGroupTabs(void);
 id DPCommandBrowser(void);
 NSWindow *DPBrowserWindow(id browser);
 id DPBrowserOfWindow(NSWindow *window);
-id DPBrowserOfContents(id contents);  // nil for a page Dia never told us about.
+id DPBrowserOfContents(id contents);
 id DPGroupingDelegate(id browser);
 NSArray *DPTrackedContents(id browser);
 long long DPSessionOf(id contents);
-long long DPActiveSession(id browser);  // 0 when the tab in front can't be told from the others.
+long long DPActiveSession(id browser);
 
 long long DPLongID(id value);
 id DPMsg(id object, SEL sel);

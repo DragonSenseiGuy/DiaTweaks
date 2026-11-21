@@ -12,6 +12,7 @@ static BOOL DPIsGrey(CGColorRef color) {
 
 static void DPStyleBackground(NSView *cell) {
     CALayer *layer = DPSubview(cell, DPDiaTabGroupBackground).layer;
+    if (!layer) return;
     NSArray *hidden = DPGet(layer, &DPHiddenKey);
     if (DPHideTabGroupBackground.on && layer.backgroundColor && DPIsGrey(layer.backgroundColor)) {
         if (!hidden) DPSet(layer, &DPHiddenKey, hidden = @[ @(layer.borderWidth), [NSMutableArray new] ]);

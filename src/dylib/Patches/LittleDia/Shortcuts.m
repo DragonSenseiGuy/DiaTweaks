@@ -18,11 +18,11 @@ static const SEL *DPPopupActions(void) {
 
 static SEL DPCallbackAction(NSMenuItem *item) {
     if (item.menu.supermenu != NSApp.mainMenu) return NULL;
-    static NSDictionary<NSString *, NSString *> *actions;
-    static dispatch_once_t once;
-    dispatch_once(&once, ^{ actions = @{@"Refresh" : @"reload", @"Force Refresh the Page" : @"reloadWithoutCache", @"Close Window" : @"performClose:"}; });
-    NSString *action = actions[item.title];
-    return action ? NSSelectorFromString(action) : NULL;
+    NSString *title = item.title;
+    if ([title isEqualToString:@"Refresh"]) return @selector(reload);
+    if ([title isEqualToString:@"Force Refresh the Page"]) return @selector(reloadWithoutCache);
+    if ([title isEqualToString:@"Close Window"]) return @selector(performClose:);
+    return NULL;
 }
 
 static NSWindow *DPLittleWindow(NSWindow *window) { return DPLittleDia.on && DPIsLittleDiaWindow(window) ? window : nil; }
@@ -52,9 +52,9 @@ static void DPCopyURL(NSWindow *window, BOOL markdown) {
 }
 
 static BOOL DPCanRun(NSWindow *window, SEL action) {
-    id page = DPLittleDiaPage(window);
     if (action == @selector(closeFocusedContent:) || action == @selector(performClose:)) return YES;
     if (action == @selector(copyCurrentURL:) || action == @selector(copyCurrentURLAsMarkdown:)) return DPLittleDiaURL(window).length > 0;
+    id page = DPLittleDiaPage(window);
     if (action == @selector(navigateTabBack:)) return DPPageFlag(page, @selector(canGoBack));
     if (action == @selector(navigateTabForward:)) return DPPageFlag(page, @selector(canGoForward));
     return page != nil;
@@ -62,15 +62,16 @@ static BOOL DPCanRun(NSWindow *window, SEL action) {
 
 static void DPRun(NSWindow *window, SEL action) {
     if (!DPCanRun(window, action)) return NSBeep();
-    id page = DPLittleDiaPage(window);
     if (action == @selector(copyCurrentURL:) || action == @selector(copyCurrentURLAsMarkdown:)) DPCopyURL(window, action == @selector(copyCurrentURLAsMarkdown:));
     else if (action == @selector(navigateTabBack:)) DPLittleDiaGo(window, @selector(goBack));
     else if (action == @selector(navigateTabForward:)) DPLittleDiaGo(window, @selector(goForward));
     else if (action == @selector(reload) || action == @selector(reloadWithoutCache)) DPLittleDiaGo(window, action);
-    else if (action == @selector(zoomIn:) || action == @selector(zoomInAlternate:)) DPZoom(window, 1);  // ⌘+, and ⌘= from a hidden item
+    else if (action == @selector(zoomIn:) || action == @selector(zoomInAlternate:)) DPZoom(window, 1);
     else if (action == @selector(zoomOut:) || action == @selector(resetZoom:)) DPZoom(window, action == @selector(zoomOut:) ? -1 : 0);
-    else if (action == @selector(printFocusedContent:) && [page respondsToSelector:@selector(print)]) ((void (*)(id, SEL))objc_msgSend)(page, @selector(print));
-    else if (action == @selector(closeFocusedContent:) || action == @selector(performClose:)) [window performClose:nil];
+    else if (action == @selector(printFocusedContent:)) {
+        id page = DPLittleDiaPage(window);
+        if ([page respondsToSelector:@selector(print)]) ((void (*)(id, SEL))objc_msgSend)(page, @selector(print));
+    } else if (action == @selector(closeFocusedContent:) || action == @selector(performClose:)) [window performClose:nil];
 }
 
 static void DPPopup_action(NSWindowController *self, SEL _cmd, id sender) {

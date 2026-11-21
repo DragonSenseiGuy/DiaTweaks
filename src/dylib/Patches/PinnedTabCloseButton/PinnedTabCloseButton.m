@@ -11,8 +11,10 @@ static void DPAllowClose(NSView *tab) {
 }
 
 static void DPTracker_mouseEntered(id self, SEL _cmd, NSEvent *event) {
-    __autoreleasing id *view = DPPinnedTabCloseButton.on ? (__autoreleasing id *)DPIvar(self, "view") : NULL;
-    if (view) DPAllowClose(DPEnclosingTab(objc_loadWeak(view)));
+    if (DPPinnedTabCloseButton.on) {
+        __autoreleasing id *view = (__autoreleasing id *)DPIvar(self, "view");
+        if (view) DPAllowClose(DPEnclosingTab(objc_loadWeak(view)));
+    }
     DPCallOriginal(DPTracker_mouseEntered, self, event);
 }
 
@@ -27,7 +29,6 @@ static void DPApplyPinnedTabCloseButton(DPPatch *patch) {
         for (NSView *tab in DPFindViews(DPDiaTabView)) DPAllowClose(tab);
         return;
     }
-    // A tab unpinned since has Dia's own setting; leave it showing the button.
     NSMutableSet *unpinned = [NSMutableSet set];
     for (NSView *content in DPFindViews(DPDiaTabContentView)) {
         BOOL *pinned = DPIvar(DPAttributes(content), "isInFavoritesOrPinnedContainer");

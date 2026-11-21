@@ -2,5 +2,5 @@
 #include <stdatomic.h>
 
 extern DPPatch DPSplitClientHello;
-extern _Atomic bool DPSplitting;  // On, and Dia's network service runs in this process.
+extern _Atomic bool DPSplitting;
 void DPInstallSplitSend(void);

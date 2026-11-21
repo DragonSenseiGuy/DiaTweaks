@@ -9,6 +9,8 @@ static _Atomic size_t DPHookCount;
 void DPHookClass(Class cls, SEL sel, IMP replacement) {
     Method method = cls ? class_getInstanceMethod(cls, sel) : NULL;
     if (!method) return;
+    IMP original = method_getImplementation(method);
+    if (original == replacement) return;
     size_t count = atomic_load_explicit(&DPHookCount, memory_order_relaxed);
     // Already hooked here or in a superclass: a second copy would find itself as the original and recurse.
     for (size_t i = 0; i < count; i++) {
@@ -16,7 +18,6 @@ void DPHookClass(Class cls, SEL sel, IMP replacement) {
         for (Class c = cls; c; c = class_getSuperclass(c)) if (c == DPHooks[i].cls) return;
     }
     if (count == sizeof DPHooks / sizeof *DPHooks) return NSLog(@"DiaPatches: hook table is full; not hooking -[%s %@]", class_getName(cls), NSStringFromSelector(sel));
-    IMP original = method_getImplementation(method);
     // The record goes in first: once the replacement is live, any thread that reaches it must find it.
     DPHooks[count] = (DPHookRecord){cls, sel, replacement, original};
     atomic_store_explicit(&DPHookCount, count + 1, memory_order_release);
@@ -31,9 +32,18 @@ void DPHook(const char *className, SEL sel, IMP replacement) {
 
 IMP DPOriginalIMP(id object, SEL sel, IMP replacement) {
     size_t count = atomic_load_explicit(&DPHookCount, memory_order_acquire);
-    for (Class c = object_getClass(object); c; c = class_getSuperclass(c))
-        for (size_t i = 0; i < count; i++)
-            if (DPHooks[i].cls == c && DPHooks[i].sel == sel && DPHooks[i].replacement == replacement) return DPHooks[i].original;
+    Class cls = object_getClass(object);
+    IMP best = NULL;
+    size_t bestDepth = SIZE_MAX;
+    for (size_t i = 0; i < count; i++) {
+        if (DPHooks[i].replacement != replacement || DPHooks[i].sel != sel) continue;
+        Class hooked = DPHooks[i].cls;
+        if (hooked == cls) return DPHooks[i].original;
+        size_t depth = 1;
+        for (Class c = class_getSuperclass(cls); c && depth < bestDepth; c = class_getSuperclass(c), depth++)
+            if (c == hooked) { best = DPHooks[i].original; bestDepth = depth; break; }
+    }
+    if (best) return best;
     abort();
 }
 

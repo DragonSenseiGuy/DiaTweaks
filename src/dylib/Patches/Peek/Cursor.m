@@ -1,14 +1,11 @@
 #import "Patches/Peek/Peek.h"
 
-static BOOL DPPeekCursorAllowed(NSView *view, NSPoint point) {
-    if (!DPPeek.on || !DPPeekCardIn(view.window)) return YES;
-    NSView *root = view.window.contentView;
-    NSView *hit = [root hitTest:[root.superview convertPoint:point fromView:nil]];
-    return hit == view || [hit isDescendantOf:view];
-}
-
 static BOOL DPWeb_shouldChangeCurrentCursor(NSView *self, SEL _cmd) {
-    return DPCallOriginal(DPWeb_shouldChangeCurrentCursor, self) && DPPeekCursorAllowed(self, self.window.mouseLocationOutsideOfEventStream);
+    if (!DPCallOriginal(DPWeb_shouldChangeCurrentCursor, self)) return NO;
+    if (!DPPeek.on || !DPPeekCardIn(self.window)) return YES;
+    NSView *root = self.window.contentView;
+    NSView *hit = [root hitTest:[root.superview convertPoint:self.window.mouseLocationOutsideOfEventStream fromView:nil]];
+    return hit == self || [hit isDescendantOf:self];
 }
 
 static void DPWeb_addCursorRect(NSView *self, SEL _cmd, NSRect rect, NSCursor *cursor) {

@@ -11,15 +11,19 @@ static BOOL DPTabSelected(NSView *tab) {
     return style && ![style containsString:@"none"] && ![style containsString:@"above"] && ![style containsString:@"below"];
 }
 
-static NSArray<NSView *> *DPTabsIn(NSWindow *window) {
-    NSMutableArray<NSView *> *tabs = [NSMutableArray array];
-    for (NSView *tab in [DPFindViews(DPDiaTabView) arrayByAddingObjectsFromArray:DPFindViews(DPDiaPinnedTab)])
-        if (tab.window == window) [tabs addObject:tab];
-    return tabs;
+static NSView *DPFindTabIn(NSWindow *window, BOOL (^match)(NSView *tab)) {
+    const char *kinds[2] = {DPDiaTabView, DPDiaPinnedTab};
+    for (int i = 0; i < 2; i++)
+        for (NSView *tab in DPFindViews(kinds[i]))
+            if (tab.window == window && match(tab)) return tab;
+    return nil;
 }
 
 static NSString *DPPeekPageID(id page) {
-    for (NSString *key in @[@"identifier", @"id", @"contentID", @"contentId", @"uuid"]) {
+    static NSArray<NSString *> *keys;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{ keys = @[@"identifier", @"id", @"contentID", @"contentId", @"uuid"]; });
+    for (NSString *key in keys) {
         NSString *value = [DPSwiftValue((NSObject *)page, key) description];
         if (value.length >= 32 && [value containsString:@"-"]) return value;
     }
@@ -28,12 +32,13 @@ static NSString *DPPeekPageID(id page) {
 
 static NSView *DPPeekOriginTab(NSWindow *window, id source) {
     NSString *sourceID = DPPeekPageID(source);
-    NSView *selected = nil;
-    for (NSView *tab in DPTabsIn(window)) {
-        if (sourceID && [[DPTabState(tab) description] containsString:sourceID]) return tab;
+    __block NSView *selected = nil;
+    NSView *exact = DPFindTabIn(window, ^BOOL(NSView *tab) {
+        if (sourceID && [[DPTabState(tab) description] containsString:sourceID]) return YES;
         if (!selected && DPTabSelected(tab)) selected = tab;
-    }
-    return selected;
+        return NO;
+    });
+    return exact ?: selected;
 }
 
 // An icon tile's links already leave in a new tab, but a pinned row's stay in it, and only its menu says it is pinned.
@@ -52,9 +57,7 @@ static NSString *DPPeekTabContentKey(NSView *tab) {
 }
 
 static NSView *DPPeekTabWithContent(NSWindow *window, NSString *key) {
-    for (NSView *tab in DPTabsIn(window))
-        if ([[DPTabState(tab) description] containsString:key]) return tab;
-    return nil;
+    return DPFindTabIn(window, ^BOOL(NSView *tab) { return [[DPTabState(tab) description] containsString:key]; });
 }
 
 static BOOL DPTabIsTop(NSView *tab) {

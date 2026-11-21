@@ -36,7 +36,6 @@ static void DPCloseAll_setHidden(NSView *self, SEL _cmd, BOOL hidden) {
     if (DPIsKind(self.superview, DPDiaTabListSeparator)) DPPlaceSeparatorBrush(self.superview);
 }
 
-// Row heights change between Dia builds: a tab is known by its cell's class, an off-screen row (no cell) by its height.
 NSInteger DPTidyTabsBelowLine(NSView *list) {
     NSCollectionView *collection = (NSCollectionView *)DPTidyListScroll(list).documentView;
     if (![collection isKindOfClass:NSCollectionView.class]) return 0;
@@ -50,11 +49,11 @@ NSInteger DPTidyTabsBelowLine(NSView *list) {
             NSIndexPath *path = [NSIndexPath indexPathForItem:item inSection:section];
             NSCollectionViewLayoutAttributes *attrs = [collection.collectionViewLayout layoutAttributesForItemAtIndexPath:path];
             NSRect frame = attrs.frame;
-            // Folded, Collapse Pinned Tabs moves pinned rows below the line and hides them (fading first).
+            // Folded pinned tabs move below the line hidden/fading.
             if (attrs.hidden || attrs.alpha < 1 || NSMinY(frame) < line || NSHeight(frame) <= 0) continue;
             NSView *cell = [collection itemAtIndexPath:path].view;
             BOOL tab = cell && strstr(object_getClassName(cell), "TabUI7TabView");
-            // The New Tab row is last. Off screen it would pass for a tab.
+            // Exclude the trailing New Tab row when off screen.
             if (!cell && section == collection.numberOfSections - 1 && item == [collection numberOfItemsInSection:section] - 1) continue;
             [frames addObject:[NSValue valueWithRect:frame]];
             [isTab addObject:cell ? @(tab) : (id)NSNull.null];
@@ -81,6 +80,7 @@ static NSView *DPListOf(NSView *view) {
 }
 
 void DPPlaceSeparatorBrush(NSView *separator) {
+    if (!DPTidyTabs.on && !DPBrushIn(separator, NO)) return;
     NSView *closeAll = DPCloseAll(separator);
     static BOOL hooked;
     if (closeAll && !hooked) {
@@ -97,8 +97,12 @@ void DPPlaceSeparatorBrush(NSView *separator) {
     if (!line) return;
     NSRect dia = [DPDiaValue(line, &DPLineFrameKey, [NSValue valueWithRect:line.frame]) rectValue], frame = dia;
     CGFloat trimmed = MIN(NSWidth(dia), MAX(0, right - DPTidyBrushSize - DPTidyLineGap - NSMinX(dia)));
-    if (shown) frame.size.width = trimmed;
-    DPOverride(line, &DPLineFrameKey, [NSValue valueWithRect:dia], [NSValue valueWithRect:frame]);
+    if (shown) {
+        frame.size.width = trimmed;
+        DPOverride(line, &DPLineFrameKey, [NSValue valueWithRect:dia], [NSValue valueWithRect:frame]);
+    } else if (DPGet(line, &DPLineFrameKey)) {
+        DPSet(line, &DPLineFrameKey, nil);
+    }
     if (!NSEqualRects(line.frame, frame)) {
         [CATransaction begin];
         [CATransaction setDisableActions:YES];
@@ -119,9 +123,11 @@ static void DPSeparator_updateLayer(NSView *self, SEL _cmd) {
 }
 
 static NSView *DPCollection_hitTest(NSView *self, SEL _cmd, NSPoint point) {
-    for (DPTidyBrush *brush in DPTidyBrushes()) {
-        if (brush.hiddenOrHasHiddenAncestor || ![brush isDescendantOf:self]) continue;
-        if (NSPointInRect([brush convertPoint:point fromView:self.superview], brush.bounds)) return brush;
+    if (DPTidyTabs.on) {
+        for (DPTidyBrush *brush in DPTidyBrushes()) {
+            if (brush.hiddenOrHasHiddenAncestor || ![brush isDescendantOf:self]) continue;
+            if (NSPointInRect([brush convertPoint:point fromView:self.superview], brush.bounds)) return brush;
+        }
     }
     return DPCallOriginal(DPCollection_hitTest, self, point);
 }

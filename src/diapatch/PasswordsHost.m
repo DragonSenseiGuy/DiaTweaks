@@ -40,9 +40,11 @@ BOOL DPIsPasswordsOrigin(const char *origin) {
 
 static void waitForExit(pid_t pid) {
     int queue = kqueue();
+    if (queue < 0) return;
     struct kevent change, event;
     EV_SET(&change, pid, EVFILT_PROC, EV_ADD | EV_ONESHOT, NOTE_EXIT, 0, NULL);
-    if (queue >= 0 && kevent(queue, &change, 1, NULL, 0, NULL) == 0) kevent(queue, NULL, 0, &event, 1, NULL);
+    if (kevent(queue, &change, 1, NULL, 0, NULL) == 0) kevent(queue, NULL, 0, &event, 1, NULL);
+    close(queue);
 }
 
 // Chromium hears the helper exit when the pipes close, so this must hold no end of them.

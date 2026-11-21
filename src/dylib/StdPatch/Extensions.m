@@ -36,8 +36,7 @@ static void DPDropFlags(NSMutableArray<NSString *> *args) {
     }
 }
 
-// Chromium keeps only the last --load-extension, so one flag lists every folder, Dia's own first.
-// A relaunch repeats our folders, some renamed or removed since, so only the tweaks' current ones are kept.
+// Strip stale DiaPatches extension folders from relaunches and merge all extensions into one --load-extension flag.
 static id DPConfiguration_init(id self, SEL _cmd, int argc, NSArray<NSString *> *argv, NSString *profilePath, NSUInteger applicationID,
                                BOOL isProduction, NSUInteger restorationPolicy, BOOL loadAllProfiles, BOOL quitRunLoop, NSString *suiteName) {
     static NSString *const flag = @"--load-extension=";

@@ -124,7 +124,6 @@ id DPDismiss(DPCommandBarOverlay *overlay, BOOL closing) {
     return overlay.openedTab;
 }
 
-// HideTab helper stubs.
 void DPInstallFrozenLists(void) {}
 void DPFreezeLists(NSWindow *window) {}
 NSArray<NSString *> *DPListedTabs(NSWindow *window) { return @[]; }
@@ -162,6 +161,14 @@ static DPFakeTab *DPMakeTab(NSString *tabId, NSString *url) {
     DPFakeTab *tab = [DPFakeTab new];
     tab.tabId = tabId;
     tab.URL = url;
+    return tab;
+}
+
+static DPFakeTab *DPAddHiddenTab(NSWindow *window, DPFakeProfile *profile, NSString *tabId) {
+    DPExpectNewTab(window);
+    DPFakeTab *tab = DPMakeTab(tabId, @"");
+    [profile.appleScriptTabs addObject:tab];
+    DPHideTabRow(tabId, window);
     return tab;
 }
 
@@ -239,22 +246,17 @@ int main(void) {
         swB.appleScriptProfiles = [NSMutableArray arrayWithObject:profB];
         [gDelegate.appleScriptWindows addObjectsFromArray:@[ swA, swB ]];
 
-        // Finding 3: DPParkSpare rejects a tab that is merely expected (for another window), not actually hidden.
         DPExpectNewTab(winA);
         DPFakeTab *lateB = DPMakeTab(@"late-B", @"");
         [profB.appleScriptTabs addObject:lateB];
-        DPHideTabRow(@"late-B", winB);  // Refused because DPExpectWindow is winA.
+        DPHideTabRow(@"late-B", winB);
         CHECK(DPHidesTab(@"late-B"), "expected tab still matches DPHidesTab during the 1 s window");
         CHECK(!DPHiddenTab(@"late-B"), "unhidden tab in second window is not DPHiddenTab");
         DPCommandBarOverlay *overlayB = DPMakeOverlay(winB, lateB, pageB);
         CHECK(!DPParkSpare(overlayB) && !DPSpareIn(winB), "DPParkSpare refuses to park an unhidden expected tab");
         DPStopExpecting();
 
-        // Finding 4: DPParkSpare uses DPStandInForTab, preserving a newer bar's stand-in and clearing its own.
-        DPExpectNewTab(winA);
-        DPFakeTab *spareA = DPMakeTab(@"spare-A", @"");
-        [profA.appleScriptTabs addObject:spareA];
-        DPHideTabRow(@"spare-A", winA);
+        DPFakeTab *spareA = DPAddHiddenTab(winA, profA, @"spare-A");
         CHECK(DPHiddenTab(@"spare-A"), "hidden tab in expected window is DPHiddenTab");
         DPStandInFor(winA, @"newer-bar");
         DPCommandBarOverlay *overlayOld = DPMakeOverlay(winA, spareA, pageA);
@@ -264,16 +266,12 @@ int main(void) {
         CHECK([gDismissedHiddenStates.lastObject boolValue] == YES, "DPDropSpare keeps spare hidden while dismissing");
         CHECK([DPGet(winA, &DPTabKey) isEqual:@"newer-bar"], "DPDropSpare preserves another bar's stand-in");
 
-        DPExpectNewTab(winA);
-        DPFakeTab *spareA2 = DPMakeTab(@"spare-A2", @"");
-        [profA.appleScriptTabs addObject:spareA2];
-        DPHideTabRow(@"spare-A2", winA);
+        DPFakeTab *spareA2 = DPAddHiddenTab(winA, profA, @"spare-A2");
         DPStandInFor(winA, @"spare-A2");
         DPCommandBarOverlay *overlaySelf = DPMakeOverlay(winA, spareA2, pageA);
         CHECK(DPParkSpare(overlaySelf), "DPParkSpare parks its own bar");
         CHECK(DPGet(winA, &DPTabKey) == nil, "DPParkSpare clears its own stand-in");
 
-        // Finding 2 & 8: DPAdoptSpare does not flash spare.hidden=NO, and its 300 ms timer skips closing if a bar opens over the tab.
         NSView *pageView = [[NSView alloc] initWithFrame:NSMakeRect(0, 0, 100, 100)];
         [winA.contentView addSubview:pageView];
         swA.activeTab = spareA2;
@@ -285,11 +283,7 @@ int main(void) {
         CHECK(!spareA2.closed, "adopt timer does not close the tab while a command bar is open over it");
         DPSet(winA, &DPOverlayKey, nil);
 
-        // Adopt timer still closes the empty spare when no bar is open over it and another tab exists.
-        DPExpectNewTab(winA);
-        DPFakeTab *spareA3 = DPMakeTab(@"spare-A3", @"");
-        [profA.appleScriptTabs addObject:spareA3];
-        DPHideTabRow(@"spare-A3", winA);
+        DPFakeTab *spareA3 = DPAddHiddenTab(winA, profA, @"spare-A3");
         CHECK(DPParkSpare(DPMakeOverlay(winA, spareA3, pageA)), "parks spareA3");
         swA.activeTab = spareA3;
         CHECK(DPAdoptSpare(winA, pageView), "adopts spareA3");
@@ -299,7 +293,6 @@ int main(void) {
         [profA.appleScriptTabs removeObject:spareA3];
         swA.activeTab = pageA;
 
-        // Finding 5: DPMakeSpare re-arms DPWanted when sendAction fails or a prior attempt lapses without any spare.
         RenderWidgetHostViewCocoa *webA = [[RenderWidgetHostViewCocoa alloc] initWithFrame:NSMakeRect(0, 0, 100, 100)];
         [winA.contentView addSubview:webA];
         winA.fakeResponder = webA;
@@ -315,16 +308,12 @@ int main(void) {
         DPMakeSpare();
         CHECK(gSendActionCalls == 2 && !DPWanted && DPSpareUntil > CACurrentMediaTime(), "successful sendAction starts spare wait");
         DPStopExpecting();
-        DPSpareUntil = CACurrentMediaTime() - 1;  // Simulates an attempt that never parked a spare.
+        DPSpareUntil = CACurrentMediaTime() - 1;
         DPMakeSpare();
         CHECK(gSendActionCalls == 3, "lapsed attempt with no spare re-arms DPWanted on next tick");
         DPStopExpecting();
 
-        // Existing spare in winA prevents winB from creating a second global spare.
-        DPExpectNewTab(winA);
-        DPFakeTab *spareKeep = DPMakeTab(@"spare-keep", @"");
-        [profA.appleScriptTabs addObject:spareKeep];
-        DPHideTabRow(@"spare-keep", winA);
+        DPFakeTab *spareKeep = DPAddHiddenTab(winA, profA, @"spare-keep");
         CHECK(DPParkSpare(DPMakeOverlay(winA, spareKeep, pageA)), "parks spareKeep in winA");
         DPWanted = NO;
         DPSpareUntil = 0;
@@ -337,7 +326,6 @@ int main(void) {
         CHECK(gSendActionCalls == 0 && !DPWanted, "existing spare in another window keeps global single-spare limit");
         gKeyWindow = winA;
 
-        // Finding 6 & 14: DPCloseLeftSpares respects option off, active recent input, active typed bar, and parked spares.
         DPFakeTab *leftActive = DPMakeTab(@"left-active", @""), *leftTyped = DPMakeTab(@"left-typed", @""), *leftBg = DPMakeTab(@"left-bg", @"");
         [profA.appleScriptTabs addObjectsFromArray:@[ leftActive, leftTyped, leftBg ]];
         gDefaults.store[DPSparesKey] = @[ @"left-active", @"left-typed", @"left-bg", @"spare-keep" ];
@@ -364,7 +352,6 @@ int main(void) {
         CHECK(!leftTyped.closed, "active restored spare with text in the bar is not closed");
         DPSet(winA, &DPOverlayKey, nil);
 
-        // Finding 9 & 11: DPSparesOn respects DPHiding() (including unavailable) and timer lifecycle follows option state.
         DPCommandBarHideTab.unavailable = YES;
         CHECK(!DPSparesOn(), "DPSparesOn is NO when Hide New Tab Until Opened is unavailable");
         DPApplySpares(&DPCommandBarSpare);

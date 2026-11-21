@@ -103,7 +103,7 @@ static const CGFloat DPGlowEase = 0.15;
             self.animator.alphaValue = 0;
         } completionHandler:^{
             DPPeekGlow *glow = weak;
-            if (!glow.fading) return;  // A new load took over.
+            if (!glow.fading) return;
             glow.finishing = glow.fading = NO;
             glow.fraction = glow.shown = 0;
         }];

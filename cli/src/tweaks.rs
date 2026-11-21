@@ -1,7 +1,9 @@
+use std::fmt::Write;
+
 use anyhow::Result;
 
 use crate::{
-    dia,
+    dia::{self, SafeMode},
     env::Env,
     lock,
     manifest::Manifest,
@@ -13,7 +15,7 @@ use crate::{
 pub fn list(env: &Env) -> Result<()> {
     let manifest = Manifest::load(&env.manifest())?;
     let state = manifest.state(&Prefs::new(&env.domain));
-    if dia::paused(&env.support) {
+    if dia::is_paused(&env.support) {
         ui::say("Tweaks are paused: every one is off until `diatweaks resume`. The settings below are kept.");
     }
     let width = manifest
@@ -68,11 +70,11 @@ pub fn set(env: &Env, ui: &Ui, names: &[String], on: bool) -> Result<()> {
     Ok(())
 }
 
-/// A saved change does nothing while tweaks are paused, so say that instead of where it would show.
 fn where_it_applies(env: &Env) -> String {
-    match dia::paused(&env.support) {
-        true => "Tweaks are paused, so nothing changes until you run `diatweaks resume`.".into(),
-        false => where_it_shows(env),
+    if dia::is_paused(&env.support) {
+        "Tweaks are paused, so nothing changes until you run `diatweaks resume`.".into()
+    } else {
+        where_it_shows(env)
     }
 }
 
@@ -122,13 +124,14 @@ pub fn menu(env: &Env, ui: &Ui) -> Result<()> {
 fn hint(manifest: &Manifest, current: &[bool], index: usize) -> String {
     let mut hint = manifest.patches[index].detail.clone();
     if let Some(required) = manifest.requirement(index) {
-        hint.push_str(&format!(" Needs {}.", manifest.title(required)));
+        let _ = write!(hint, " Needs {}.", manifest.title(required));
     }
     if let Some(disabler) = manifest.hidden_by(index, current) {
-        hint.push_str(&format!(
+        let _ = write!(
+            hint,
             " No difference while {} is on.",
             manifest.title(disabler)
-        ));
+        );
     }
     hint
 }
@@ -189,7 +192,7 @@ fn notes(manifest: &Manifest, current: &[bool], wanted: &[bool]) -> Vec<String> 
     notes
 }
 
-/// Writes only what this run changed: something else may have changed the rest meanwhile.
+// Write only changed keys so concurrent edits to other tweaks survive.
 fn save(env: &Env, manifest: &Manifest, current: &[bool], wanted: &[bool]) -> Result<Vec<usize>> {
     let changes: Vec<usize> = (0..wanted.len())
         .filter(|&index| current[index] != wanted[index])
@@ -208,10 +211,10 @@ fn save(env: &Env, manifest: &Manifest, current: &[bool], wanted: &[bool]) -> Re
 
 pub fn where_it_shows(env: &Env) -> String {
     match dia::safe_mode(&env.support) {
-        0 => {}
-        1 => return "Tweaks are off because Dia quit unexpectedly right after opening. Turn them back on in Dia → Settings → Patches.".into(),
-        _ if dia::safe_mode_parked(&env.support) => return "DiaTweaks is off because Dia kept quitting right after opening, even after it was tried again. It stays off until the next DiaTweaks update.".into(),
-        _ => return "DiaTweaks is off because Dia kept quitting right after opening. After one launch where Dia stays open for three minutes or quits normally, the next launch brings Settings back with tweaks still off. Turn them back on in Dia → Settings → Patches.".into(),
+        SafeMode::Off => {}
+        SafeMode::TweaksOff => return "Tweaks are off because Dia quit unexpectedly right after opening. Turn them back on in Dia → Settings → Patches.".into(),
+        SafeMode::Parked => return "DiaTweaks is off because Dia kept quitting right after opening, even after it was tried again. It stays off until the next DiaTweaks update.".into(),
+        SafeMode::Disabled => return "DiaTweaks is off because Dia kept quitting right after opening. After one launch where Dia stays open for three minutes or quits normally, the next launch brings Settings back with tweaks still off. Turn them back on in Dia → Settings → Patches.".into(),
     }
     if !dia::is_patched(&env.app) {
         return "Dia isn't patched right now, so they won't show. Run `diatweaks update` to patch it again.".into();

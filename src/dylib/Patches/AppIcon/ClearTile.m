@@ -16,12 +16,11 @@ static NSData *DPErodedShape(const uint8_t *pixels, size_t size, size_t radius) 
     return eroded;
 }
 
-// Opacities and gains are measured against real clear Dock tiles.
 NSImage *DPClearTile(NSImage *icon, BOOL dark) {
-    NSRect rect = NSMakeRect(0, 0, 512, 512);
+    const size_t size = 512;
+    NSRect rect = NSMakeRect(0, 0, size, size);
     CGImageRef source = [icon CGImageForProposedRect:&rect context:nil hints:nil];
     if (!source) return icon;
-    size_t size = 512;
     NSMutableData *data = [NSMutableData dataWithLength:size * size * 4];
     uint8_t *pixels = data.mutableBytes;
     CGColorSpaceRef space = CGColorSpaceCreateWithName(kCGColorSpaceSRGB);

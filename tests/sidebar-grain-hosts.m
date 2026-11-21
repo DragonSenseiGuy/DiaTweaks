@@ -1,6 +1,6 @@
 #import "sidebar-grain-render.h"
 
-// Dia's Swift views answer for their properties through this.
+// Mirrors Dia's Swift view KVC bridge.
 @interface DPTestSwiftView : NSView
 @property NSDictionary *itemViews;
 @property BOOL isSelected;
@@ -24,7 +24,6 @@ static NSUInteger DPTextureCount(NSView *host) {
     return count;
 }
 
-// Each window's grain follows the profile it shows, including when the profile switches.
 static void DPTestTextureProfiles(NSWindow *window, NSView *sidebar, NSView *footer) {
     NSUserDefaults *defaults = DPGrainDefaults();
     [window.contentView addSubview:sidebar]; [sidebar addSubview:footer];
@@ -39,7 +38,8 @@ static void DPTestTextureProfiles(NSWindow *window, NSView *sidebar, NSView *foo
     DPGrainSave(@"sidebarGrain", @NO, @"A");
     DPRefreshSidebarGrain();
     DPSidebarGrainView *grain = (id)[sidebar.subviews filteredArrayUsingPredicate:[NSPredicate predicateWithFormat:@"self isKindOfClass: %@", DPSidebarGrainView.class]].firstObject;
-    grain.tracksWindowActivity = NO;  // The test window is never active.
+    // The test window is never active.
+    grain.tracksWindowActivity = NO;
     [grain reloadSettings];
     assert(grain && [[grain valueForKey:@"_grainOpacity"] doubleValue] == 0);
     first.isSelected = NO; second.isSelected = YES;
@@ -67,7 +67,7 @@ void DPTestTextureHosts(void) {
     assert(DPTextureCount(sidebar) == 1 && DPTextureCount(strip) == 0);
     sidebar.hidden = YES; footer.hidden = YES;
     DPRefreshSidebarGrain();
-    assert(DPTextureCount(strip) == 0); // Auto-hiding does not turn on the horizontal background.
+    assert(DPTextureCount(strip) == 0);
     [footer removeFromSuperview]; DPRefreshSidebarGrain();
     assert(DPTextureCount(sidebar) == 0 && DPTextureCount(strip) == 1);
     DPSidebarGrainView *grain = (id)strip.subviews.firstObject;
@@ -76,7 +76,6 @@ void DPTestTextureHosts(void) {
     assert(NSEqualRects(grain.frame, NSMakeRect(0, 20, 600, 20)));
     content.frame = NSMakeRect(0, 0, 600, 470); DPRefreshSidebarGrain();
     assert(NSEqualRects(grain.frame, NSMakeRect(0, 10, 600, 30)));
-    // Another window's vertical sidebar must not suppress this horizontal strip.
     NSWindow *other = [[NSWindow alloc] initWithContentRect:NSMakeRect(0, 0, 300, 500)
         styleMask:NSWindowStyleMaskTitled backing:NSBackingStoreBuffered defer:NO];
     [other.contentView addSubview:sidebar]; [sidebar addSubview:footer];
@@ -84,7 +83,7 @@ void DPTestTextureHosts(void) {
     DPTestTextureMenu(window, strip);
     DPSidebarGrain.on = NO; DPRefreshSidebarGrain();
     assert(DPTextureCount(sidebar) == 0 && DPTextureCount(strip) == 0);
-    DPTrackGrainHost(sidebar); DPTrackGrainHost(strip); // Layouts while off leave Dia's views alone.
+    DPTrackGrainHost(sidebar); DPTrackGrainHost(strip);
     assert(DPTextureCount(sidebar) == 0 && DPTextureCount(strip) == 0);
     DPSidebarGrain.on = YES; DPTrackGrainHost(strip);
     assert(DPTextureCount(strip) == 1);

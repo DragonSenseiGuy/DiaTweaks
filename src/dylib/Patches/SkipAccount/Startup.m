@@ -1,8 +1,6 @@
 #import "Startup.h"
 
-// Dia 1.55.1 (89833) – 1.59.0 (91402), arm64. Unknown or ambiguous code stays untouched.
-// initializeAuth() has finished initializing auth here. With no user it waits for sign-in; otherwise it returns .restored.
-// Async frame offsets (x22 loads), branch displacements and the milestone enum argument (mov w0, #imm) are masked.
+// Dia 1.55.1–1.59.0 arm64: initializeAuth() sign-in wait branch (frame offsets, branches, milestone enum masked).
 static const DPSkipInstruction DPLaunch[] = {
     {0xb24403bd, 0xffffffff},
     {0xd10083ff, 0xffffffff},
@@ -26,8 +24,7 @@ static const DPSkipInstruction DPLaunch[] = {
     {0xd61f0020, 0xffffffff},
 };
 
-// Window creation separately rejects a signed-out user. Keep the readiness and termination checks around it.
-// Field/async-frame offsets and branch displacements are masked so layout shifts across Dia releases still match uniquely.
+// Window creation signed-out check (frame/field offsets and branches masked).
 static const DPSkipInstruction DPWindow[] = {
     {0xf9400114, 0xffc003ff},
     {0xb4000014, 0xff00001f},

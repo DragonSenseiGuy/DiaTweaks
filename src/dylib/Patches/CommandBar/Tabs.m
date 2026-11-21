@@ -1,22 +1,24 @@
 #import "Patches/CommandBar/Tabs.h"
 
 id DPScriptWindow(NSWindow *window) {
+    NSString *identifier = window.identifier;
+    if (!identifier) return nil;
     for (id scripted in [(id)NSApp.delegate valueForKey:@"appleScriptWindows"])
-        if ([[scripted valueForKey:@"windowId"] isEqual:window.identifier]) return scripted;
+        if ([[scripted valueForKey:@"windowId"] isEqual:identifier]) return scripted;
     return nil;
 }
 
-// Reading appleScriptWindows is the costly step, so look the window up once and pass it on.
 id DPScriptTabIn(id scriptWindow, NSString *tabID) {
+    if (!scriptWindow || !tabID) return nil;
     for (id tab in [scriptWindow valueForKey:@"appleScriptTabs"])
         if ([[tab valueForKey:@"tabId"] isEqual:tabID]) return tab;
     return nil;
 }
 
-id DPScriptTab(NSWindow *window, NSString *tabID) { return DPScriptTabIn(DPScriptWindow(window), tabID); }
+id DPScriptTab(NSWindow *window, NSString *tabID) { return tabID ? DPScriptTabIn(DPScriptWindow(window), tabID) : nil; }
 
 id DPScriptTabInAnyProfile(id scriptWindow, NSString *tabID) {
-    if (![scriptWindow respondsToSelector:@selector(appleScriptProfiles)]) return nil;
+    if (!scriptWindow || !tabID || ![scriptWindow respondsToSelector:@selector(appleScriptProfiles)]) return nil;
     for (id profile in [scriptWindow valueForKey:@"appleScriptProfiles"]) {
         id tab = DPScriptTabIn(profile, tabID);
         if (tab) return tab;

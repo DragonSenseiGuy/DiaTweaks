@@ -12,13 +12,18 @@ static BOOL DPReceive(int fd, uint8_t *buffer, size_t length) {
     return YES;
 }
 
-// The first record curl sends to a listener on this Mac: a real ClientHello, for `host` unless it's an IP address.
-static NSData *DPCaptureHello(NSString *host) {
+static int DPLoopbackListener(struct sockaddr_in *address) {
     int server = socket(AF_INET, SOCK_STREAM, 0);
-    struct sockaddr_in address = { .sin_len = sizeof address, .sin_family = AF_INET, .sin_addr.s_addr = htonl(INADDR_LOOPBACK) };
-    socklen_t size = sizeof address;
-    NSCAssert(bind(server, (struct sockaddr *)&address, size) == 0 && listen(server, 1) == 0
-                  && getsockname(server, (struct sockaddr *)&address, &size) == 0, @"listens on loopback");
+    *address = (struct sockaddr_in){ .sin_len = sizeof *address, .sin_family = AF_INET, .sin_addr.s_addr = htonl(INADDR_LOOPBACK) };
+    socklen_t size = sizeof *address;
+    NSCAssert(bind(server, (struct sockaddr *)address, size) == 0 && listen(server, 1) == 0
+                  && getsockname(server, (struct sockaddr *)address, &size) == 0, @"listens on loopback");
+    return server;
+}
+
+static NSData *DPCaptureHello(NSString *host) {
+    struct sockaddr_in address;
+    int server = DPLoopbackListener(&address);
     int port = ntohs(address.sin_port);
     NSTask *curl = [NSTask new];
     curl.executableURL = [NSURL fileURLWithPath:@"/usr/bin/curl"];
@@ -40,11 +45,10 @@ static NSData *DPCaptureHello(NSString *host) {
     return hello;
 }
 
-// Splits `data` and checks the result is its first ClientHello record cut in two inside `name`, with the rest unchanged.
-// Returns where the second record starts.
 static size_t DPCheckSplit(NSData *data, size_t record, NSString *name, uint32_t random) {
     const uint8_t *in = data.bytes;
-    uint8_t *out = malloc(data.length + 5);  // exactly what's promised, so the sanitizer catches a write past it
+    // Exact size so ASan catches any overwrite.
+    uint8_t *out = malloc(data.length + 5);
     NSCAssert(DPSplitHello(in, data.length, out, random) == data.length + 5, @"splits a ClientHello");
     size_t recordLength = in[record + 3] << 8 | in[record + 4], first = out[record + 3] << 8 | out[record + 4];
     size_t cut = record + 5 + first, second = out[cut + 3] << 8 | out[cut + 4];
@@ -58,8 +62,6 @@ static size_t DPCheckSplit(NSData *data, size_t record, NSString *name, uint32_t
     return cut;
 }
 
-// A sendto stand-in that follows a script: step i sends up to steps[i].count bytes (all of them for -1), or fails with
-// steps[i].error. Past the script it sends everything.
 typedef struct { ssize_t count; int error; uintptr_t secondary; } DPStep;
 static DPStep gSteps[8];
 static int gStepCount, gCalls;
@@ -75,7 +77,6 @@ static DPSendResult DPScriptedSend(int fd, const void *buffer, size_t length, in
     return (DPSendResult){ (ssize_t)sent, step.secondary };
 }
 
-// Sends `data` through DPSendSplit on `fd` with `steps` as the socket's answers.
 static DPSendResult DPSendScripted(int fd, NSData *data, bool checkSecondary, int count, const DPStep *steps, bool *handled) {
     if (count) memcpy(gSteps, steps, count * sizeof *steps);
     gStepCount = count, gCalls = 0, gWire = [NSMutableData data];
@@ -113,13 +114,9 @@ static void DPCheckSend(NSData *hello) {
     DPSendScripted(datagrams[0], hello, true, 0, NULL, &handled);
     NSCAssert(!handled && gCalls == 0, @"leaves datagram sockets alone");
 
-    // A TCP socket whose send buffer is full: the split might not go out whole, so it isn't made.
-    int server = socket(AF_INET, SOCK_STREAM, 0), client = socket(AF_INET, SOCK_STREAM, 0);
-    struct sockaddr_in address = { .sin_len = sizeof address, .sin_family = AF_INET, .sin_addr.s_addr = htonl(INADDR_LOOPBACK) };
-    socklen_t size = sizeof address;
-    NSCAssert(bind(server, (struct sockaddr *)&address, size) == 0 && listen(server, 1) == 0
-                  && getsockname(server, (struct sockaddr *)&address, &size) == 0
-                  && connect(client, (struct sockaddr *)&address, size) == 0, @"connects over loopback");
+    struct sockaddr_in address;
+    int server = DPLoopbackListener(&address), client = socket(AF_INET, SOCK_STREAM, 0);
+    NSCAssert(connect(client, (struct sockaddr *)&address, sizeof address) == 0, @"connects over loopback");
     int peer = accept(server, NULL, NULL);
     DPSendScripted(client, hello, true, 0, NULL, &handled);
     NSCAssert(handled, @"splits on a fresh TCP socket");
@@ -165,7 +162,6 @@ int main(void) {
         ((uint8_t *)serverHello.mutableBytes)[5] = 0x02;
         NSCAssert(!DPSplitHello(serverHello.bytes, serverHello.length, out, 7), @"leaves other handshake messages alone");
 
-        // Garbled ClientHellos: the sanitizer fails the test if parsing one reads or writes out of bounds.
         for (int i = 0; i < 20000; i++) {
             NSMutableData *garbled = [hello mutableCopy];
             for (int flips = 1 + arc4random_uniform(4); flips; flips--)

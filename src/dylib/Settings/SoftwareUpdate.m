@@ -127,16 +127,18 @@ static NSButton *DPButton(NSString *title, id target, SEL action, NSString *part
 - (NSView *)automaticGroup {
     NSMutableArray<NSView *> *automatic = [NSMutableArray new];
     for (NSString *part in @[DPDia, DPTweaks]) {
+        DPAutoLevel level = DPAutoLevelOf(part);
+        NSString *name = DPPartName(part);
         NSPopUpButton *menu = [NSPopUpButton new];
         [menu addItemsWithTitles:@[@"Off", @"Show in Software Update", @"Download", @"Download and install on quit"]];
-        [menu selectItemAtIndex:DPAutoLevelOf(part)];
+        [menu selectItemAtIndex:level];
         menu.identifier = part;
         menu.target = self;
         menu.action = @selector(automaticChanged:);
-        menu.accessibilityLabel = [DPPartName(part) stringByAppendingString:@" updates"];
+        menu.accessibilityLabel = [name stringByAppendingString:@" updates"];
         NSString *does = @[@"Only checks when you open this page", @"Checks when Dia opens and lists it here",
-                           @"Downloads it, then you choose when to install", @"Downloads it and installs when you quit Dia"][DPAutoLevelOf(part)];
-        NSView *text = DPColumn(@[DPLine(DPPartName(part), 13, NSColor.labelColor), DPLine(does, 11, NSColor.secondaryLabelColor)], 2);
+                           @"Downloads it, then you choose when to install", @"Downloads it and installs when you quit Dia"][level];
+        NSView *text = DPColumn(@[DPLine(name, 13, NSColor.labelColor), DPLine(does, 11, NSColor.secondaryLabelColor)], 2);
         [automatic addObject:DPRow(text, menu)];
     }
     return DPGroup(automatic);

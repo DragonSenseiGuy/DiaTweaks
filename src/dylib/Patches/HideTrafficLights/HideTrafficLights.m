@@ -8,11 +8,12 @@ static BOOL DPIsTrafficLights(NSView *view) { return DPIsKind(view, DPDiaTraffic
 
 static NSRect DPLaidOutStack(NSView *stack) { return [DPDiaValue(stack, &DPStackFrameKey, @(stack.frame)) rectValue]; }
 
-// Out of the stack the lights aren't subviews, so the header holds them.
+// Out of the stack the lights aren't subviews, so cache them on the header.
 static void DPSidebarHeader_layout(NSView *self, SEL _cmd) {
-    NSView *lights = DPFindView(self, ^BOOL(NSView *view) { return DPIsTrafficLights(view); });
-    if (lights) DPSet(self, &DPLightsKey, @[ lights, lights.superview ]);
     NSArray *held = DPGet(self, &DPLightsKey);
+    if (!DPHideTrafficLights.on && !held) return DPCallOriginal(DPSidebarHeader_layout, self);
+    NSView *lights = DPFindView(self, ^BOOL(NSView *view) { return DPIsTrafficLights(view); });
+    if (lights) DPSet(self, &DPLightsKey, held = @[ lights, lights.superview ]);
     NSStackView *stack = held.lastObject;
     if (![stack isKindOfClass:NSStackView.class]) return DPCallOriginal(DPSidebarHeader_layout, self);
     [stack setVisibilityPriority:DPHideTrafficLights.on ? NSStackViewVisibilityPriorityNotVisible : NSStackViewVisibilityPriorityMustHold forView:held.firstObject];
@@ -24,7 +25,7 @@ static void DPSidebarHeader_layout(NSView *self, SEL _cmd) {
         frame.size.width = NSMaxX(laidOut) - DPPinnedTabsInset;
     }
     DPOverride(stack, &DPStackFrameKey, @(laidOut), @(frame));
-    stack.frame = frame;
+    if (!NSEqualRects(stack.frame, frame)) stack.frame = frame;
 }
 
 static void DPInstallHideTrafficLights(void) { DPHook(DPDiaSidebarHeader, @selector(layout), (IMP)DPSidebarHeader_layout); }

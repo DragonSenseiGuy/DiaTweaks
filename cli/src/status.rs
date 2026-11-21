@@ -1,7 +1,9 @@
+use std::fmt::Write;
+
 use anyhow::Result;
 
 use crate::{
-    dia::{self, Diapatch},
+    dia::{self, Diapatch, SafeMode},
     env::Env,
     manifest::Manifest,
     prefs::Prefs,
@@ -42,12 +44,12 @@ fn report(env: &Env, spinner: &Spinner) -> Result<Vec<String>> {
         None => "couldn't check (are you online?)".into(),
     };
     let safe_mode = match dia::safe_mode(&env.support) {
-        0 => "off",
-        1 => "on: tweaks are off because Dia quit unexpectedly right after opening",
-        _ if dia::safe_mode_parked(&env.support) => "on: DiaTweaks is off because Dia kept quitting right after opening, even after it was tried again; it stays off until the next DiaTweaks update",
-        _ => "on: DiaTweaks is off because Dia kept quitting right after opening; it comes back with tweaks off after one launch where Dia stays open for three minutes or quits normally",
+        SafeMode::Off => "off",
+        SafeMode::TweaksOff => "on: tweaks are off because Dia quit unexpectedly right after opening",
+        SafeMode::Parked => "on: DiaTweaks is off because Dia kept quitting right after opening, even after it was tried again; it stays off until the next DiaTweaks update",
+        SafeMode::Disabled => "on: DiaTweaks is off because Dia kept quitting right after opening; it comes back with tweaks off after one launch where Dia stays open for three minutes or quits normally",
     };
-    let paused = dia::paused(&env.support);
+    let paused = dia::is_paused(&env.support);
     let mut lines = vec![
         format!("Dia        {installed}"),
         format!("Official   {}", status.official.unwrap_or_else(none)),
@@ -59,9 +61,10 @@ fn report(env: &Env, spinner: &Spinner) -> Result<Vec<String>> {
     if paused {
         lines.push("Paused     yes: every tweak is off and keeps its settings; run `diatweaks resume` to turn them back on".into());
     }
-    lines.push(match paused {
-        true => "Tweaks (paused: these settings come back with `diatweaks resume`)".into(),
-        false => "Tweaks".into(),
+    lines.push(if paused {
+        "Tweaks (paused: these settings come back with `diatweaks resume`)".into()
+    } else {
+        "Tweaks".into()
     });
 
     let state = manifest.state(&Prefs::new(&env.domain));
@@ -71,20 +74,22 @@ fn report(env: &Env, spinner: &Spinner) -> Result<Vec<String>> {
             if state[index] { "on" } else { "off" },
             patch.title
         );
-        let unmet = manifest
+        if let Some(required) = manifest
             .requirement(index)
-            .filter(|&required| state[index] && !state[required]);
-        if let Some(required) = unmet {
-            line.push_str(&format!(
+            .filter(|&required| state[index] && !state[required])
+        {
+            let _ = write!(
+                line,
                 " (does nothing while {} is off)",
                 manifest.title(required)
-            ));
+            );
         }
         if let Some(disabler) = manifest.hidden_by(index, &state) {
-            line.push_str(&format!(
+            let _ = write!(
+                line,
                 " (no difference while {} is on)",
                 manifest.title(disabler)
-            ));
+            );
         }
         lines.push(line);
     }

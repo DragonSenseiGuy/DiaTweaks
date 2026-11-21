@@ -25,7 +25,6 @@ static BOOL DPCompacts(NSView *toolbar) {
     return DPCompactWithChat.on || DPChatLocked(toolbar);
 }
 
-// The chat composer uses the same views and must not compact, in the sidebar or Dia's floating window.
 static BOOL DPOnCommandBarSurface(NSView *view) {
     for (; view; view = view.superview)
         if ((DPIsKind(view, DPDiaPopover) && !DPIsFloatingChat(view)) || DPIsKind(view, DPDiaNewTabPage) || DPIsKind(view, "DPCommandBarOverlay")) return YES;
@@ -33,9 +32,10 @@ static BOOL DPOnCommandBarSurface(NSView *view) {
 }
 
 NSView *DPCompactToolbar(NSView *commandBar) {
+    if (!DPCompactCommandBar.on) return nil;
     NSView *toolbar = DPCommandBarPart(commandBar, DPDiaCommandBarToolbar);
     BOOL compacts = toolbar && (DPCompacts(toolbar) || [DPCommandBarDefaults() boolForKey:DPChatLockedKey]);
-    return DPCompactCommandBar.on && compacts && DPOnCommandBarSurface(commandBar) ? toolbar : nil;
+    return compacts && DPOnCommandBarSurface(commandBar) ? toolbar : nil;
 }
 
 NSView *DPGoButton(NSView *toolbar) {

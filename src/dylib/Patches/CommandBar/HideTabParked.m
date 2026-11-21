@@ -2,7 +2,6 @@
 
 static char DPParkedRowsKey;
 
-// A list that isn't held still, such as one made as the tab layout changes, closes up around every hidden tab's row.
 BOOL DPIsLeftOutRow(NSCollectionView *list, NSIndexPath *path) { return DPHidesTab(DPTabIn(DPRowName(list, path))); }
 
 CGFloat DPClosedUp(NSCollectionViewLayout *layout, NSRect frame) {

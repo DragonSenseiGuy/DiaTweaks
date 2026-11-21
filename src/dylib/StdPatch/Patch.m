@@ -15,7 +15,8 @@ static NSUserDefaults *DPDefaults;
 NSNotificationName const DPPatchesDidChangeNotification = @"DPPatchesDidChange";
 
 DPPatch *DPPatchNamed(NSString *key) {
-    for (NSUInteger i = 0; key && i < DPPatchCount; i++) if ([DPPatches[i]->key isEqualToString:key]) return DPPatches[i];
+    if (!key) return NULL;
+    for (NSUInteger i = 0; i < DPPatchCount; i++) if ([DPPatches[i]->key isEqualToString:key]) return DPPatches[i];
     return NULL;
 }
 
@@ -47,9 +48,10 @@ static void DPAnimate(void) {
 }
 
 BOOL DPAnimating(void) {
-    BOOL animating = DPEaseTimer != nil;
-    for (NSUInteger i = 0; i < DPPatchCount; i++) animating |= DPPatches[i]->animating && DPPatches[i]->animating();
-    return animating;
+    if (DPEaseTimer) return YES;
+    for (NSUInteger i = 0; i < DPPatchCount; i++)
+        if (DPPatches[i]->animating && DPPatches[i]->animating()) return YES;
+    return NO;
 }
 
 BOOL DPTesting;
@@ -76,7 +78,7 @@ static void DPEnsureReady(DPPatch *patch) {
 
 void DPSetPatch(DPPatch *patch, BOOL on, BOOL save) {
     if (save) [DPDefaults setBool:on forKey:patch->key];
-    if (DPPaused) on = NO;  // Paused: a tweak can be turned off, never on.
+    if (DPPaused) on = NO;
     if (patch->on == on) return;
     patch->on = on;
     if (DPSafeMode || DPPausedAtLaunch) return;
@@ -85,11 +87,13 @@ void DPSetPatch(DPPatch *patch, BOOL on, BOOL save) {
     if (on && patch->ready) DPEnsureReady(patch);
 }
 
-// What a tweak should be doing now: its saved setting, unless tweaks are paused.
 BOOL DPEffectiveOn(DPPatch *patch) { return !DPPaused && DPSavedOn(patch); }
 
 NSString *DPAppSupport(NSString *path) {
-    return [NSSearchPathForDirectoriesInDomains(NSApplicationSupportDirectory, NSUserDomainMask, YES).firstObject stringByAppendingPathComponent:path];
+    static NSString *base;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{ base = NSSearchPathForDirectoriesInDomains(NSApplicationSupportDirectory, NSUserDomainMask, YES).firstObject; });
+    return [base stringByAppendingPathComponent:path];
 }
 
 NSString *DPRelayProblem(void) {
@@ -99,7 +103,7 @@ NSString *DPRelayProblem(void) {
     return nil;
 }
 
-// The folder to take back is the one just below the nearest folder above that the user can open and write, which can be several levels up.
+// Find the highest unwritable directory under Application Support.
 static NSString *DPFolderToRepair(NSString *folder) {
     NSString *support = DPAppSupport(@""), *repair = nil;
     for (NSString *dir = folder; [dir hasPrefix:support]; dir = dir.stringByDeletingLastPathComponent) {
@@ -150,6 +154,7 @@ static int DPCompareOrder(const void *a, const void *b) {
 static void DPReadPatches(void) {
     unsigned long size = 0;
     DPPatch **entries = (DPPatch **)getsectiondata(&__dso_handle, "__DATA", "__dppatches", &size);
+    if (!entries || !size) return;
     DPPatch **sorted = malloc(size);
     memcpy(sorted, entries, size);
     DPPatchCount = size / sizeof *sorted;
@@ -159,8 +164,12 @@ static void DPReadPatches(void) {
     for (NSUInteger i = 0; i < DPPatchCount; i++) {
         DPPatch *patch = sorted[i];
         NSString *section = patch->section ?: DPRequired(patch)->section ?: @"Other";
-        if (![sections containsObject:section]) [sections addObject:section];
-        patch->order = (int)([sections indexOfObject:section] << 24 | [patch->title hasPrefix:@"Hide "] << 16 | patch->title.length << 8 | i);
+        NSUInteger sectionIndex = [sections indexOfObject:section];
+        if (sectionIndex == NSNotFound) {
+            sectionIndex = sections.count;
+            [sections addObject:section];
+        }
+        patch->order = (int)(sectionIndex << 24 | [patch->title hasPrefix:@"Hide "] << 16 | patch->title.length << 8 | i);
     }
     qsort(sorted, DPPatchCount, sizeof *sorted, DPCompareOrder);
 }
@@ -169,11 +178,22 @@ void DPLoadPatches(void) {
     DPDefaults = [[NSUserDefaults alloc] initWithSuiteName:@"com.diapatches"];
     DPReadPatches();
 
-    for (NSUInteger i = 0; i < DPPatchCount; i++)
-        for (const char *const *name = DPPatches[i]->classes; name && *name; name++) DPPatches[i]->unavailable |= !objc_getClass(*name);
+    for (NSUInteger i = 0; i < DPPatchCount; i++) {
+        for (const char *const *name = DPPatches[i]->classes; name && *name; name++) {
+            if (!objc_getClass(*name)) {
+                DPPatches[i]->unavailable = YES;
+                break;
+            }
+        }
+    }
     for (NSUInteger i = 0; i < DPPatchCount; i++) {
         DPPatch *patch = DPPatches[i];
-        for (DPPatch *required = DPRequired(patch); required; required = DPRequired(required)) patch->unavailable |= required->unavailable;
+        for (DPPatch *required = DPRequired(patch); required; required = DPRequired(required)) {
+            if (required->unavailable) {
+                patch->unavailable = YES;
+                break;
+            }
+        }
         patch->on = DPEffectiveOn(patch);
         patch->progress = patch->on;
         if (!patch->hides) continue;
@@ -190,7 +210,7 @@ void DPApplySavedSettings(void) {
 }
 
 // Hooks install in Settings order (section, non-"Hide" first, then title length): a later hook runs first, and the sidebar drag tweaks rely on it.
-// Its notify handler is what applies a change live, so it is registered only here: a Dia that started with tweaks paused has nothing to apply to.
+// Registered here because a Dia launched paused has no hooks to apply live changes.
 void DPInstallPatches(void) {
     for (NSUInteger i = 0; i < DPPatchCount; i++) if (!DPPatches[i]->unavailable && DPPatches[i]->install) DPPatches[i]->install();
     DPOnLaunch(^{
@@ -203,7 +223,7 @@ void DPInstallPatches(void) {
 
 BOOL DPWriteManifest(NSString *path) {
     DPReadPatches();
-    NSMutableArray<NSDictionary *> *patches = [NSMutableArray new];
+    NSMutableArray<NSDictionary *> *patches = [NSMutableArray arrayWithCapacity:DPPatchCount];
     for (NSUInteger i = 0; i < DPPatchCount; i++) {
         DPPatch *patch = DPPatches[i], *required = DPRequired(patch), *disabler = DPPatchNamed(patch->disabledBy);
         [patches addObject:@{

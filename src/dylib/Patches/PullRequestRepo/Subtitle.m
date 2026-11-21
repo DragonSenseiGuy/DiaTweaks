@@ -3,8 +3,12 @@
 static char DPDiaTextKey, DPCheckedKey, DPInListKey;
 
 static NSString *DPMatch(NSString *pattern, NSString *text) {
-    NSRegularExpression *regex = [NSRegularExpression regularExpressionWithPattern:pattern options:0 error:nil];
-    NSTextCheckingResult *match = text ? [regex firstMatchInString:text options:0 range:NSMakeRange(0, text.length)] : nil;
+    if (!text.length) return nil;
+    static NSMutableDictionary<NSString *, NSRegularExpression *> *cache;
+    if (!cache) cache = [NSMutableDictionary dictionary];
+    NSRegularExpression *regex = cache[pattern];
+    if (!regex) cache[pattern] = regex = [NSRegularExpression regularExpressionWithPattern:pattern options:0 error:nil];
+    NSTextCheckingResult *match = [regex firstMatchInString:text options:0 range:NSMakeRange(0, text.length)];
     return match ? [text substringWithRange:[match rangeAtIndex:match.numberOfRanges - 1]] : nil;
 }
 
@@ -58,8 +62,16 @@ static void DPRelayoutRow(NSView *label) {
 }
 
 static void DPLabel_setStringValue(NSTextField *self, SEL _cmd, NSString *value) {
+    if (!DPPullRequestRepo.on) {
+        if (DPGet(self, &DPDiaTextKey)) {
+            DPSet(self, &DPDiaTextKey, nil);
+            DPSet(self, &DPCheckedKey, nil);
+            DPSetPRStatus(self, nil, nil);
+        }
+        return DPCallOriginal(DPLabel_setStringValue, self, value);
+    }
     if (!DPIsPRSubtitle(self)) return DPCallOriginal(DPLabel_setStringValue, self, value);
-    NSString *status = nil, *tab = nil, *shown = DPPullRequestRepo.on && value ? DPSplit(self, value, &status, &tab) : nil;
+    NSString *status = nil, *tab = nil, *shown = value ? DPSplit(self, value, &status, &tab) : nil;
     if (shown) DPOverride(self, &DPDiaTextKey, value, shown);
     DPSet(self, &DPCheckedKey, shown ?: value);
     DPSet(self, &DPInListKey, @(DPInTabList(self)));
@@ -67,7 +79,6 @@ static void DPLabel_setStringValue(NSTextField *self, SEL _cmd, NSString *value)
     DPCallOriginal(DPLabel_setStringValue, self, shown ?: value);
 }
 
-// Dia may set the text before the label is in a row, or move the label in or out of the list later.
 static void DPLabel_layout(NSTextField *self, SEL _cmd) {
     DPCallOriginal(DPLabel_layout, self);
     if (!DPPullRequestRepo.on || !DPIsPRSubtitle(self)) return;

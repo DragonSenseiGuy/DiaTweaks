@@ -9,7 +9,7 @@ static char DPStateKey, DPRelayKey;
 @interface DPNextTabs : NSObject
 @property(strong) NSSet<NSString *> *knownIDs;
 @property(copy) NSString *lastFrontID;
-@property BOOL moving;  // The front tab changes while a new tab moves; DPNote must ignore that.
+@property BOOL moving;
 @property(strong) NSMutableDictionary<NSString *, NSString *> *originOf;
 @end
 
@@ -88,9 +88,8 @@ static void DPPlace(NSWindow *window, NSString *newID, NSString *fromID, long lo
     NSUInteger fromIndex = [others indexOfObject:fromID];
     if (newIndex == NSNotFound || fromIndex == NSNotFound || newIndex == fromIndex + 1) return DPDoneMoving(window, state);
 
-    // DPMoveTab fails when the tab closes mid-move; that must clear `moving` too.
     void (^finish)(void) = ^{ DPDoneMoving(window, state); };
-    // Nothing reports where the unpinned tabs start, but a tab moved to 0 lands there.
+    // Move to index 0 to find where unpinned tabs begin.
     DPMoveTab(delegate, browser, sid, 0, ^{
         NSUInteger start = [DPTabIDs(window) indexOfObject:newID];
         if (start == NSNotFound || fromIndex < start) return finish();
@@ -102,11 +101,12 @@ static void DPPlace(NSWindow *window, NSString *newID, NSString *fromID, long lo
 }
 
 static BOOL DPOpenNextToCurrent(NSWindow *window) {
+    if (!DPNewTabNextToCurrent.on) return NO;
     id scripted = DPScriptWindow(window), browser = DPBrowserOfWindow(window);
     NSString *from = DPActiveTabID(window);
     Class tabClass = NSClassFromString(@"DiaAppleScriptTab");
     SEL make = NSSelectorFromString(@"newScriptingObjectOfClass:forValueForKey:withContentsValue:properties:");
-    if (!DPNewTabNextToCurrent.on || !from || !browser || !DPGroupingDelegate(browser) || !tabClass || ![scripted respondsToSelector:make]) return NO;
+    if (!from || !browser || !DPGroupingDelegate(browser) || !tabClass || ![scripted respondsToSelector:make]) return NO;
     if (DPIsBlank(window, from)) return NO;
     DPNextTabs *state = DPStateFor(window);
     if (state.moving) return NO;
@@ -114,7 +114,6 @@ static BOOL DPOpenNextToCurrent(NSWindow *window) {
     long long fromSession = DPActiveSession(browser);
     NSArray<NSString *> *tabsBefore = DPTabIDs(window);
     id tab = ((id (*)(id, SEL, Class, NSString *, id, id))objc_msgSend)(scripted, make, tabClass, @"appleScriptTabs", nil, @{});
-    // The command bar sends you straight back to the tab you were on, so the new tab is found by what's new.
     NSMutableArray<NSString *> *added = [DPTabIDs(window) mutableCopy];
     [added removeObjectsInArray:tabsBefore];
     NSString *created = tab && added.count == 1 ? added.firstObject : nil;
@@ -125,7 +124,6 @@ static BOOL DPOpenNextToCurrent(NSWindow *window) {
     return YES;
 }
 
-// Menu items hold their target weakly, so the relay is kept on the item.
 @interface DPNewTabRelay : NSObject
 @property(weak) id target;
 @property SEL action;
@@ -174,12 +172,12 @@ static void DPReturnTo(NSWindow *window, NSString *originID, NSString *expectedF
 }
 
 static void DPNote(NSWindow *window) {
-    NSString *active = DPActiveTabID(window);
-    NSArray<NSString *> *ids = DPTabIDs(window);
     DPNextTabs *state = DPGet(window, &DPStateKey);
-    if (!active || !ids.count) return;
-    if (!state) return (void)DPStateFor(window);
     if (state.moving) return;
+    NSString *active = DPActiveTabID(window);
+    NSArray<NSString *> *ids = active ? DPTabIDs(window) : nil;
+    if (!ids.count) return;
+    if (!state) return (void)DPStateFor(window);
     NSSet<NSString *> *now = [NSSet setWithArray:ids];
     BOOL switched = ![active isEqual:state.lastFrontID];
 
@@ -196,7 +194,7 @@ static void DPNote(NSWindow *window) {
                 dispatch_async(dispatch_get_main_queue(), ^{ DPReturnTo(window, origin, active); });
         } else if (![active isEqual:tab] && ![active isEqual:origin]) {
             [state.originOf removeObjectForKey:tab];
-            // Dia may bring the next tab to the front before it lets the closing one go.
+            // Dia may activate the next tab before removing the closing one.
             if ([state.lastFrontID isEqual:tab])
                 dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 150 * NSEC_PER_MSEC), dispatch_get_main_queue(), ^{
                     if (!DPScriptTab(window, tab)) DPReturnTo(window, origin, active);
@@ -209,14 +207,16 @@ static void DPNote(NSWindow *window) {
 
 static void DPContentPane_viewDidMoveToWindow(NSView *self, SEL _cmd) {
     DPCallOriginal(DPContentPane_viewDidMoveToWindow, self);
+    if (!DPNewTabNextToCurrent.on) return;
     NSWindow *window = self.window;
-    if (window && DPNewTabNextToCurrent.on) DPNote(window);
+    if (window) DPNote(window);
 }
 
 static void DPNewTabPage_viewDidMoveToWindow(NSView *self, SEL _cmd) {
     DPCallOriginal(DPNewTabPage_viewDidMoveToWindow, self);
+    if (!DPNewTabNextToCurrent.on) return;
     NSWindow *window = self.window;
-    if (window && DPNewTabNextToCurrent.on) DPNote(window);
+    if (window) DPNote(window);
 }
 
 static void DPInstallNewTabNextToCurrent(void) {

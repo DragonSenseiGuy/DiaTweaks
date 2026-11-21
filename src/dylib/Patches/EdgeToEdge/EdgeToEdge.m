@@ -14,19 +14,20 @@ static NSEdgeInsets DPGaps(NSView *superview, NSRect frame) {
     return NSEdgeInsetsMake(superview.isFlipped ? low : high, NSMinX(frame) - NSMinX(bounds), superview.isFlipped ? high : low, NSMaxX(bounds) - NSMaxX(frame));
 }
 
+static BOOL DPIsPadding(CGFloat gap) { return fabs(gap - DPWindowPadding) < 0.5; }
+
 static NSRect DPEdgeToEdgeFrame(NSView *view, NSRect frame) {
     CGFloat inset = DPEdgeToEdge.progress * DPWindowPadding;
     NSView *superview = view.superview;
     if (inset == 0 || !superview || DPChatCard(view)) return frame;
     NSEdgeInsets gaps = DPGaps(superview, frame);
-    BOOL (^isPadding)(CGFloat) = ^BOOL(CGFloat gap) { return fabs(gap - DPWindowPadding) < 0.5; };
-    if (isPadding(gaps.left)) frame.origin.x -= inset, frame.size.width += inset;
-    if (isPadding(gaps.right)) frame.size.width += inset;
-    if (isPadding(gaps.top)) {
+    if (DPIsPadding(gaps.left)) frame.origin.x -= inset, frame.size.width += inset;
+    if (DPIsPadding(gaps.right)) frame.size.width += inset;
+    if (DPIsPadding(gaps.top)) {
         frame.size.height += inset;
         if (superview.isFlipped) frame.origin.y -= inset;
     }
-    if (isPadding(gaps.bottom)) {
+    if (DPIsPadding(gaps.bottom)) {
         frame.size.height += inset;
         if (!superview.isFlipped) frame.origin.y -= inset;
     }

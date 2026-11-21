@@ -12,7 +12,7 @@ static void DPBrowser_setWindow(id self, SEL _cmd, NSWindow *window) {
     if (window) [DPBrowsers setObject:self forKey:window];
 }
 
-// Chromium's icon can be blank, as Dark Reader's is, so a pinned extension's toolbar icon comes first.
+// Chromium's icon can be blank, so prefer the pinned toolbar icon.
 static NSImage *DPIconFor(id info, NSWindow *window) {
     NSView *pinned = DPFindView(window.contentView, ^BOOL(NSView *view) {
         return DPIsKind(view, DPDiaPinnedExtension) && [view.accessibilityLabel isEqualToString:[info valueForKey:@"name"]];
@@ -51,10 +51,11 @@ static void DPInstallExtensionsShortcut(void) {
     DPBrowsers = [NSMapTable weakToWeakObjectsMapTable];
     DPHook(DPDiaBrowser, @selector(setWindow:), (IMP)DPBrowser_setWindow);
     [NSEvent addLocalMonitorForEventsMatchingMask:NSEventMaskKeyDown handler:^NSEvent *(NSEvent *event) {
+        if (!DPExtensionsShortcut.on || !DPShortcutMatches(event, &DPExtensionsShortcut)) return event;
         NSWindow *window = event.window;
         id browser = window ? [DPBrowsers objectForKey:window] : nil;
-        if (!DPExtensionsShortcut.on || !browser || !DPShortcutMatches(event, &DPExtensionsShortcut)) return event;
-        if (!event.isARepeat) dispatch_async(dispatch_get_main_queue(), ^{ DPShowExtensions(window, browser); });  // The menu's loop would block this key.
+        if (!browser) return event;
+        if (!event.isARepeat) dispatch_async(dispatch_get_main_queue(), ^{ DPShowExtensions(window, browser); });
         return nil;
     }];
 }

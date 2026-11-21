@@ -1,18 +1,24 @@
 #import "Patches/Peek/Peek.h"
 
-// The status text shows an address as people read it (accents, spaces, an international host in Unicode); a click's URL has them escaped.
-// Escape the text the same way by hand: NSURL escapes a string that already holds escapes differently from one macOS to the next. Only the host goes through it.
+// Normalize status text and click URLs identically without handing paths to NSURL, whose double-escaping varies across macOS versions.
 NSString *DPPeekLinkKey(NSString *address) {
-    static NSCharacterSet *legal;
-    if (!legal) legal = [NSCharacterSet characterSetWithCharactersInString:@"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~:/?#@!$&'()*+,;=%"];
-    for (NSString *scheme in @[ @"https://", @"http://" ])
-        if ([address hasPrefix:scheme]) address = [address substringFromIndex:scheme.length];
-    NSUInteger end = [address rangeOfCharacterFromSet:[NSCharacterSet characterSetWithCharactersInString:@"/?#"]].location;
+    static NSCharacterSet *legal, *delims;
+    static NSRegularExpression *barePercent;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        legal = [NSCharacterSet characterSetWithCharactersInString:@"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~:/?#@!$&'()*+,;=%"];
+        delims = [NSCharacterSet characterSetWithCharactersInString:@"/?#"];
+        barePercent = [NSRegularExpression regularExpressionWithPattern:@"%(?![0-9A-Fa-f]{2})" options:0 error:nil];
+    });
+    if ([address hasPrefix:@"https://"]) address = [address substringFromIndex:8];
+    if ([address hasPrefix:@"http://"]) address = [address substringFromIndex:7];
+    NSUInteger end = [address rangeOfCharacterFromSet:delims].location;
     if (end == NSNotFound) end = address.length;
     NSString *host = [address substringToIndex:end], *rest = [address substringFromIndex:end];
     if (![host canBeConvertedToEncoding:NSASCIIStringEncoding])
-        host = [[NSURL URLWithString:[@"http://" stringByAppendingString:host]].absoluteString substringFromIndex:@"http://".length] ?: host;
-    rest = [rest stringByReplacingOccurrencesOfString:@"%(?![0-9A-Fa-f]{2})" withString:@"%25" options:NSRegularExpressionSearch range:NSMakeRange(0, rest.length)];
+        host = [[NSURL URLWithString:[@"http://" stringByAppendingString:host]].absoluteString substringFromIndex:7] ?: host;
+    if ([rest containsString:@"%"])
+        rest = [barePercent stringByReplacingMatchesInString:rest options:0 range:NSMakeRange(0, rest.length) withTemplate:@"%25"];
     NSRange hash = [rest rangeOfString:@"#"];
     if (hash.length) rest = [[rest substringToIndex:NSMaxRange(hash)] stringByAppendingString:[[rest substringFromIndex:NSMaxRange(hash)] stringByReplacingOccurrencesOfString:@"#" withString:@"%23"]];
     address = [host stringByAppendingString:[rest stringByAddingPercentEncodingWithAllowedCharacters:legal] ?: rest];

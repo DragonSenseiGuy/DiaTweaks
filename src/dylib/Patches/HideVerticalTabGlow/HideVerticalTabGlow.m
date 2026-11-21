@@ -1,11 +1,14 @@
 #import "HideVerticalTabGlow.h"
 
 static const char *const DPDecorationIvars[] = { "$__lazy_storage_$_shadowLayer", "rimHighlightView", NULL };
+char DPTabStyledKey;
 
 static void DPStyleTab(NSView *shape) {
+    BOOL active = DPHideVerticalTabGlow.on && DPIsVerticalTab(shape);
+    if (!active && !DPGet(shape, &DPTabStyledKey)) return;
+    DPSet(shape, &DPTabStyledKey, active ? @YES : nil);
     [CATransaction begin];
     [CATransaction setDisableActions:YES];
-    BOOL active = DPHideVerticalTabGlow.on && DPIsVerticalTab(shape);
     for (const char *const *name = DPDecorationIvars; *name; name++) {
         id part = DPTabDecoration(shape, *name);
         if (active) DPHideTabDecoration(part, shape);
@@ -18,7 +21,7 @@ static void DPStyleTab(NSView *shape) {
 
 static void DPTabShape_restyle(NSView *self, SEL _cmd) {
     DPCallOriginal(DPTabShape_restyle, self);
-    DPStyleTab(self);
+    if (DPHideVerticalTabGlow.on || DPGet(self, &DPTabStyledKey)) DPStyleTab(self);
 }
 
 static void DPApplyHideVerticalTabGlow(DPPatch *patch) {

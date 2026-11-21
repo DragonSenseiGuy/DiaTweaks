@@ -18,7 +18,7 @@ void DPEndSwitch(NSWindow *window) { DPEndSwitchFrom(window, DPGet(window, &DPLe
 void DPStandInWhileSwitching(NSWindow *window, NSString *tabID, NSString *leaving) {
     if (!window || !tabID || !leaving) return;
     DPSet(window, &DPLeavingKey, leaving);
-    for (NSView *background in DPFindViews(DPDiaTabBackground))  // Dia has switched already.
+    for (NSView *background in DPFindViews(DPDiaTabBackground))
         if (background.window == window && DPSwitchingTo(background)) return DPEndSwitchFrom(window, leaving);
     DPStandInFor(window, tabID);
     __weak NSWindow *weak = window;

@@ -14,7 +14,10 @@ static NSUserDefaults *DPSettings(void) {
 static double DPPeekTuned(NSString *key) {
     id value = [DPSettings() objectForKey:key];
     if (value) return [value doubleValue];
-    return [@{ DPPeekDarknessKey : @0.45, DPPeekSpeedKey : @0.9, DPPeekGenieKey : @YES, DPPeekToolbarKey : @YES }[key] doubleValue];
+    static NSDictionary<NSString *, NSNumber *> *defaults;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{ defaults = @{ DPPeekDarknessKey : @0.45, DPPeekSpeedKey : @0.9, DPPeekGenieKey : @YES, DPPeekToolbarKey : @YES }; });
+    return [defaults[key] doubleValue];
 }
 
 double DPPeekDarkness(void) { return DPPeekTuned(DPPeekDarknessKey); }

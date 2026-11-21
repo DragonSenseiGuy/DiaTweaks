@@ -5,11 +5,11 @@ static const CGFloat DPDragBand = 56, DPDragSlop = 3, DPDragScroller = 16;
 static const NSEventModifierFlags DPDragKeys = NSEventModifierFlagCommand | NSEventModifierFlagOption | NSEventModifierFlagControl | NSEventModifierFlagShift;
 static NSEvent *DPPressed;
 
-// The arrow cursor stands in for an empty spot: links show a hand, text an I-beam.
 static NSView *DPPageTopUnder(NSEvent *event) {
     NSWindow *window = event.window;
     if (!window || (window.styleMask & NSWindowStyleMaskFullScreen) || NSCursor.currentCursor != NSCursor.arrowCursor) return nil;
-    Class card = NSClassFromString(@"DPPeekCard");
+    static Class card;
+    if (!card) card = NSClassFromString(@"DPPeekCard");
     NSView *content = window.contentView, *hit = [content hitTest:[content.superview convertPoint:event.locationInWindow fromView:nil]];
     return DPFindView(content, ^BOOL(NSView *view) {
         if (!DPIsKind(view, "WebContentsHostView") || view.isHiddenOrHasHiddenAncestor) return NO;
@@ -22,6 +22,7 @@ static NSView *DPPageTopUnder(NSEvent *event) {
 
 static NSEvent *DPDragMouse(NSEvent *event) {
     NSEvent *pressed = DPPressed;
+    if (!DPDragWindowFromPage.on && !pressed) return event;
     switch (event.type) {
     case NSEventTypeLeftMouseDown:
         DPPressed = nil;

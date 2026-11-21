@@ -1,9 +1,8 @@
 #import "Patches/Peek/Peek.h"
 #import <Carbon/Carbon.h>
 
-static const CGFloat DPPeekShadowRoom = 48;
-
-static const CGFloat DPPeekEdgeAlpha = 0.12;
+static const CGFloat DPPeekShadowRoom = 48, DPPeekEdgeAlpha = 0.12;
+static NSHashTable<DPPeekCard *> *DPPeekCards;
 
 static NSRect DPPeekCardRect(NSRect area) { return NSInsetRect(area, NSWidth(area) * 0.09, MAX(10, NSHeight(area) * 0.012)); }
 
@@ -11,6 +10,13 @@ static NSRect DPPeekCardRect(NSRect area) { return NSInsetRect(area, NSWidth(are
 
 - (BOOL)isFlipped { return YES; }
 - (BOOL)acceptsFirstMouse:(NSEvent *)event { return YES; }
+
+- (void)viewDidMoveToWindow {
+    [super viewDidMoveToWindow];
+    if (!DPPeekCards) DPPeekCards = [NSHashTable weakObjectsHashTable];
+    if (self.window) [DPPeekCards addObject:self];
+    else [DPPeekCards removeObject:self];
+}
 
 - (NSRect)cardFrame {
     NSRect card = DPPeekCardRect(self.bounds), page = self.bounds;
@@ -99,9 +105,17 @@ static NSRect DPPeekCardRect(NSRect area) { return NSInsetRect(area, NSWidth(are
 @end
 
 DPPeekCard *DPPeekCardIn(NSWindow *window) {
-    return (DPPeekCard *)DPFindView(window.contentView, ^BOOL(NSView *view) {
-        return [view isKindOfClass:DPPeekCard.class] && !((DPPeekCard *)view).closing;
-    });
+    if (!window) return nil;
+    for (DPPeekCard *peek in DPPeekCards)
+        if (peek.window == window && !peek.closing) return peek;
+    return nil;
+}
+
+DPPeekCard *DPPeekCardForPage(id page) {
+    if (!page) return nil;
+    for (DPPeekCard *peek in DPPeekCards)
+        if (peek.page == page) return peek;
+    return nil;
 }
 
 static NSView *DPPeekPane(NSWindow *window, NSRect area) {
@@ -132,7 +146,7 @@ static NSView *DPPeekHolder(NSWindow *window, NSView *pane) {
 - (BOOL)wantsUpdateLayer { return YES; }
 - (void)viewDidMoveToWindow { [super viewDidMoveToWindow]; [self updateLayer]; }
 
-// Resolved in the card's own appearance: outside a draw pass the plain colour is the Light one, a white card in Dark Mode.
+// Resolve inside effectiveAppearance so windowBackgroundColor isn't stuck on Light in Dark Mode.
 - (void)updateLayer {
     [self.effectiveAppearance performAsCurrentDrawingAppearance:^{ self.layer.backgroundColor = NSColor.windowBackgroundColor.CGColor; }];
 }
@@ -149,14 +163,12 @@ static BOOL DPIsDigitKey(NSEvent *event) {
     return key.length == 1 && [key characterAtIndex:0] >= '1' && [key characterAtIndex:0] <= '9';
 }
 
-// Only the app and Window menus; the others act on the tab behind the card.
 static BOOL DPPerformAppShortcut(NSEvent *event, NSEventModifierFlags mods) {
     if (!(mods & (NSEventModifierFlagCommand | NSEventModifierFlagControl))) return NO;
     return [NSApp.mainMenu.itemArray.firstObject.submenu performKeyEquivalent:event] || [NSApp.windowsMenu performKeyEquivalent:event];
 }
 
-// The page keeps every ⌘ and ⌃ shortcut instead of handing it to Dia, and Blink doesn't paste or undo on a key equivalent.
-// So the edit commands go to the page. Dia's other commands would act on the tab behind the card.
+// Blink ignores key-equivalent paste/undo while swallowing ⌘/⌃ shortcuts, so dispatch edit actions directly to focus.
 static BOOL DPPeekPageShortcut(DPPeekCard *peek, NSEvent *event, NSEventModifierFlags mods, NSResponder *focus) {
     BOOL command = mods == NSEventModifierFlagCommand, shifted = mods == (NSEventModifierFlagCommand | NSEventModifierFlagShift);
     SEL edit = NULL;
@@ -178,13 +190,12 @@ static NSMenuItem *DPPeekItemFor(NSMenu *menu, NSEvent *event) {
     return nil;
 }
 
-// The new tab and window shortcuts, wherever the user has put them, act on the window and not on the tab behind the card.
 static BOOL DPPeekWindowCommand(NSEvent *event) {
     if (!(event.modifierFlags & NSEventModifierFlagCommand)) return NO;
-    return [@[ @"New Tab", @"New Window", @"New Incognito Window" ] containsObject:DPPeekItemFor(NSApp.mainMenu, event).title ?: @""];
+    NSString *title = DPPeekItemFor(NSApp.mainMenu, event).title;
+    return [title isEqualToString:@"New Tab"] || [title isEqualToString:@"New Window"] || [title isEqualToString:@"New Incognito Window"];
 }
 
-// A focused Peek page swallows the shortcuts Dia's tabs pass on to the menu. ⌘S and every ⌃ shortcut, such as ⌃Tab and ⌃1–9, go on to it.
 static id DPWatchKeys(DPPeekCard *card) {
     __weak DPPeekCard *weak = card;
     return [NSEvent addLocalMonitorForEventsMatchingMask:NSEventMaskKeyDown handler:^NSEvent *(NSEvent *event) {
@@ -196,17 +207,19 @@ static id DPWatchKeys(DPPeekCard *card) {
         BOOL command = mods == NSEventModifierFlagCommand, control = mods == NSEventModifierFlagControl;
         BOOL editing = [responder isKindOfClass:NSText.class] || ([responder conformsToProtocol:@protocol(NSTextInputClient)] && [responder hasMarkedText]);
         BOOL onPage = [responder isKindOfClass:NSView.class] && [(NSView *)responder isDescendantOf:peek.host];
-        BOOL toMenu = (command && DPEventIsKey(event, @"s")) || (onPage ? (mods & NSEventModifierFlagControl) || DPPeekWindowCommand(event) : control && DPIsDigitKey(event));
         if (DPPeekCopyURL(peek, event) || DPPeekZoomShortcut(peek, event) || DPPeekFindShortcut(peek, event, mods)) return nil;
         if (onPage && DPPeekPageShortcut(peek, event, mods, responder)) return nil;
         if (command && DPEventIsKey(event, @"o")) [peek close:DPPeekTab];
-        // Dia's menu would navigate the tab behind the card; without the toolbar these stay stock.
         else if (command && peek.toolbar && DPEventIsKey(event, @"[")) DPPeekNavigate(peek.page, DPPeekBack);
         else if (command && peek.toolbar && DPEventIsKey(event, @"]")) DPPeekNavigate(peek.page, DPPeekForward);
         else if (command && peek.toolbar && DPEventIsKey(event, @"r")) DPPeekNavigate(peek.page, DPPeekReload);
         else if (command && peek.toolbar && DPEventIsKey(event, @"l")) DPPeekEditToolbarAddress(peek);
         else if ((command && DPEventIsKey(event, @"w")) || (!mods && event.keyCode == kVK_Escape && !editing)) [peek close:DPPeekClose];
-        else if (!DPPerformAppShortcut(event, mods) && !(toMenu && [NSApp.mainMenu performKeyEquivalent:event])) return event;
+        else if (!DPPerformAppShortcut(event, mods)) {
+            BOOL toMenu = (command && DPEventIsKey(event, @"s")) ||
+                          (onPage ? (mods & NSEventModifierFlagControl) || DPPeekWindowCommand(event) : control && DPIsDigitKey(event));
+            if (!(toMenu && [NSApp.mainMenu performKeyEquivalent:event])) return event;
+        }
         return nil;
     }];
 }

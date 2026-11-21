@@ -22,8 +22,7 @@ static NSNumber *DPFolderExpanded(NSView *folder) {
         BOOL *flag = DPIvar(folder, "shouldDisplayExpandedContainer");
         return flag ? @(*flag) : nil;
     }
-    Ivar ivar = class_getInstanceVariable(object_getClass(folder), "$__lazy_storage_$_chevronIconView");
-    id chevron = ivar ? object_getIvar(folder, ivar) : nil;
+    id chevron = DPObjectIvar(folder, "$__lazy_storage_$_chevronIconView");
     CALayer *layer = [chevron isKindOfClass:NSView.class] ? ((NSView *)chevron).layer : nil;
     if (!layer) return nil;
     return @(fabs(atan2(layer.transform.m12, layer.transform.m11)) < 0.1);
@@ -47,7 +46,7 @@ static void DPClickHeader(NSView *folder) {
 static void DPReopenFolders(void) {
     NSArray<NSView *> *folders = DPCollapsedFolders.allObjects;
     [DPCollapsedFolders removeAllObjects];
-    // Several at once is a collapse-all, not a folder that emptied.
+    // Multiple collapses at once mean collapse-all, not an emptied folder.
     if (!DPKeepFoldersOpen.on || folders.count != 1 || !folders[0].window || [DPFolderExpanded(folders[0]) boolValue]) return;
     DPSet(folders[0], &DPReopenedKey, @(CACurrentMediaTime()));
     DPClickHeader(folders[0]);
@@ -57,7 +56,6 @@ static void DPCheckFolder(NSView *folder) {
     NSNumber *expanded = DPFolderExpanded(folder);
     if (!expanded || !folder.window) return;
     id model = DPObjectIvar(folder, "viewModel");
-    // A top folder view that now shows another folder starts over.
     if (model && DPGet(folder, &DPModelKey) != model) DPSet(folder, &DPExpandedKey, nil);
     DPSet(folder, &DPModelKey, model);
     BOOL collapsed = [DPGet(folder, &DPExpandedKey) boolValue] && !expanded.boolValue;
@@ -77,14 +75,16 @@ static void DPFolder_layout(NSView *self, SEL _cmd) {
 }
 
 static void DPFolder_mouse(NSView *self, SEL _cmd, NSEvent *event) {
-    if (!DPReopening) DPSet(self, &DPClickedKey, @(CACurrentMediaTime()));
+    if (DPKeepFoldersOpen.on && !DPReopening) DPSet(self, &DPClickedKey, @(CACurrentMediaTime()));
     DPCallOriginal(DPFolder_mouse, self, event);
 }
 
 static void DPHeader_mouse(NSView *self, SEL _cmd, NSEvent *event) {
-    NSView *folder = self.superview;
-    while (folder && !DPIsKind(folder, DPDiaTabGroupView)) folder = folder.superview;
-    if (folder && !DPReopening) DPSet(folder, &DPClickedKey, @(CACurrentMediaTime()));
+    if (DPKeepFoldersOpen.on && !DPReopening) {
+        NSView *folder = self.superview;
+        while (folder && !DPIsKind(folder, DPDiaTabGroupView)) folder = folder.superview;
+        if (folder) DPSet(folder, &DPClickedKey, @(CACurrentMediaTime()));
+    }
     DPCallOriginal(DPHeader_mouse, self, event);
 }
 

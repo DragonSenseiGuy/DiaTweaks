@@ -134,8 +134,9 @@ static void DPZoneSpring(CALayer *layer, NSString *keyPath, id to, CFTimeInterva
 
 - (NSDragOperation)track:(id<NSDraggingInfo>)info {
     NSPoint p = [self convertPoint:info.draggingLocation fromView:nil];
-    CGFloat dx = p.x - self.rest.x, dy = p.y - self.rest.y, d = hypot(dx, dy);
-    NSRect reach = NSInsetRect(NSMakeRect(self.rest.x - DPZoneCard.width / 2, self.rest.y - DPZoneCard.height / 2, DPZoneCard.width, DPZoneCard.height), -DPZoneReach, -DPZoneReach);
+    CGPoint rest = self.rest;
+    CGFloat dx = p.x - rest.x, dy = p.y - rest.y, d = hypot(dx, dy);
+    NSRect reach = NSInsetRect(NSMakeRect(rest.x - DPZoneCard.width / 2, rest.y - DPZoneCard.height / 2, DPZoneCard.width, DPZoneCard.height), -DPZoneReach, -DPZoneReach);
     BOOL over = NSPointInRect(p, reach);
     CGFloat pull = over ? 0.8 / (1 + d / (1.05 * DPZoneCard.width)) : 0;
     [self pull:CGPointMake(dx * pull, dy * pull)];

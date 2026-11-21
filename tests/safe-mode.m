@@ -3,7 +3,6 @@
 #import <unistd.h>
 #import "StdPatch/StdPatch.h"
 
-// The launch guard keeps its state beside the dylib: point it at a temporary folder.
 static const char *DPTestDylib;
 static int DPTestDladdr(const void *address, Dl_info *info) {
     int found = dladdr(address, info);
@@ -17,7 +16,6 @@ void DPOnQuit(void (^block)(void)) { DPQuit = [block copy]; }
 
 #import "SafeMode/SafeMode.m"
 
-// A launch is a child process, so each has its own pid like Dia's: it reports "level" once started, then obeys "quit" or "crash".
 static void child(const char *support, const char *home) {
     @autoreleasepool {
         NSURL *reports = [NSURL fileURLWithPath:@(home)];
@@ -81,7 +79,6 @@ static void expect(BOOL ok, NSString *what) {
     printf("FAIL %s\n", what.UTF8String);
 }
 
-// Dia crashed while launching: macOS leaves a report that names its pid.
 static void leaveCrashed(DPLaunch *launch) {
     [launch end:@"crash"];
     NSString *folder = [home stringByAppendingPathComponent:@"Library/Logs/DiagnosticReports"];
@@ -103,7 +100,6 @@ int main(int argc, const char *argv[]) {
         [first end:@"quit"];
         expect(![state()[@"launching"] boolValue], @"a launch that quits clears the marker");
 
-        // Chromium relaunches Dia: the new process starts before the old one exits, and then crashes while launching.
         DPLaunch *old = launch(), *relaunched = launch();
         [old end:@"quit"];
         expect([state()[@"launching"] boolValue] && [state()[@"pid"] intValue] == relaunched.task.processIdentifier, @"the old process leaves the new process's marker alone");
@@ -116,7 +112,6 @@ int main(int argc, const char *argv[]) {
         expect(last.level == 1, @"two crashes of relaunched Dias turn safe mode on");
         [last end:@"quit"];
 
-        // Pausing is its own state: a crash while paused is Dia's own, so it neither counts nor clears the pause.
         NSString *pause = [support stringByAppendingPathComponent:@"paused"];
         [NSData.data writeToFile:pause atomically:YES];
         DPLaunch *paused = launch();

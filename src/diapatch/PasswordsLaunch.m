@@ -67,18 +67,21 @@ static pid_t launchOriginal(NSString *app, NSString *folder, NSString *socket) {
     NSString *subprocess = [@"--browser-subprocess-path=" stringByAppendingString:NSBundle.mainBundle.executablePath];
     const char *argv[] = { dia.fileSystemRepresentation, profile.UTF8String, subprocess.UTF8String, "--headless=new", "--no-first-run",
                            "--no-default-browser-check", "--use-mock-keychain", "--mute-audio", NULL };
-    NSMutableArray<NSString *> *environment = [NSMutableArray arrayWithObjects:[@"CFFIXED_USER_HOME=" stringByAppendingString:folder],
-                                                                               [NSString stringWithFormat:@"%s=%@", DPHandoffVariable, socket], nil];
-    [environment addObjectsFromArray:strings((const char *const *)environ, -1)];
-    const char **envp = calloc(environment.count + 1, sizeof *envp);
-    for (NSUInteger i = 0; i < environment.count; i++) envp[i] = environment[i].UTF8String;
+    NSString *fixedHome = [@"CFFIXED_USER_HOME=" stringByAppendingString:folder];
+    NSString *handoff = [NSString stringWithFormat:@"%s=%@", DPHandoffVariable, socket];
+    size_t envCount = 0;
+    while (environ[envCount]) envCount++;
+    const char **envp = calloc(envCount + 3, sizeof *envp);
+    envp[0] = fixedHome.UTF8String;
+    envp[1] = handoff.UTF8String;
+    memcpy(envp + 2, environ, envCount * sizeof *envp);
 
     posix_spawn_file_actions_t files;
     posix_spawn_file_actions_init(&files);
     for (int fd = 0; fd < 3; fd++) posix_spawn_file_actions_addopen(&files, fd, "/dev/null", fd ? O_WRONLY : O_RDONLY, 0);
     posix_spawnattr_t attrs;
     posix_spawnattr_init(&attrs);
-    posix_spawnattr_setflags(&attrs, POSIX_SPAWN_CLOEXEC_DEFAULT);  // keeps the host's stdio and socket out of Dia
+    posix_spawnattr_setflags(&attrs, POSIX_SPAWN_CLOEXEC_DEFAULT);
     responsibility_spawnattrs_setdisclaim(&attrs, 1);
     pid_t pid = 0;
     int status = posix_spawn(&pid, argv[0], &files, &attrs, (char *const *)argv, (char *const *)envp);
@@ -126,7 +129,6 @@ static BOOL handOver(int client, NSString *helper, int argc, const char *argv[])
     return YES;
 }
 
-// The subprocess's end closes as it execs or gives up.
 static BOOL becameHelper(int client, pid_t peer, NSString *helperPath) {
     char byte, path[PROC_PIDPATHINFO_MAXSIZE], helper[PATH_MAX];
     setsockopt(client, SOL_SOCKET, SO_RCVTIMEO, &(struct timeval){ .tv_sec = 5 }, sizeof(struct timeval));

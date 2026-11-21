@@ -35,7 +35,8 @@ static CGFloat DPWindowTarget(NSWindow *window, CGFloat dia) { return DPWindowCo
 static void DPRoundWindow(NSWindow *window) {
     CGFloat current = DPCornerRadius(window), dia = DPDiaRadius(window, current);
     CGFloat target = DPWindowTarget(window, dia);
-    DPOverride(window, &DPRadiusKey, @(dia), @(target));
+    if (DPWindowCorners.on && !DPInFullScreen(window)) DPOverride(window, &DPRadiusKey, @(dia), @(target));
+    else if (DPGet(window, &DPRadiusKey)) DPSet(window, &DPRadiusKey, nil);
     if (current == target) return;
     ((void (*)(id, SEL, CGFloat))objc_msgSend)(window, @selector(_setCornerRadius:), target);
     // macOS 26.7 has no _updateWindowCornerMask, so its older _cornerMaskChanged redraws the mask there.
@@ -98,7 +99,6 @@ static void DPRoundFloatingLayers(CALayer *layer, CGSize size, CGFloat base, CGF
     for (CALayer *sublayer in layer.sublayers) DPRoundFloatingLayers(sublayer, size, base, growth);
 }
 
-// Dia also rounds the floating sidebar outside layout, so its corner radius is watched.
 static void DPRoundFloatingSidebar(NSView *self);
 
 // The watch holds the layer, so it can't go before the observer does.
@@ -146,12 +146,12 @@ static void DPRoundFloatingSidebar(NSView *self) {
 
 static void DPFloatingSidebar_layout(NSView *self, SEL _cmd) {
     DPCallOriginal(DPFloatingSidebar_layout, self);
-    DPRoundFloatingSidebar(self);
+    if (DPWindowCorners.on || DPGet(self, &DPWatchedKey)) DPRoundFloatingSidebar(self);
 }
 
 static void DPBar_layout(NSView *self, SEL _cmd) {
     DPCallOriginal(DPBar_layout, self);
-    DPRoundCornerItems(self);
+    if (DPWindowCorners.on) DPRoundCornerItems(self);
 }
 
 static void DPLayer_addAnimation(CALayer *self, SEL _cmd, CAAnimation *animation, NSString *key) {
@@ -166,11 +166,11 @@ static void DPLayer_setShadowPath(CALayer *self, SEL _cmd, CGPathRef path) {
     DPCallOriginal(DPLayer_setShadowPath, self, DPWindowCorners.on ? DPReshapeSetPath(self, YES, path) : path);
 }
 
-// Dia tiles the blurred background around the page. Rounder corners expose the seams, which flash as the sidebar slides.
+// Rounder corners expose Dia's tiled background seams as the sidebar slides.
 static void DPBackgroundTile_setFrame(NSView *self, SEL _cmd, NSRect frame) {
+    if (!DPWindowCorners.on) return DPCallOriginal(DPBackgroundTile_setFrame, self, frame);
     NSView *background = self.superview;
-    BOOL whole = DPWindowCorners.on && DPIsKind(background, DPDiaWindowBackground);
-    DPCallOriginal(DPBackgroundTile_setFrame, self, whole ? background.bounds : frame);
+    DPCallOriginal(DPBackgroundTile_setFrame, self, DPIsKind(background, DPDiaWindowBackground) ? background.bounds : frame);
 }
 
 static void DPNavigationBar_layout(NSView *self, SEL _cmd) {
@@ -182,7 +182,7 @@ static void DPNavigationBar_layout(NSView *self, SEL _cmd) {
 
 static void DPWindow_becomeKey(NSWindow *self, SEL _cmd) {
     DPCallOriginal(DPWindow_becomeKey, self);
-    DPRoundWindow(self);
+    if (DPWindowCorners.on || DPGet(self, &DPRadiusKey)) DPRoundWindow(self);
 }
 
 static void DPApplyWindowCorners(DPPatch *patch) {

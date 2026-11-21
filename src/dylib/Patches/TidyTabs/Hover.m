@@ -36,7 +36,6 @@ static NSView *DPSidebarOf(NSView *list) {
     hover.tracking = [[NSTrackingArea alloc] initWithRect:sidebar.bounds
         options:NSTrackingMouseEnteredAndExited | NSTrackingMouseMoved | NSTrackingActiveInKeyWindow owner:hover userInfo:nil];
     [sidebar addTrackingArea:hover.tracking];
-    // No enter event comes for a pointer that's already inside.
     if (first) dispatch_async(dispatch_get_main_queue(), ^{ if ([hover containsPointer]) hover.revealed = YES; });
     return hover;
 }

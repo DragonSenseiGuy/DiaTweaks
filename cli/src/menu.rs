@@ -26,10 +26,11 @@ pub fn run(env: &Env, ui: &Ui) -> Result<()> {
     ui.enter_menu(true);
     let mut action = Action::Tweaks;
     loop {
-        let paused = dia::paused(&env.support);
-        let (pause_label, pause_hint) = match paused {
-            true => ("Resume tweaks", "turn tweaks back on"),
-            false => ("Pause tweaks", "turn every tweak off, keeping settings"),
+        let paused = dia::is_paused(&env.support);
+        let (pause_label, pause_hint) = if paused {
+            ("Resume tweaks", "turn tweaks back on")
+        } else {
+            ("Pause tweaks", "turn every tweak off, keeping settings")
         };
         action = ui::prompt(
             cliclack::select("What do you want to do?")
@@ -57,7 +58,7 @@ pub fn run(env: &Env, ui: &Ui) -> Result<()> {
             Action::Quit => break,
         };
         match result {
-            // The menu would go on with a replaced binary or a Dia without DiaTweaks.
+            // Exit the menu after replacing the binary or unpatching Dia.
             Ok(()) if matches!(action, Action::UpdateDiaTweaks | Action::Restore) => break,
             Ok(()) => {}
             Err(err) => match err.downcast_ref::<Cancelled>() {

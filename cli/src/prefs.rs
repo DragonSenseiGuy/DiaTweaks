@@ -45,7 +45,7 @@ impl Prefs {
         }
         value
             .downcast::<CFString>()
-            .map(|text| string_is_true(&text.to_string()))
+            .map(|text| is_true_string(&text.to_string()))
     }
 
     pub fn set(&self, key: &str, on: bool) {
@@ -68,7 +68,6 @@ impl Prefs {
     }
 }
 
-/// Tells a running Dia to read its settings again.
 pub fn notify(domain: &str) -> Result<()> {
     let notification = CString::new(format!("{domain}.changed"))?;
     let status = unsafe { notify_post(notification.as_ptr()) };
@@ -78,8 +77,8 @@ pub fn notify(domain: &str) -> Result<()> {
     Ok(())
 }
 
-/// Reads strings the way NSString's boolValue, and so Dia, does.
-fn string_is_true(text: &str) -> bool {
+// Matches NSString.boolValue.
+fn is_true_string(text: &str) -> bool {
     let number = text
         .trim_start()
         .trim_start_matches(['+', '-'])

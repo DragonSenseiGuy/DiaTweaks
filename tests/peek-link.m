@@ -9,7 +9,6 @@ static void expect(BOOL ok, NSString *what) {
     printf("FAIL %s\n", what.UTF8String);
 }
 
-// The URL Dia navigates to for a click, and the text Dia's status line shows for the same link.
 static void same(NSString *clicked, NSString *shown) {
     expect([DPPeekLinkKey(clicked) isEqual:DPPeekLinkKey(shown)], [NSString stringWithFormat:@"%@ should match %@", clicked, shown]);
 }
@@ -18,7 +17,6 @@ static void differ(NSString *one, NSString *other) {
     expect(![DPPeekLinkKey(one) isEqual:DPPeekLinkKey(other)], [NSString stringWithFormat:@"%@ should not match %@", one, other]);
 }
 
-// What the key is, byte for byte, so a macOS that escapes differently cannot hide behind two keys that happen to agree.
 static void key(NSString *address, NSString *want) {
     NSString *got = DPPeekLinkKey(address);
     expect([got isEqual:want], [NSString stringWithFormat:@"key of %@ is %@, want %@", address, got, want]);
@@ -27,7 +25,6 @@ static void key(NSString *address, NSString *want) {
 static NSMutableArray<NSString *> *parsed;
 static BOOL parsingFails;
 
-// The key may hand NSURL an international host and nothing else: record every string it is asked to parse.
 static void watchNSURL(void) {
     parsed = [NSMutableArray new];
     Method method = class_getClassMethod(NSURL.class, @selector(URLWithString:));
@@ -75,7 +72,8 @@ int main(void) {
         expect(!parsed.count, @"an address with an ASCII host never reaches NSURL");
         key(@"münchen.localhost:8470/ü?q=é%20#%C3%BC", @"xn--mnchen-3ya.localhost:8470/%C3%BC?q=%C3%A9%20#%C3%BC");
         expect([parsed isEqualToArray:@[ @"http://münchen.localhost:8470" ]], [NSString stringWithFormat:@"only the host is handed to NSURL, got %@", parsed]);
-        parsingFails = YES;  // A macOS whose NSURL does not take an international host: the key keeps it, so the link is missed, never mistaken for another.
+        // Simulate NSURL rejecting an IDN host: keep it unparsed rather than mis-matching.
+        parsingFails = YES;
         key(@"münchen.de/ü?q=é", @"münchen.de/%C3%BC?q=%C3%A9");
         differ(@"https://xn--mnchen-3ya.de/%C3%BC", @"münchen.de/ü");
         parsingFails = NO;

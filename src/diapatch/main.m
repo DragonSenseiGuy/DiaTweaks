@@ -184,12 +184,12 @@ static BOOL verifyOfficial(NSString *app) {
 static BOOL appRunning(void) {
     char root[PATH_MAX], path[PROC_PIDPATHINFO_MAXSIZE];
     if (!realpath(gApp.fileSystemRepresentation, root)) return NO;
-    strlcat(root, "/", sizeof root);
+    size_t rootLen = strlcat(root, "/", sizeof root);
     int capacity = proc_listallpids(NULL, 0) + 64;
     pid_t pids[capacity];
     int count = proc_listallpids(pids, capacity * (int)sizeof *pids);
     for (int i = 0; i < count; i++)
-        if (proc_pidpath(pids[i], path, sizeof path) > 0 && strncmp(path, root, strlen(root)) == 0) return YES;
+        if (proc_pidpath(pids[i], path, sizeof path) > 0 && strncmp(path, root, rootLen) == 0) return YES;
     return NO;
 }
 
@@ -205,9 +205,10 @@ static BOOL addLoadCommand(NSString *path, NSString *dylib) {
     if (data.length < sizeof *header || header->magic != MH_MAGIC_64 || header->cputype != CPU_TYPE_ARM64)
         return fail(@"%@ is not a thin arm64 executable", path);
     uint64_t end = sizeof *header + header->sizeofcmds, firstSection = data.length;
+    if (end > data.length) return fail(@"%@ has malformed load commands", path);
     for (uint64_t offset = sizeof *header, i = 0; i < header->ncmds; i++, offset += ((const struct load_command *)(bytes + offset))->cmdsize) {
         const struct segment_command_64 *segment = (const void *)(bytes + offset);
-        if (end > data.length || offset + sizeof(struct load_command) > end || segment->cmdsize < sizeof(struct load_command)
+        if (offset + sizeof(struct load_command) > end || segment->cmdsize < sizeof(struct load_command)
             || offset + segment->cmdsize > end
             || (segment->cmd == LC_SEGMENT_64 && sizeof *segment + segment->nsects * sizeof(struct section_64) > segment->cmdsize))
             return fail(@"%@ has malformed load commands", path);
@@ -249,10 +250,13 @@ static BOOL configureInfo(NSString *app) {
 static NSString *localIdentity(NSString *keychain) {
     NSString *list;
     run(@[ @"/usr/bin/security", @"find-identity", @"-p", @"codesigning", keychain ], &list);
-    NSRegularExpression *pattern = [NSRegularExpression regularExpressionWithPattern:@"([0-9A-F]{40}) \"DiaPatches Local Signing\""
-                                                                             options:0
-                                                                               error:NULL];
-    NSTextCheckingResult *match = list ? [pattern firstMatchInString:list options:0 range:NSMakeRange(0, list.length)] : nil;
+    if (!list.length) return nil;
+    static NSRegularExpression *pattern;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        pattern = [NSRegularExpression regularExpressionWithPattern:@"([0-9A-F]{40}) \"DiaPatches Local Signing\"" options:0 error:NULL];
+    });
+    NSTextCheckingResult *match = [pattern firstMatchInString:list options:0 range:NSMakeRange(0, list.length)];
     return match ? [list substringWithRange:[match rangeAtIndex:1]] : nil;
 }
 
@@ -321,7 +325,6 @@ static BOOL switchIcon(void) {
     return !problem || fail(@"%@", problem);
 }
 
-// A Dia that can't switch icons still works: report the failure, don't fail the build.
 static BOOL noteIcon(NSString *outcome) {
     if ([outcome hasPrefix:@"kept "]) say(@"warning: %@", outcome);
     else if (outcome) note(@"%@", outcome);
@@ -387,7 +390,6 @@ static Release *offer(NSArray<Release *> *releases) {
     return best;
 }
 
-// The dylib saves the feed Dia's updater used; Early Birds has its own.
 static NSString *diaFeed(void) {
     NSString *saved = CFBridgingRelease(CFPreferencesCopyAppValue(CFSTR("diaFeed"), CFSTR("com.diapatches")));
     return env("DIAPATCH_FEED") ?: ([saved isKindOfClass:NSString.class] ? saved : nil) ?: infoOf(gPristine)[@"SUFeedURL"] ?: kFeed;
@@ -422,7 +424,7 @@ static NSString *sha256(NSString *file) {
     if (!data) return nil;
     unsigned char digest[CC_SHA256_DIGEST_LENGTH];
     CC_SHA256(data.bytes, (CC_LONG)data.length, digest);
-    NSMutableString *hex = [NSMutableString string];
+    NSMutableString *hex = [NSMutableString stringWithCapacity:CC_SHA256_DIGEST_LENGTH * 2];
     for (int i = 0; i < CC_SHA256_DIGEST_LENGTH; i++) [hex appendFormat:@"%02x", digest[i]];
     return [@"sha256:" stringByAppendingString:hex];
 }
@@ -447,16 +449,20 @@ static NSDictionary *latestTweaks(int seconds, NSString **problem) {
 }
 
 static NSString *sourceCommit(void) {
+    if (installedRelease()[@"tag"]) return nil;
 #ifdef DIATWEAKS_COMMIT
     NSString *commit = env("DIAPATCH_COMMIT") ?: @DIATWEAKS_COMMIT;
 #else
     NSString *commit = env("DIAPATCH_COMMIT");
 #endif
-    NSPredicate *hex = [NSPredicate predicateWithFormat:@"SELF MATCHES %@", @"[0-9a-f]{7,40}"];
-    return !installedRelease()[@"tag"] && [hex evaluateWithObject:commit] ? commit : nil;
+    if (commit.length < 7 || commit.length > 40) return nil;
+    for (NSUInteger i = 0; i < commit.length; i++) {
+        unichar c = [commit characterAtIndex:i];
+        if (!((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f'))) return nil;
+    }
+    return commit;
 }
 
-// Any failure (unknown commit, no network) must leave the release on offer.
 static NSString *sourceNotOlder(NSDictionary *latest) {
     NSString *commit = sourceCommit();
     if (!commit || ![latest[@"tag"] isKindOfClass:NSString.class]) return nil;
@@ -470,7 +476,6 @@ static NSString *sourceNotOlder(NSDictionary *latest) {
     return [@[ @"ahead", @"identical" ] containsObject:status] ? [commit substringToIndex:7] : nil;
 }
 
-// An older updater skips files it doesn't know (v1.1.0 dropped app-icons), so a missing file re-offers the release.
 static BOOL tweaksInstalled(NSDictionary *latest) {
     if (![installedRelease()[@"digest"] isEqual:latest[@"digest"]]) return NO;
     for (NSString *path in tweaksTargets().allValues)
@@ -531,11 +536,10 @@ static void removeRelay(void) {
 }
 
 static BOOL applyTweaks(void) {
-    // The staged release may since have been replaced or overtaken.
     NSString *problem;
     NSDictionary *latest = stagedRelease() ? latestTweaks(15, &problem) : nil;
     if (latest && tweaksInstalled(latest)) removeTree(gStagedTweaks);
-    else if (tweaksAvailable(latest)) stageTweaks();  // a failure still leaves the staged release to install
+    else if (tweaksAvailable(latest)) stageTweaks();
     NSString *tag = stagedRelease()[@"tag"];
     if (!tag) return removeTree(gStagedTweaks);
     NSDictionary<NSString *, NSString *> *targets = tweaksTargets();
@@ -575,7 +579,6 @@ static BOOL apply(void) {
     if (!exists(gStaged)) return YES;
     if (!stagedReady()) return unstage() && fail(@"deleted %@: a stopped run left it there; run `diapatch build` to stage Dia again", gStaged);
     if (appRunning()) return fail(@"Dia is running; quit it, then run `diapatch apply`");
-    // An official Dia that isn't the pristine copy was put there by hand: the staged build is older.
     if (claimsOfficial(gApp) && ![buildOf(gApp) isEqual:buildOf(gPristine)])
         return unstage() && say(@"kept the official Dia %@ at %@; run `diapatch install` to patch it", versionOf(gApp), gApp);
     NSString *signature = signatureOf(gApp);
@@ -601,7 +604,7 @@ static BOOL install(BOOL relaunch) {
         if (!adopted) return removeTree(copy), NO;
     }
     removeRelay();
-    DPForgetApp(gPristine);  // clears a copy registered before diapatch did this
+    DPForgetApp(gPristine);
     if (!build(gPristine)) return NO;
     if (appRunning() && relaunch) {
         run(@[ @"/usr/bin/osascript", @"-e", @"tell application id \"company.thebrowser.dia\" to quit" ], NULL);
@@ -650,7 +653,6 @@ static BOOL update(void) {
     BOOL official = unpacked && ([buildOf(app) isEqual:release.build] || fail(@"the download holds build %@, not %@", buildOf(app), release.build))
         && verifyOfficial(app);
     BOOL built = official && build(app);
-    // Remember what unpacked but fails again on every launch; a bad download or a full disk can pass.
     if (unpacked && !built) rememberUnpatchable(release, official ? @"patch" : @"verify");
     BOOL ok = built && makeDir(gPristine.stringByDeletingLastPathComponent) && moveBundle(app, gPristine) && (DPForgetApp(gPristine), YES);
     removeTree(work);
@@ -658,20 +660,19 @@ static BOOL update(void) {
     return ok && say(@"Dia %@ is staged; relaunch Dia or run `diapatch apply` to install it", release.version);
 }
 
-// Only a host pointing at this diapatch is ours to remove; the one kept aside goes back.
 static void removePasswordsHost(void) {
     for (NSString *file in @[ @"com.apple.passwordmanager.json", @"io.github.fanckush.betterpasswords.bridge.json", @"com.openpasswords.icloud.json", @"com.diapatches.passkeys.json" ]) {
         NSString *path = [NSHomeDirectory() stringByAppendingPathComponent:[@"Library/Application Support/Google/Chrome/NativeMessagingHosts" stringByAppendingPathComponent:file]];
-        NSDictionary *host = [NSJSONSerialization JSONObjectWithData:[NSData dataWithContentsOfFile:path] ?: NSData.data options:0 error:NULL];
+        NSData *data = [NSData dataWithContentsOfFile:path];
+        if (!data) continue;
+        NSDictionary *host = [NSJSONSerialization JSONObjectWithData:data options:0 error:NULL];
         if (![host isKindOfClass:NSDictionary.class] || ![host[@"path"] isEqual:inHome(@"bin/diapatch")]) continue;
         removeTree(path);
         [NSFileManager.defaultManager moveItemAtPath:inHome(file) toPath:path error:NULL];
     }
 }
 
-// Deletes only what DiaPatches creates, in case DIAPATCH_HOME points somewhere shared.
 static BOOL purge(void) {
-    // Mirrors install.sh's link locations.
     NSArray<NSString *> *linkDirs = env("DIATWEAKS_LINK_DIR") ? @[ env("DIATWEAKS_LINK_DIR") ]
         : @[ @"/opt/homebrew/bin", @"/usr/local/bin", [NSHomeDirectory() stringByAppendingPathComponent:@".local/bin"] ];
     for (NSString *dir in linkDirs) {
@@ -744,14 +745,15 @@ static BOOL checkUpdates(void) {
     NSString *channel, *problem, *tweaksProblem;
     Release *dia = latest(15, &channel, &problem);
     NSDictionary *tweaks = latestTweaks(15, &tweaksProblem);
-    BOOL diaStaged = stagedReady() && [buildOf(gStaged) isEqual:dia.build];
+    BOOL ready = stagedReady();
+    BOOL diaStaged = ready && [buildOf(gStaged) isEqual:dia.build];
     NSDictionary *result = @{
         @"dia" : @{
             @"installed" : versionOf(gPristine) ?: NSNull.null,
             @"latest" : dia.version ?: NSNull.null,
             @"size" : @(dia.size),
             @"releaseNotes" : kDiaReleaseNotes,
-            @"staged" : (stagedReady() ? versionOf(gStaged) : nil) ?: NSNull.null,
+            @"staged" : (ready ? versionOf(gStaged) : nil) ?: NSNull.null,
             @"available" : @((BOOL)(dia && newer(dia.build, buildOf(gPristine)) && !diaStaged)),
             @"unpatchable" : unpatchableReason(dia) ?: NSNull.null,
             @"error" : dia ? NSNull.null : problem,
@@ -822,7 +824,6 @@ int main(int argc, const char *argv[]) {
             fputs(kUsage, help ? stdout : stderr);
             return help ? 0 : 2;
         }
-        // Tests patch a copy of Dia: relaunching or quitting by bundle ID could hit the real one.
         if (env("DIAPATCH_NO_RELAUNCH")) [flags removeObject:@"--relaunch"];
         if ([command isEqualToString:@"status"]) return status([flags containsObject:@"--json"]) ? 0 : 1;
         if ([command isEqualToString:@"check"]) return checkUpdates() ? 0 : 1;

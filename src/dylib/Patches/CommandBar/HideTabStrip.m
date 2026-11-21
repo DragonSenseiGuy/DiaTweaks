@@ -6,7 +6,8 @@ static CFRunLoopObserverRef DPStripObserver;
 static BOOL DPPlacing;
 
 NSString *DPStripTabID(NSView *tabView) {
-    NSView *content = DPFindView(tabView, ^BOOL(NSView *view) { return DPIsKind(view, DPDiaTabContentView); });
+    Class contentCls = objc_getClass(DPDiaTabContentView);
+    NSView *content = contentCls ? DPFindView(tabView, ^BOOL(NSView *view) { return [view isKindOfClass:contentCls]; }) : nil;
     NSString *tab = [DPSwiftValue(DPSwiftValue(DPSwiftValue(content, @"viewModel"), @"delegate"), @"tabID") description];
     return tab ? DPUUIDsIn(tab).firstObject : nil;
 }
@@ -37,9 +38,8 @@ static void DPPlace(NSView *view, NSRect frame) {
     DPPlacing = NO;
 }
 
-// A held strip's tabs and + button keep the frames they had, whichever Dia sets; the frame Dia meant is kept for letting go.
 static BOOL DPPin(NSView *view, NSRect *frame) {
-    NSView *strip = DPHeldStrips.count && !DPPlacing && DPHiding() ? view.superview : nil;
+    NSView *strip = !DPPlacing && DPHiding() ? view.superview : nil;
     if (!strip || ![DPHeldStrips containsObject:strip]) return NO;
     NSValue *before = [DPGet(strip, &DPBeforeKey) objectForKey:view];
     DPSet(view, &DPDiaFrameKey, [NSValue valueWithRect:*frame]);
@@ -48,20 +48,19 @@ static BOOL DPPin(NSView *view, NSRect *frame) {
 }
 
 static void DPTabView_setFrame(NSView *self, SEL _cmd, NSRect frame) {
-    BOOL pinned = DPPin(self, &frame);
+    BOOL pinned = DPHeldStrips.count && DPPin(self, &frame);
     DPCallOriginal(DPTabView_setFrame, self, frame);
     if (pinned) DPStopSliding(self);
 }
 
 static void DPPlusButton_setFrame(NSView *self, SEL _cmd, NSRect frame) {
-    BOOL pinned = DPPin(self, &frame);
+    BOOL pinned = DPHeldStrips.count && DPPin(self, &frame);
     DPCallOriginal(DPPlusButton_setFrame, self, frame);
     if (pinned) DPStopSliding(self);
 }
 
 static void DPHold(NSView *strip);
 
-// Before Core Animation commits what's drawn this turn, and only while a strip is held.
 static void DPWatchStrips(void) {
     if (DPStripObserver) return;
     DPStripObserver = CFRunLoopObserverCreateWithHandler(NULL, kCFRunLoopBeforeWaiting, YES, 0, ^(CFRunLoopObserverRef observer, CFRunLoopActivity activity) {
@@ -100,12 +99,12 @@ static void DPRelease(NSView *strip) {
     DPSet(strip, &DPSettledKey, nil);
 }
 
-// A strip that isn't held, such as one made as the tab layout changes, just leaves the hidden tab out.
 static void DPLeaveOut(NSView *strip) {
     NSHashTable<NSView *> *hidden = DPGet(strip, &DPHiddenKey);
     if (!DPHidingATab(strip.window) && !DPParkingAny() && !hidden.count) return;
+    Class tabCls = objc_getClass(DPDiaTabView);
     for (NSView *view in strip.subviews) {
-        NSString *tab = DPIsKind(view, DPDiaTabView) ? DPStripTabID(view) : nil;
+        NSString *tab = tabCls && [view isKindOfClass:tabCls] ? DPStripTabID(view) : nil;
         BOOL out = tab && DPHidesTab(tab);
         if (out && !view.hidden) {
             if (!hidden) DPSet(strip, &DPHiddenKey, hidden = [NSHashTable weakObjectsHashTable]);
@@ -123,15 +122,13 @@ static void DPHold(NSView *strip) {
     if (!before) return DPLeaveOut(strip);
     if (!DPHidingATab(strip.window)) return DPRelease(strip);
     NSHashTable<NSView *> *hidden = DPGet(strip, &DPHiddenKey), *settled = DPGet(strip, &DPSettledKey);
+    Class tabCls = objc_getClass(DPDiaTabView);
     for (NSView *view in strip.subviews) {
         NSValue *frame = [before objectForKey:view];
-        // Which tab a view shows costs a few reads, every pass of the run loop while the bar is open: a tab that was there
-        // before and isn't hidden is asked once.
-        NSString *tab = !(frame && [settled containsObject:view]) && DPIsKind(view, DPDiaTabView) ? DPStripTabID(view) : nil;
-        // A tab the bar isn't hiding that wasn't there before, such as one another app opened, lets the strip go.
+        NSString *tab = !(frame && [settled containsObject:view]) && tabCls && [view isKindOfClass:tabCls] ? DPStripTabID(view) : nil;
         if (!frame && tab && !DPHidesTab(tab)) return DPRelease(strip);
         if (frame && !(tab && DPHidesTab(tab))) {
-            if (!NSEqualRects(view.frame, frame.rectValue)) DPSet(view, &DPDiaFrameKey, [NSValue valueWithRect:view.frame]);  // What a view not hooked here was given.
+            if (!NSEqualRects(view.frame, frame.rectValue)) DPSet(view, &DPDiaFrameKey, [NSValue valueWithRect:view.frame]);
             DPPlace(view, frame.rectValue);
             DPStopSliding(view);
             [settled addObject:view];

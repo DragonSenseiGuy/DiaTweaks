@@ -129,16 +129,16 @@ static pid_t launchHelper(NSString *home, int toHelper[2], int fromHelper[2]) {
     NSDictionary *bounds = sheetBounds();
     NSString *size = [NSString stringWithFormat:@"--window-size=%@,%@", bounds[@"width"], bounds[@"height"]];
     NSString *position = [NSString stringWithFormat:@"--window-position=%@,%@", bounds[@"left"], bounds[@"top"]];
-    // signInAsDia copies Dia's sync identity too, so with sync on the helper deletes the user's synced pinned tabs,
-    // favorites and extensions that its own empty profiles don't have.
+    // Disable sync so the helper's empty profile doesn't wipe the user's synced tabs, favorites, and extensions.
     const char *argv[] = { app.fileSystemRepresentation, profile.UTF8String, size.UTF8String, position.UTF8String, "--remote-debugging-pipe", "--mute-audio",
                            "-transientFeatureFlagOverrides", "sync-enabled=false", NULL };
 
-    NSMutableArray<NSString *> *environment = [NSMutableArray array];
-    for (char **e = environ; *e; e++) [environment addObject:@(*e)];
-    [environment addObject:[@"CFFIXED_USER_HOME=" stringByAppendingString:data]];
-    const char **envp = calloc(environment.count + 1, sizeof *envp);
-    for (NSUInteger i = 0; i < environment.count; i++) envp[i] = environment[i].UTF8String;
+    NSString *fixedHome = [@"CFFIXED_USER_HOME=" stringByAppendingString:data];
+    size_t envCount = 0;
+    while (environ[envCount]) envCount++;
+    const char **envp = calloc(envCount + 2, sizeof *envp);
+    memcpy(envp, environ, envCount * sizeof *envp);
+    envp[envCount] = fixedHome.UTF8String;
 
     posix_spawn_file_actions_t files;
     posix_spawn_file_actions_init(&files);
@@ -152,6 +152,8 @@ static pid_t launchHelper(NSString *home, int toHelper[2], int fromHelper[2]) {
     responsibility_spawnattrs_setdisclaim(&attrs, 1);
     pid_t pid = 0;
     int status = posix_spawn(&pid, argv[0], &files, &attrs, (char *const *)argv, (char *const *)envp);
+    posix_spawn_file_actions_destroy(&files);
+    posix_spawnattr_destroy(&attrs);
     free(envp);
     return status == 0 ? pid : 0;
 }
@@ -263,7 +265,7 @@ int DPRunPasskeyHost(NSString *home) {
     if (pipe(toHelper) || pipe(fromHelper) || !(pid = launchHelper(home, toHelper, fromHelper)))
         return writeMessage(failure(@"Couldn't start the passkey copy of Dia.")), 1;
     gHelper = pid;
-    if (gCancelled) kill(pid, SIGTERM);  // it came between the copy starting and gHelper being set
+    if (gCancelled) kill(pid, SIGTERM);
     close(toHelper[0]);
     close(fromHelper[1]);
 

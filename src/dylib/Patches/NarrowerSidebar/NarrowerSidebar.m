@@ -6,7 +6,7 @@
 
 extern DPPatch DPNarrowerSidebar;
 
-// Dia's resize delegate clamps with max(width, 190.0): mov/movk build the double 0x4067<<48, and 0x4064/0x8000 make 164.
+// ARM64 mov/movk encoding 190.0 -> 164.0 for Dia's sidebar width clamp.
 static const uint32_t DPSidebarClampWide[4] = { 0xd2d80008, 0xf2e80ce8, 0x9e670101, 0x1e616800 };
 static const uint32_t DPSidebarClampNarrow[4] = { 0xd2d00008, 0xf2e80c88, 0x9e670101, 0x1e616800 };
 
@@ -25,7 +25,8 @@ static uint32_t *DPSidebarClamp(void) {
 }
 
 static BOOL DPIsSidebarClamp(const uint32_t words[4]) {
-    return DPSidebarClamp() && memcmp(DPSidebarClamp(), words, 4 * sizeof(uint32_t)) == 0;
+    uint32_t *site = DPSidebarClamp();
+    return site && memcmp(site, words, 4 * sizeof(uint32_t)) == 0;
 }
 
 static BOOL DPWriteSidebarClamp(const uint32_t words[4]) {
@@ -45,7 +46,6 @@ static void DPApplyNarrowerSidebar(DPPatch *patch) {
         NSLog(@"DiaPatches: Narrower Sidebar couldn't change the sidebar clamp");
 }
 
-// install runs after the saved switches are read, so it also applies the patch at launch.
 static void DPInstallNarrowerSidebar(void) {
     if (!DPIsSidebarClamp(DPSidebarClampWide) && !DPIsSidebarClamp(DPSidebarClampNarrow)) {
         DPNarrowerSidebar.unavailable = YES;

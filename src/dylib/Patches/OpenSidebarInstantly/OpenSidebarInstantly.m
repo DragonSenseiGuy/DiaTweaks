@@ -59,7 +59,6 @@ static NSUInteger DPSearch(const uint32_t *text, NSUInteger first, NSUInteger en
     return count;
 }
 
-// Measured on Dia 1.57.0: searched first, the whole 100 MB only as a fallback.
 static uint32_t *DPFindSite(void) {
     unsigned long size = 0;
     const struct mach_header_64 *header = (const struct mach_header_64 *)_dyld_get_image_header(0);
@@ -81,7 +80,6 @@ static BOOL DPRewrite(uint32_t expected, uint32_t value) {
     return YES;
 }
 
-// Looked for the first time the switch is on, so Dia launches without the search while it's off.
 static BOOL DPSearched;
 
 static uint32_t *DPLocate(void) {
@@ -89,10 +87,14 @@ static uint32_t *DPLocate(void) {
     return DPSite;
 }
 
-// The same wait is what lets the pointer cross from the sidebar into a card or popover without the sidebar closing, so it stays while one is showing.
+// Keep the delay while a card or popover is showing so the sidebar doesn't close mid-crossing.
 static BOOL DPCardShowing(void) {
+    static Class cardClass, popoverClass;
+    if (!cardClass) cardClass = objc_getClass(DPDiaPinnedTabCard);
+    if (!popoverClass) popoverClass = objc_getClass("_NSPopoverWindow");
     for (NSWindow *window in NSApp.windows)
-        if (window.visible && window.alphaValue > 0.01 && (DPIsKind(window, DPDiaPinnedTabCard) || DPIsKind(window, "_NSPopoverWindow"))) return YES;
+        if (window.visible && window.alphaValue > 0.01 && ((cardClass && [window isKindOfClass:cardClass]) || (popoverClass && [window isKindOfClass:popoverClass])))
+            return YES;
     return NO;
 }
 
@@ -116,7 +118,6 @@ static void DPApplyOpenSidebarInstantly(DPPatch *patch) {
     dispatch_async(dispatch_get_main_queue(), ^{ [NSNotificationCenter.defaultCenter postNotificationName:DPPatchesDidChangeNotification object:nil]; });
 }
 
-// Off in memory only: the saved switch stays on for a release that knows this Dia's code.
 static void DPInstallOpenSidebarInstantly(void) {
     if (!DPOpenSidebarInstantly.on) return;
     if (DPLocate()) return DPApplyOpenSidebarInstantly(&DPOpenSidebarInstantly);

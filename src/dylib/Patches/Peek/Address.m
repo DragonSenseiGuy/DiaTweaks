@@ -67,7 +67,8 @@
     if (![self.label.attributedStringValue isEqual:text]) self.label.attributedStringValue = text;
     self.label.toolTip = url.absoluteString;
     CGFloat height = ceil(self.label.intrinsicContentSize.height);
-    self.label.frame = NSMakeRect(10, round((NSHeight(self.bounds) - height) / 2), MAX(0, NSWidth(self.bounds) - 20), height);
+    NSRect frame = NSMakeRect(10, round((NSHeight(self.bounds) - height) / 2), MAX(0, NSWidth(self.bounds) - 20), height);
+    if (!NSEqualRects(self.label.frame, frame)) self.label.frame = frame;
 }
 
 - (void)setFrameSize:(NSSize)size {

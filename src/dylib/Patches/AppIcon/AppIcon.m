@@ -3,36 +3,34 @@
 
 static NSUInteger DPSwitches;
 
-static void DPAlertIconFailed(void) {
+static NSString *DPUnlinkable;
+
+static void DPAlert(NSString *message, NSString *detail) {
     NSAlert *alert = [NSAlert new];
-    alert.messageText = @"Couldn’t change Dia’s icon";
-    alert.informativeText = @"Dia keeps its current icon.";
+    alert.messageText = message;
+    alert.informativeText = detail;
     [alert runModal];
 }
 
 static NSString *DPLinkProblem(NSString *output) {
     for (NSString *line in [output componentsSeparatedByString:@"\n"]) {
-        NSString *kept = [line hasPrefix:@"warning: kept Dia's icon"] ? [line substringFromIndex:@"warning: ".length] : nil;
-        NSRange colon = [kept rangeOfString:@": "];
-        if (colon.length) return [kept substringFromIndex:NSMaxRange(colon)];
+        if (![line hasPrefix:@"warning: kept Dia's icon"]) continue;
+        NSRange colon = [line rangeOfString:@": " options:0 range:NSMakeRange(9, line.length - 9)];
+        if (colon.length) return [line substringFromIndex:NSMaxRange(colon)];
     }
     return nil;
 }
 
-static NSString *DPUnlinkable;
-
 static void DPAlertUnlinkable(void) {
-    NSAlert *alert = [NSAlert new];
-    alert.messageText = @"Couldn’t set up icon switching";
-    alert.informativeText = [NSString stringWithFormat:@"DiaTweaks couldn’t prepare this version of Dia: %@. Dia keeps its current icon, "
-                                                       @"and relaunching won’t change that. Updating or reinstalling DiaTweaks may fix it.", DPUnlinkable];
-    [alert runModal];
+    DPAlert(@"Couldn’t set up icon switching",
+            [NSString stringWithFormat:@"DiaTweaks couldn’t prepare this version of Dia: %@. Dia keeps its current icon, "
+                                       @"and relaunching won’t change that. Updating or reinstalling DiaTweaks may fix it.", DPUnlinkable]);
 }
 
 static void DPLinkCatalog(void) {
     if (DPUnlinkable) return DPAlertUnlinkable();
     DPRunCLI(@[ @"build" ], ^(NSString *output) {
-        if (!output) return DPAlertIconFailed();
+        if (!output) return DPAlert(@"Couldn’t change Dia’s icon", @"Dia keeps its current icon.");
         if ((DPUnlinkable = DPLinkProblem(output))) return DPAlertUnlinkable();
         NSAlert *alert = [NSAlert new];
         alert.messageText = @"Relaunch Dia to change its icon";
@@ -57,7 +55,7 @@ static void DPApplyAppIcon(DPPatch *patch) {
     NSUInteger current = ++DPSwitches;
     DPRunCLI(@[ @"set-icon" ], ^(NSString *output) {
         if (current != DPSwitches) return;
-        output ? DPDrawOwnTile() : DPAlertIconFailed();
+        output ? DPDrawOwnTile() : DPAlert(@"Couldn’t change Dia’s icon", @"Dia keeps its current icon.");
     });
 }
 

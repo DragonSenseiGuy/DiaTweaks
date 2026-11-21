@@ -30,7 +30,6 @@ void DPTestTextureMenu(NSWindow *window, NSView *strip) {
     DPSeenMenu = nil;
     assert(DPGrainRightClick(event) == nil);
     assert(([DPSeenMenu isEqual:@[@"Show Tabs in Sidebar", @"Auto-Hide Tabs", @"Edit Sidebar Grain…", @"Close All Tabs"]]));
-    // Full-height controls must retain their own menus, even at the same location.
     NSButton *button = [[NSButton alloc] initWithFrame:NSMakeRect(280, 0, 40, NSHeight(strip.bounds))];
     [body addSubview:button]; DPSeenMenu = nil;
     assert(DPGrainRightClick(event) == event && !DPSeenMenu);

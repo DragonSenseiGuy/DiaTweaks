@@ -1,4 +1,3 @@
-// Closing the port closes the host's stdin, which is what stops the request.
 chrome.runtime.onConnect.addListener((port) => {
   const origin = new URL(port.sender.url).origin;
   port.onMessage.addListener((request) => {

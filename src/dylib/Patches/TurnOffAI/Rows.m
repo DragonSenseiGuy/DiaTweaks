@@ -70,7 +70,6 @@ static NSString *DPTrailingName(NSView *cell, NSString *typed) {
     return DPTrimmed([label substringFromIndex:1]);
 }
 
-// Dia's pick can't be moved from here, so the button and icon show what Return will do instead.
 static void DPShowTypedAction(NSTableView *table) {
     if (!DPTurnOffAI.on || !DPGet(table, &DPPickKey)) return;
     NSView *bar = DPBarOf(table);
@@ -117,20 +116,18 @@ static BOOL DPOpenTypedRow(NSTextView *text) {
 }
 
 static BOOL DPInput_command(NSView *self, SEL _cmd, NSTextView *text, SEL command) {
-    if (DPTurnOffAI.on) {
-        if (command == @selector(moveUp:) || command == @selector(moveDown:)) gArrowAt = CACurrentMediaTime();
-        else if (command == @selector(insertNewline:) && DPOpenTypedRow(text)) return YES;
-    }
+    if (!DPTurnOffAI.on) return DPCallOriginal(DPInput_command, self, text, command);
+    if (command == @selector(moveUp:) || command == @selector(moveDown:)) gArrowAt = CACurrentMediaTime();
+    else if (command == @selector(insertNewline:) && DPOpenTypedRow(text)) return YES;
     return DPCallOriginal(DPInput_command, self, text, command);
 }
 
 // Asking a table for a row view during an update throws, and hidden rows have none: unhide, look, hide.
 static void DPFindAIRows(NSTableView *table) {
-    // Hiding and showing rows are updates too.
     static BOOL finding;
     if (finding) return;
     finding = YES;
-    // The table keeps its hidden rows in step as rows come and go, so what was found before may point past the end.
+    // Table shifts hiddenRowIndexes as rows change, so unhide those rather than cached indexes.
     if ([DPGet(table, &DPAIRowsKey) count] && table.hiddenRowIndexes.count)
         [table unhideRowsAtIndexes:table.hiddenRowIndexes withAnimation:NSTableViewAnimationEffectNone];
     NSMutableIndexSet *rows = [NSMutableIndexSet indexSet];
@@ -160,19 +157,20 @@ CGFloat DPHiddenSuggestionsHeight(NSView *suggestions) {
 
 static void DPTable_endUpdates(NSTableView *self, SEL _cmd) {
     DPCallOriginal(DPTable_endUpdates, self);
-    if (DPFoldsRows(self)) DPFindAIRows(self);
+    if ((DPTurnOffAI.on || [DPGet(self, &DPAIRowsKey) count]) && DPFoldsRows(self)) DPFindAIRows(self);
 }
 
 static void DPTable_reloadData(NSTableView *self, SEL _cmd) {
     DPCallOriginal(DPTable_reloadData, self);
-    if (DPFoldsRows(self)) DPFindAIRows(self);
+    if ((DPTurnOffAI.on || [DPGet(self, &DPAIRowsKey) count]) && DPFoldsRows(self)) DPFindAIRows(self);
 }
 
 // An arrow onto the chat row moves on; Dia's own pick of it must not, or the field fills with the next suggestion.
 static void DPTable_selectRows(NSTableView *self, SEL _cmd, NSIndexSet *rows, BOOL extend) {
+    if (!DPTurnOffAI.on) return DPCallOriginal(DPTable_selectRows, self, rows, extend);
     NSInteger from = self.selectedRow;
     DPCallOriginal(DPTable_selectRows, self, rows, extend);
-    if (!DPTurnOffAI.on || !DPIsKind(self.delegate, DPDiaCommandBarSuggestions)) return;
+    if (!DPIsKind(self.delegate, DPDiaCommandBarSuggestions)) return;
     BOOL hidden = rows.count == 1 && [DPGet(self, &DPAIRowsKey) containsIndex:rows.firstIndex];
     if (hidden && !DPArrowJustPressed()) return DPPickedHiddenRow(self);
     DPSet(self, &DPPickKey, nil);

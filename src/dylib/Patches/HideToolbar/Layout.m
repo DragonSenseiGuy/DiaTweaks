@@ -11,15 +11,16 @@ NSRect DPLaidOutFrame(NSView *view) {
 
 static void DPAssignFrame(NSView *view, NSRect laidOut, NSRect frame) {
     DPOverride(view, &DPFrameKey, @(laidOut), @(frame));
-    view.frame = frame;
+    if (!NSEqualRects(view.frame, frame)) view.frame = frame;
 }
 
 CGFloat DPTop(NSView *pane, NSRect r) { return pane.isFlipped ? NSMinY(r) : NSHeight(pane.bounds) - NSMaxY(r); }
 CGFloat DPBottom(NSView *pane, NSRect r) { return pane.isFlipped ? NSMaxY(r) : NSHeight(pane.bounds) - NSMinY(r); }
 
 NSView *DPBookmarksUnder(NSView *pane, NSView *bar) {
+    CGFloat barBottom = DPBottom(pane, DPLaidOutFrame(bar));
     for (NSView *sub in pane.subviews)
-        if (DPIsKind(sub, DPDiaBookmarksBar) && !sub.hidden && fabs(DPTop(pane, DPLaidOutFrame(sub)) - DPBottom(pane, DPLaidOutFrame(bar))) < 0.5) return sub;
+        if (DPIsKind(sub, DPDiaBookmarksBar) && !sub.hidden && fabs(DPTop(pane, DPLaidOutFrame(sub)) - barBottom) < 0.5) return sub;
     return nil;
 }
 
@@ -74,51 +75,64 @@ void DPApplyToolbar(NSView *pane) {
     if (!bar) return;
 
     NSView *bookmarks = DPBookmarksUnder(pane, bar);
-    NSArray<NSView *> *bars = bookmarks ? @[bar, bookmarks] : @[bar];
+    NSView *bars[2] = {bar, bookmarks};
+    NSUInteger barCount = bookmarks ? 2 : 1;
     DPToolbarHover *hover = [DPToolbarHover attachToPane:pane];
     [hover updateForBar:bar bookmarks:bookmarks];
 
     CGFloat progress = DPHidden(hover);
     DPApplyToolbarOpacity(hover);
-    NSIndexSet *slots = [pane.subviews indexesOfObjectsPassingTest:^BOOL(NSView *sub, NSUInteger i, BOOL *stop) { return [bars containsObject:sub]; }];
-    BOOL onTop = slots.firstIndex == pane.subviews.count - bars.count, atBottom = slots.lastIndex == bars.count - 1;
+    NSArray<NSView *> *subviews = pane.subviews;
+    NSMutableArray<NSView *> *stack = [NSMutableArray arrayWithCapacity:subviews.count];
+    NSUInteger firstSlot = NSNotFound, lastSlot = NSNotFound;
+    for (NSUInteger i = 0; i < subviews.count; i++) {
+        NSView *sub = subviews[i];
+        if (sub != bar && sub != bookmarks) { [stack addObject:sub]; continue; }
+        if (firstSlot == NSNotFound) firstSlot = i;
+        lastSlot = i;
+    }
+    BOOL onTop = firstSlot == subviews.count - barCount, atBottom = lastSlot == barCount - 1;
     if (hover.revealed || hover.progress > 0) {
-        if (!onTop) for (NSView *view in bars) [pane addSubview:view positioned:NSWindowAbove relativeTo:nil];
+        if (!onTop) for (NSUInteger i = 0; i < barCount; i++) [pane addSubview:bars[i] positioned:NSWindowAbove relativeTo:nil];
     } else if (progress > 0 && !atBottom) {
-        for (NSView *view in bars.reverseObjectEnumerator) [pane addSubview:view positioned:NSWindowBelow relativeTo:nil];
-    } else if (progress == 0 && slots.firstIndex == 0) {
-        for (NSView *view in bars) [pane addSubview:view positioned:NSWindowAbove relativeTo:nil];
+        for (NSUInteger i = barCount; i-- > 0;) [pane addSubview:bars[i] positioned:NSWindowBelow relativeTo:nil];
+    } else if (progress == 0 && firstSlot == 0) {
+        for (NSUInteger i = 0; i < barCount; i++) [pane addSubview:bars[i] positioned:NSWindowAbove relativeTo:nil];
     }
 
-    CGFloat edge = DPBottom(pane, DPLaidOutFrame(bars.lastObject)), shift = (edge - DPTop(pane, DPLaidOutFrame(bar))) * progress;
+    CGFloat edge = DPBottom(pane, DPLaidOutFrame(bars[barCount - 1])), shift = (edge - DPTop(pane, DPLaidOutFrame(bar))) * progress;
     // Hidden bars wait above the pane so the address field's text cursor can't reach the page.
     CGFloat lift = progress == 1 && !hover.revealed && hover.progress == 0 ? edge : 0;
-    for (NSView *view in bars) {
-        NSRect laidOut = DPLaidOutFrame(view), frame = laidOut;
-        frame.origin.y += pane.isFlipped ? -lift : lift;
-        DPAssignFrame(view, laidOut, frame);
+    BOOL flipped = pane.isFlipped;
+    for (NSUInteger i = 0; i < barCount; i++) {
+        NSRect laidOut = DPLaidOutFrame(bars[i]), frame = laidOut;
+        frame.origin.y += flipped ? -lift : lift;
+        DPAssignFrame(bars[i], laidOut, frame);
     }
-    NSMutableArray<NSView *> *stack = [NSMutableArray new];
-    for (NSView *sub in pane.subviews) if (![bars containsObject:sub]) [stack addObject:sub];
-    [stack sortUsingComparator:^NSComparisonResult(NSView *a, NSView *b) {
-        return [@(DPTop(pane, DPLaidOutFrame(a))) compare:@(DPTop(pane, DPLaidOutFrame(b)))];
-    }];
+    if (stack.count > 1) {
+        [stack sortUsingComparator:^NSComparisonResult(NSView *a, NSView *b) {
+            CGFloat at = DPTop(pane, DPLaidOutFrame(a)), bt = DPTop(pane, DPLaidOutFrame(b));
+            return at < bt ? NSOrderedAscending : at > bt ? NSOrderedDescending : NSOrderedSame;
+        }];
+    }
+    CGFloat paneHeight = NSHeight(pane.bounds);
     for (NSView *view in stack) {
         NSRect laidOut = DPLaidOutFrame(view);
         if (fabs(DPTop(pane, laidOut) - edge) > 0.5) continue;
-        BOOL reachesBottom = fabs(DPBottom(pane, laidOut) - NSHeight(pane.bounds)) < 0.5;
+        BOOL reachesBottom = fabs(DPBottom(pane, laidOut) - paneHeight) < 0.5;
         if (!reachesBottom) edge = DPBottom(pane, laidOut);
         NSRect frame = laidOut;
         if (reachesBottom) frame.size.height += shift;
-        if (pane.isFlipped) frame.origin.y -= shift;
+        if (flipped) frame.origin.y -= shift;
         else if (!reachesBottom) frame.origin.y += shift;
         DPAssignFrame(view, laidOut, frame);
+        NSRect bounds = view.bounds;
         for (NSView *child in view.subviews) {
             if (!DPGet(child, &DPFillsKey)) {
                 if (!NSEqualRects(child.frame, (NSRect){NSZeroPoint, laidOut.size})) continue;
                 DPSet(child, &DPFillsKey, @YES);
             }
-            child.frame = view.bounds;
+            if (!NSEqualRects(child.frame, bounds)) child.frame = bounds;
         }
     }
 }

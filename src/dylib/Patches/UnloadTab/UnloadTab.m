@@ -55,7 +55,7 @@ static void DPPage_setVisibility(id self, SEL _cmd, NSInteger visibility) {
     }
 }
 
-// Chromium may decline (a page playing audio), so only its finalize callback marks a page unloaded.
+// Discard can be declined (e.g. playing audio), so only the finalize callback marks it unloaded.
 static void DPWebContent_finalizeDiscard(id self, SEL _cmd, id page, BOOL discarded) {
     DPCallOriginal(DPWebContent_finalizeDiscard, self, page, discarded);
     if (discarded && page) [DPDiscarded addObject:page];
@@ -63,10 +63,12 @@ static void DPWebContent_finalizeDiscard(id self, SEL _cmd, id page, BOOL discar
 
 static NSMenu *DPTab_menuForEvent(NSView *self, SEL _cmd, NSEvent *event) {
     NSMenu *menu = DPCallOriginal(DPTab_menuForEvent, self, event);
-    id content = menu && DPUnloadTab.on ? DPTabContent(self) : nil;
-    NSView *pane = content ? DPFindView(self, ^BOOL(NSView *view) { return DPIsKind(view, DPDiaTabContentView); }) : nil;
+    if (!menu || !DPUnloadTab.on) return menu;
+    id content = DPTabContent(self);
+    if (!content) return menu;
+    NSView *pane = DPFindView(self, ^BOOL(NSView *view) { return DPIsKind(view, DPDiaTabContentView); });
     BOOL pinned = pane && DPIsOpenPinned(pane) && [pane respondsToSelector:NSSelectorFromString(@"closeButtonClicked")];
-    id page = content && !pinned ? DPPageOf(content) : nil;
+    id page = !pinned ? DPPageOf(content) : nil;
     if (!pinned && (!page || [DPDiscarded containsObject:page])) return menu;
     BOOL open = DPTabOpen(self);
     BOOL visible = page ? ((NSInteger (*)(id, SEL))objc_msgSend)(page, @selector(visibility)) == DPPageVisible : open;
@@ -82,7 +84,6 @@ static NSMenu *DPTab_menuForEvent(NSView *self, SEL _cmd, NSEvent *event) {
         if (!before) return (void)[page performSelector:@selector(discard)];
         [DPUnloadOnHide addObject:page];
         DPFocusTab(before);
-        // If switching doesn't take it off screen, it isn't unloaded later out of the blue.
         __weak id weakPage = page;
         dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 2 * NSEC_PER_SEC), dispatch_get_main_queue(), ^{
             id shown = weakPage;

@@ -21,9 +21,13 @@ void DPInstallPreviews(void) {
 }
 
 static NSURL *DPCachedPreview(NSString *name) {
-    NSURL *caches = [NSFileManager.defaultManager URLsForDirectory:NSCachesDirectory inDomains:NSUserDomainMask].firstObject;
-    NSURL *dir = [caches URLByAppendingPathComponent:@"DiaPatches/previews" isDirectory:YES];
-    [NSFileManager.defaultManager createDirectoryAtURL:dir withIntermediateDirectories:YES attributes:nil error:nil];
+    static NSURL *dir;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        NSURL *caches = [NSFileManager.defaultManager URLsForDirectory:NSCachesDirectory inDomains:NSUserDomainMask].firstObject;
+        dir = [caches URLByAppendingPathComponent:@"DiaPatches/previews" isDirectory:YES];
+        [NSFileManager.defaultManager createDirectoryAtURL:dir withIntermediateDirectories:YES attributes:nil error:nil];
+    });
     return [dir URLByAppendingPathComponent:name];
 }
 
@@ -105,11 +109,13 @@ static void DPFetchPreview(NSArray<NSString *> *names, void (^done)(NSURL *file,
     if ([layout isEqual:_layout]) return;
     _layout = layout;
     NSArray<NSString *> *names = _names = DPPreviewNames(_key, layout);
-    for (NSString *name in names)
-        if ([DPCachedPreview(name) checkResourceIsReachableAndReturnError:nil]) {
-            [self show:DPCachedPreview(name)];
+    for (NSString *name in names) {
+        NSURL *cached = DPCachedPreview(name);
+        if ([cached checkResourceIsReachableAndReturnError:nil]) {
+            [self show:cached];
             break;
         }
+    }
     __weak DPPreviewView *weakSelf = self;
     DPFetchPreview(names, ^(NSURL *file, BOOL changed) {
         DPPreviewView *view = weakSelf;

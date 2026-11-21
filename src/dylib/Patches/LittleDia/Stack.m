@@ -114,8 +114,11 @@ void DPInstallLittleDiaStack(void) {
     DPVeiled = [NSMapTable weakToStrongObjectsMapTable];
     NSNotificationCenter *center = NSNotificationCenter.defaultCenter;
     [center addObserverForName:NSApplicationWillUnhideNotification object:nil queue:nil usingBlock:^(NSNotification *note) { DPVeilWindows(); }];
-    [center addObserverForName:NSApplicationDidUnhideNotification object:nil queue:nil usingBlock:^(NSNotification *note) { DPUnhiddenAt = [NSDate date]; }];
+    [center addObserverForName:NSApplicationDidUnhideNotification object:nil queue:nil usingBlock:^(NSNotification *note) {
+        if (DPLittleDia.on) DPUnhiddenAt = [NSDate date];
+    }];
     [center addObserverForName:NSApplicationWillBecomeActiveNotification object:nil queue:nil usingBlock:^(NSNotification *note) {
+        if (!DPLittleDia.on) return;
         DPBeforeActivating = DPWindowStack();
         DPNotedAt = [NSDate date];
     }];

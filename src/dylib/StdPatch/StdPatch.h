@@ -16,7 +16,7 @@ struct DPPatch {
     __unsafe_unretained NSString *requires;
     __unsafe_unretained NSString *disabledBy;
     __unsafe_unretained NSString *coveredBy;
-    BOOL relaunch;  // Only changes at launch: pausing or resuming it finishes when Dia next opens.
+    BOOL relaunch;  // Applies only at launch.
     __unsafe_unretained NSString *choice, *defaultChoice;  // Saved as the chosen item's representedObject.
     NSMenu *(*choices)(void);
     NSArray<NSView *> *(*rows)(void);
@@ -28,7 +28,7 @@ struct DPPatch {
     void (*relayout)(void);
     // nil if Dia's views match `on`, else what's wrong. Use DPFindViews, not your hooks, so a hook that never ran fails.
     NSString *(*verify)(DPPatch *patch);
-    BOOL (*animating)(void);  // Optional: whether it's still easing something its verify reads. The test waits for it.
+    BOOL (*animating)(void);  // Non-nil when verify must wait for an ease.
     NSString *(*ready)(DPPatch *patch);
     BOOL on, unavailable;
     CGFloat progress;
@@ -47,14 +47,14 @@ DPPatch *DPPatchNamed(NSString *key);
 DPPatch *DPRequired(DPPatch *patch);
 void DPSetPatch(DPPatch *patch, BOOL on, BOOL save);
 void DPApplySavedSettings(void);
-BOOL DPEffectiveOn(DPPatch *patch);  // Its saved setting, unless tweaks are paused.
-BOOL DPAnimating(void);  // Whether any easing is still running.
+BOOL DPEffectiveOn(DPPatch *patch);
+BOOL DPAnimating(void);
 BOOL DPSavedOn(DPPatch *patch);
 NSString *DPChoice(DPPatch *patch);
 void DPSetChoice(DPPatch *patch, NSString *value);
 void DPLoadPatches(void);
 void DPInstallPatches(void);
-BOOL DPWriteManifest(NSString *path);  // Reads no settings.
+BOOL DPWriteManifest(NSString *path);
 NSString *DPAppSupport(NSString *path);
 NSString *DPRelayProblem(void);
 NSString *DPHostProblem(NSString *manifest, NSString *name);
@@ -106,8 +106,7 @@ NSURL *DPAddressURL(NSString *typed);
 
 float DPZoomStep(float now, int direction);
 
-// Chromium reads extensions and launch flags once as Dia starts: call DPLoadExtension and DPAddLaunchFlag from an `install`.
-// A tweak that is off calls DPDropExtension and DPDropLaunchFlag there instead, with what it adds when on.
+// Call DPLoad*/DPAdd* when on, or DPDrop* when off, from install.
 void DPLoadExtension(NSString *folder);
 void DPAddLaunchFlag(NSString *flag);
 void DPDropExtension(NSString *folder);

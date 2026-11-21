@@ -3,7 +3,6 @@
 static char DPPathKey, DPShadowPathKey, DPPastPathsKey;
 static NSMapTable<CALayer *, NSView *> *DPPathOwners;
 
-// Private; fields in on-screen order from the top left.
 typedef struct CACornerRadii { CGSize topLeft, topRight, bottomRight, bottomLeft; } CACornerRadii;
 
 @interface CALayer (DPCornerRadii)
@@ -15,7 +14,7 @@ static void DPMaskCorners(NSView *container, CALayer *layer, CGFloat left, CGFlo
     if ([layer respondsToSelector:@selector(setCornerRadii:)]) {
         layer.mask = nil;
         layer.maskedCorners = DPLeftCorners | DPRightCorners;
-        // All zero, the radii stop counting and the layer clips to its cornerRadius again, so square stays a hair above zero.
+        // All-zero cornerRadii falls back to cornerRadius, so square stays a hair above zero.
         CGFloat l = MAX(0.01, layer.cornerRadius * (1 - left)), r = MAX(0.01, layer.cornerRadius * (1 - right));
         CACornerRadii radii = { { l, l }, { r, r }, { r, r }, { l, l } };
         DPAnimateLayer(container, layer, @"cornerRadii", [NSValue valueWithBytes:&radii objCType:@encode(CACornerRadii)]);
@@ -55,7 +54,7 @@ static CGPathRef DPReshapePath(id owner, char *key, CGPathRef current, NSView *c
     DPOverride(owner, key, dia, (__bridge id)path);
     if (!DPPathOwners) DPPathOwners = [NSMapTable weakToWeakObjectsMapTable];
     [DPPathOwners setObject:container forKey:owner];
-    // Dia's next animation may start from a path we set, so each maps back to Dia's.
+    // Dia's next animation may start from a path we set, so map each back to Dia's.
     NSMapTable *past = DPGet(owner, &DPPastPathsKey) ?: [NSMapTable strongToStrongObjectsMapTable];
     if (past.count > 8) [past removeAllObjects];
     [past setObject:dia forKey:(__bridge id)path];

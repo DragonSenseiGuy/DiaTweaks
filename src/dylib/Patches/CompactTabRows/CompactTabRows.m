@@ -7,11 +7,9 @@ static const CGFloat DPOldRowHeight = 37, DPSmallRowHeight = 30;
 
 static BOOL DPSmall(void) { return DPCompactTabRows.on && [DPChoice(&DPCompactTabRows) isEqual:DPSmallRows]; }
 
-static CGFloat DPRowTarget(void) { return DPSmall() ? DPSmallRowHeight : DPOldRowHeight; }
+CGFloat DPCompactRowHeight(void) { return DPSmall() ? DPSmallRowHeight : DPOldRowHeight; }
 
-CGFloat DPCompactRowHeight(void) { return DPRowTarget(); }
-
-// The attributes Dia keeps, not the moved copies Collapse Pinned Tabs hands out.
+// Dia's own attributes, not the moved copies Collapse Pinned Tabs returns.
 static NSArray<NSCollectionViewLayoutAttributes *> *DPKeptAttributes(NSCollectionViewLayout *layout) {
     NSArray *(*elements)(id, SEL, NSRect) = (void *)DPDiaIMP(objc_getClass(DPDiaTabListLayout), @selector(layoutAttributesForElementsInRect:));
     return elements(layout, @selector(layoutAttributesForElementsInRect:), NSMakeRect(-1e5, -1e5, 2e5, 1e7));
@@ -30,7 +28,7 @@ static char DPMovesKey;
 
 typedef void (*DPHeightHandler)(double height, void *context __attribute__((swift_context))) __attribute__((swiftcall));
 
-// A group's card is sized when its list reports its height, and Dia reports it only when it sets the height, not when we lower it.
+// Group cards size from this callback, which Dia only fires when it sets contentHeight itself.
 static void DPReportHeight(NSCollectionViewLayout *layout, double height) {
     NSView *list = layout.collectionView;
     while (list && !DPIsKind(list, DPDiaTabList)) list = list.superview;
@@ -41,9 +39,9 @@ static void DPReportHeight(NSCollectionViewLayout *layout, double height) {
 static void DPLayout_prepareLayout(NSCollectionViewLayout *self, SEL _cmd) {
     DPCallOriginal(DPLayout_prepareLayout, self);
     if (!DPCompactTabRows.on) return DPSet(self, &DPMovesKey, nil);
-    double *contentHeight = DPIvar(self, "contentHeight");  // Dia's layout hands out the attributes it keeps, so changing them changes it.
+    double *contentHeight = DPIvar(self, "contentHeight");
     NSArray<NSCollectionViewLayoutAttributes *> *all = DPKeptAttributes(self);
-    CGFloat height = DPRowHeight(all), cut = height - DPRowTarget();
+    CGFloat height = DPRowHeight(all), cut = height - DPCompactRowHeight();
     if (!contentHeight || cut < 0.5) return;
     NSMutableArray<NSValue *> *rows = [NSMutableArray new];
     for (NSCollectionViewLayoutAttributes *a in all)
@@ -67,7 +65,6 @@ static void DPLayout_prepareLayout(NSCollectionViewLayout *self, SEL _cmd) {
     DPReportHeight(self, *contentHeight);
 }
 
-// Collapse Pinned's hooks install after these, so run first and have already taken its header out of the point.
 CGFloat DPTabListDiaY(NSArray<NSArray<NSValue *> *> *moves, CGFloat y) {
     NSArray<NSValue *> *inside = nil, *above = nil;
     for (NSArray<NSValue *> *move in moves) {
@@ -111,7 +108,7 @@ id<NSDraggingInfo> DPDraggingInfoAt(id<NSDraggingInfo> info, NSPoint location) {
     return (id<NSDraggingInfo>)drag;
 }
 
-// Dia draws the dragged tab where it is told the pointer is, which with these proxies is a point in its own row geometry: put the tab back under the pointer.
+// Dia draws the dragged tab at the proxied point; shift it back under the pointer.
 void DPPlaceDraggedTab(void) {
     if (!DPDragHandedSet) return;
     DPDragHandedSet = NO;
@@ -143,7 +140,7 @@ static NSDragOperation DPTabList_updated(NSView *self, SEL _cmd, id<NSDraggingIn
     DPPlaceDraggedTab();
     return operation;
 }
-// A drop places nothing, so what it handed down must not wait for the next drag to place a tab by it.
+// Clear before a drop so its proxied point isn't applied to the next drag.
 static BOOL DPDropped(BOOL result) {
     DPDragHandedSet = NO;
     return result;
@@ -153,7 +150,6 @@ static BOOL DPTabList_perform(NSView *self, SEL _cmd, id<NSDraggingInfo> info) {
 
 static char DPDiaFontKey;
 
-// A tab's, folder's or New Tab row's title: the labels in the list that aren't a tab's second line.
 static BOOL DPIsRowTitle(NSView *label) {
     if (DPIsKind(label.superview, DPDiaTransitioningLabel)) return NO;
     for (NSView *view = label.superview; view; view = view.superview) if (DPIsKind(view, DPDiaTabListCollection)) return YES;
@@ -174,9 +170,10 @@ static void DPLabel_layout(NSTextField *self, SEL _cmd) {
 
 static void DPGroupCell_layout(NSView *self, SEL _cmd) {
     DPCallOriginal(DPGroupCell_layout, self);
-    if (!DPCompactTabRows.on || NSHeight(self.bounds) <= DPRowTarget() + 0.5) return;
+    CGFloat target = DPCompactRowHeight();
+    if (!DPCompactTabRows.on || NSHeight(self.bounds) <= target + 0.5) return;
     for (NSView *header in self.subviews) {
-        CGFloat extra = NSHeight(header.frame) - (DPRowTarget() - 3);
+        CGFloat extra = NSHeight(header.frame) - (target - 3);
         if (!DPIsKind(header, DPDiaTabGroupBackground) && extra > 0.5 && NSHeight(header.frame) < DPOldRowHeight + 1.5 && NSMinY(header.frame) > 1)
             [header setFrameOrigin:NSMakePoint(NSMinX(header.frame), NSMinY(header.frame) - extra / 2)];
     }
@@ -201,9 +198,10 @@ static void DPApplyCompactTabRows(DPPatch *patch) {
 }
 
 static NSString *DPVerifyCompactTabRows(DPPatch *patch) {
+    CGFloat target = DPCompactRowHeight();
     for (NSView *view in DPFindViews(DPDiaTabListCollection)) {
         NSArray *all = DPKeptAttributes(((NSCollectionView *)view).collectionViewLayout);
-        if (patch->on && DPRowHeight(all) > DPRowTarget() + 0.5) return [NSString stringWithFormat:@"tab rows are taller than %g pt", DPRowTarget()];
+        if (patch->on && DPRowHeight(all) > target + 0.5) return [NSString stringWithFormat:@"tab rows are taller than %g pt", target];
     }
     for (NSTextField *label in DPFindViews(DPDiaFeatheredLabel)) {
         if (!DPIsRowTitle(label) || label.hiddenOrHasHiddenAncestor) continue;

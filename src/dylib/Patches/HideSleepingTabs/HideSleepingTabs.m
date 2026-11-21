@@ -36,15 +36,17 @@ static NSIndexPath *DPDiaIndexPath(id list, NSIndexPath *path) {
 static void DPWatchSwitcherSize(id list);
 
 static NSInteger DPList_count(id self, SEL _cmd, NSCollectionView *view, NSInteger section) {
+    if (!DPHideSleepingTabs.on) return DPCallOriginal(DPList_count, self, view, section);
     DPWatchSwitcherSize(self);
     NSArray *shown = DPShownItems(self);
     return shown ? (NSInteger)shown.count : DPCallOriginal(DPList_count, self, view, section);
 }
 
-// Dia makes the cell at its own index, which can be past the end of the shorter grid.
+// Dia requests cells at its own index, which can be past the end of the shorter grid.
 static NSIndexPath *DPShownPath;
 
 static NSCollectionViewItem *DPList_item(id self, SEL _cmd, NSCollectionView *view, NSIndexPath *path) {
+    if (!DPHideSleepingTabs.on) return DPCallOriginal(DPList_item, self, view, path);
     DPShownPath = path;
     NSCollectionViewItem *item = DPCallOriginal(DPList_item, self, view, DPDiaIndexPath(self, path));
     DPShownPath = nil;
@@ -56,16 +58,18 @@ static NSCollectionViewItem *DPGrid_makeItem(NSCollectionView *self, SEL _cmd, N
 }
 
 static NSSize DPList_size(id self, SEL _cmd, NSCollectionView *view, NSCollectionViewLayout *layout, NSIndexPath *path) {
+    if (!DPHideSleepingTabs.on) return DPCallOriginal(DPList_size, self, view, layout, path);
     return DPCallOriginal(DPList_size, self, view, layout, DPDiaIndexPath(self, path));
 }
 
 static void DPList_select(id self, SEL _cmd, NSCollectionView *view, NSSet<NSIndexPath *> *paths) {
+    if (!DPHideSleepingTabs.on) return DPCallOriginal(DPList_select, self, view, paths);
     NSMutableSet *dia = [NSMutableSet new];
     for (NSIndexPath *path in paths) [dia addObject:DPDiaIndexPath(self, path)];
     DPCallOriginal(DPList_select, self, view, dia);
 }
 
-static const CGFloat DPSwitcherChrome = 152;  // Shadow margin and grid inset, both sides.
+static const CGFloat DPSwitcherChrome = 152;
 static char DPWatchedKey;
 static BOOL DPFitting;
 
@@ -104,7 +108,7 @@ static void DPWatchSwitcherSize(id list) {
         watch.list = list;
         [size addObserver:watch forKeyPath:@"constant" options:0 context:NULL];
         DPSet(size, &DPWatchedKey, watch);
-        dispatch_async(dispatch_get_main_queue(), ^{ DPFitSwitcherSize(size, list); });  // Not mid-layout.
+        dispatch_async(dispatch_get_main_queue(), ^{ DPFitSwitcherSize(size, list); });
     }
 }
 
@@ -146,12 +150,11 @@ static void DPInstallHideSleepingTabs(void) {
     DPHook(DPDiaTabSwitcherList, @selector(collectionView:didSelectItemsAtIndexPaths:), (IMP)DPList_select);
     DPHookClass(NSCollectionView.class, @selector(makeItemWithIdentifier:forIndexPath:), (IMP)DPGrid_makeItem);
     [NSEvent addLocalMonitorForEventsMatchingMask:NSEventMaskKeyDown handler:^NSEvent *(NSEvent *event) {
-        BOOL own = event.CGEvent && CGEventGetIntegerValueField(event.CGEvent, kCGEventSourceUserData) == DPOwnKey;
-        if (!own && DPHideSleepingTabs.on && event.keyCode == 48 && (event.modifierFlags & NSEventModifierFlagControl)) {
-            BOOL running = DPStepsLeft > 0;
-            DPStepsLeft = 20;
-            if (!running) DPStepSoon();
-        }
+        if (!DPHideSleepingTabs.on || event.keyCode != 48 || !(event.modifierFlags & NSEventModifierFlagControl)) return event;
+        if (event.CGEvent && CGEventGetIntegerValueField(event.CGEvent, kCGEventSourceUserData) == DPOwnKey) return event;
+        BOOL running = DPStepsLeft > 0;
+        DPStepsLeft = 20;
+        if (!running) DPStepSoon();
         return event;
     }];
 }

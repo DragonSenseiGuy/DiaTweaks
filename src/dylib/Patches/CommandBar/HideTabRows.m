@@ -1,7 +1,5 @@
 #import "Patches/CommandBar/HideTab.h"
 
-// The sidebar's list names each row, a tab's as "….tab(<tab ID>)".
-
 NSString *DPRowName(NSCollectionView *list, NSIndexPath *path) {
     Ivar implVar = list.dataSource ? class_getInstanceVariable(object_getClass(list.dataSource), "_impl") : NULL;
     id impl = implVar ? object_getIvar(list.dataSource, implVar) : nil;
@@ -16,24 +14,28 @@ NSString *DPTabIn(NSString *rowName) {
 
 NSArray<NSString *> *DPListedTabs(NSWindow *window) {
     NSMutableArray *tabs = [NSMutableArray array];
-    for (NSCollectionView *list in DPFindViews(DPDiaTabListCollection))
-        for (NSInteger section = 0; (!window || list.window == window) && section < list.numberOfSections; section++)
+    for (NSCollectionView *list in DPFindViews(DPDiaTabListCollection)) {
+        if (window && list.window != window) continue;
+        for (NSInteger section = 0; section < list.numberOfSections; section++)
             for (NSInteger item = 0; item < [list numberOfItemsInSection:section]; item++)
                 [tabs addObject:DPTabIn(DPRowName(list, [NSIndexPath indexPathForItem:item inSection:section])) ?: @""];
+    }
     return tabs;
 }
 
-// An empty window's replacement tab is the only one it lists besides the pinned tabs, which sit above the pinned separator,
-// and the tab that is closing as it opens.
+// Pinned tabs sit above SectionID.pinned, so resetting regular there leaves only unpinned tabs.
 BOOL DPOnlyListedTab(NSString *tab, NSString *closing, NSWindow *window) {
     NSMutableArray<NSString *> *regular = [NSMutableArray array];
-    for (NSCollectionView *list in DPFindViews(DPDiaTabListCollection))
-        for (NSInteger section = 0; list.window == window && section < list.numberOfSections; section++)
+    for (NSCollectionView *list in DPFindViews(DPDiaTabListCollection)) {
+        if (list.window != window) continue;
+        for (NSInteger section = 0; section < list.numberOfSections; section++)
             for (NSInteger item = 0; item < [list numberOfItemsInSection:section]; item++) {
                 NSString *name = DPRowName(list, [NSIndexPath indexPathForItem:item inSection:section]);
-                if ([name containsString:@"SectionID.pinned"]) [regular removeAllObjects];
-                else if (DPTabIn(name) && ![DPTabIn(name) isEqual:closing]) [regular addObject:DPTabIn(name)];
+                if ([name containsString:@"SectionID.pinned"]) { [regular removeAllObjects]; continue; }
+                NSString *rowTab = DPTabIn(name);
+                if (rowTab && ![rowTab isEqual:closing]) [regular addObject:rowTab];
             }
+    }
     return !regular.count || (regular.count == 1 && [regular.firstObject isEqual:tab]);
 }
 

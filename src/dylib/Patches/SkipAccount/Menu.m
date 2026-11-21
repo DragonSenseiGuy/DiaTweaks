@@ -7,11 +7,20 @@ static BOOL DPIsSignIn(NSMenuItem *item) {
 
 static BOOL DPIsLocalAction(NSMenuItem *item) {
     if (!item.menu) return NO;
+    static NSSet<NSString *> *appItems, *fileItems;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        appItems = [NSSet setWithArray:@[ @"Settings…", @"Settings...", @"Set as Default Browser", @"Import from Another Browser…", @"Import from Another Browser..." ]];
+        fileItems = [NSSet setWithArray:@[ @"New Window", @"New Incognito Window" ]];
+    });
     NSMenu *bar = NSApp.mainMenu;
-    if (item.menu == bar.itemArray.firstObject.submenu)
-        return [@[ @"Settings…", @"Settings...", @"Set as Default Browser", @"Import from Another Browser…", @"Import from Another Browser..." ] containsObject:item.title];
-    return item.menu == [bar itemWithTitle:@"File"].submenu
-        && [@[ @"New Window", @"New Incognito Window" ] containsObject:item.title];
+    if (item.menu == bar.itemArray.firstObject.submenu) return [appItems containsObject:item.title];
+    return item.menu == [bar itemWithTitle:@"File"].submenu && [fileItems containsObject:item.title];
+}
+
+static void DPApplyItem(NSMenuItem *item) {
+    if (DPIsSignIn(item)) item.hidden = YES;
+    if (DPIsLocalAction(item)) item.enabled = YES;
 }
 
 static void DPItem_setEnabled(NSMenuItem *self, SEL _cmd, BOOL enabled) {
@@ -19,10 +28,7 @@ static void DPItem_setEnabled(NSMenuItem *self, SEL _cmd, BOOL enabled) {
 }
 
 static void DPUpdateMenu(NSMenu *menu) {
-    for (NSMenuItem *item in menu.itemArray) {
-        if (DPIsSignIn(item)) item.hidden = YES;
-        if (DPIsLocalAction(item)) item.enabled = YES;
-    }
+    for (NSMenuItem *item in menu.itemArray) DPApplyItem(item);
 }
 
 static void DPItem_setHidden(NSMenuItem *self, SEL _cmd, BOOL hidden) {
@@ -31,14 +37,12 @@ static void DPItem_setHidden(NSMenuItem *self, SEL _cmd, BOOL hidden) {
 
 static void DPMenu_addItem(NSMenu *self, SEL _cmd, NSMenuItem *item) {
     DPCallOriginal(DPMenu_addItem, self, item);
-    if (DPIsSignIn(item)) item.hidden = YES;
-    if (DPIsLocalAction(item)) item.enabled = YES;
+    DPApplyItem(item);
 }
 
 static void DPMenu_insertItem(NSMenu *self, SEL _cmd, NSMenuItem *item, NSInteger index) {
     DPCallOriginal(DPMenu_insertItem, self, item, index);
-    if (DPIsSignIn(item)) item.hidden = YES;
-    if (DPIsLocalAction(item)) item.enabled = YES;
+    DPApplyItem(item);
 }
 
 static void DPMenu_update(NSMenu *self, SEL _cmd) {

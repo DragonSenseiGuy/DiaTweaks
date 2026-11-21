@@ -14,9 +14,9 @@ NSString *DPWhyDisabled(DPPatch *patch) {
 
 NSString *DPWhyHiddenBy(DPPatch *disabler) {
     if (!disabler || !disabler->on) return nil;
-    __block BOOL shownSometimes = NO;
-    DPForEachOption(disabler, ^(DPPatch *option) { shownSometimes |= option->on; });
-    return shownSometimes ? nil : [NSString stringWithFormat:@"Hidden while %@ is on", disabler->title];
+    for (NSUInteger i = 0; i < DPPatchCount; i++)
+        if (DPRequired(DPPatches[i]) == disabler && DPPatches[i]->on) return nil;
+    return [NSString stringWithFormat:@"Hidden while %@ is on", disabler->title];
 }
 
 NSString *DPWhyHidden(DPPatch *patch) { return patch->on ? DPWhyHiddenBy(DPPatchNamed(patch->disabledBy)) : nil; }
@@ -27,8 +27,8 @@ NSURL *DPWikiURL(DPPatch *patch) {
 }
 
 NSArray<NSString *> *DPRelaunchingOnPause(void) {
+    if (DPSafeMode || DPPausedAtLaunch) return @[];
     NSMutableArray<NSString *> *waiting = [NSMutableArray new];
-    if (DPSafeMode || DPPausedAtLaunch) return waiting;
     for (NSUInteger i = 0; i < DPPatchCount; i++)
         if (DPPatches[i]->relaunch && DPPatches[i]->on) [waiting addObject:DPPatches[i]->title];
     return waiting;
@@ -102,10 +102,10 @@ void DPSetTweaksPaused(BOOL paused, NSWindow *window) {
 }
 
 - (void)sync {
-    // Paused: show what comes back, but nothing can be turned on until it does.
     self.state = DPPaused ? DPSavedOn(self.patch) : self.patch->on;
     self.enabled = !DPWhyDisabled(self.patch) && !DPPaused;
-    DPSetHint(self.hiddenIcon, DPWhyHidden(self.patch));
-    self.hiddenIcon.hidden = !DPHintOf(self.hiddenIcon);
+    NSString *hint = DPWhyHidden(self.patch);
+    DPSetHint(self.hiddenIcon, hint);
+    self.hiddenIcon.hidden = !hint;
 }
 @end

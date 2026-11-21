@@ -19,10 +19,14 @@ static NSString *DPShortcutText(NSDictionary *shortcut) {
 }
 
 static NSString *DPKeyName(NSEvent *event) {
-    NSDictionary *named = @{ @(kVK_Return) : @"↩", @(kVK_Tab) : @"⇥", @(kVK_Space) : @"Space", @(kVK_Delete) : @"⌫", @(kVK_ForwardDelete) : @"⌦",
-                             @(kVK_LeftArrow) : @"←", @(kVK_RightArrow) : @"→", @(kVK_UpArrow) : @"↑", @(kVK_DownArrow) : @"↓",
-                             @(kVK_F1) : @"F1", @(kVK_F2) : @"F2", @(kVK_F3) : @"F3", @(kVK_F4) : @"F4", @(kVK_F5) : @"F5", @(kVK_F6) : @"F6",
-                             @(kVK_F7) : @"F7", @(kVK_F8) : @"F8", @(kVK_F9) : @"F9", @(kVK_F10) : @"F10", @(kVK_F11) : @"F11", @(kVK_F12) : @"F12" };
+    static NSDictionary *named;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        named = @{ @(kVK_Return) : @"↩", @(kVK_Tab) : @"⇥", @(kVK_Space) : @"Space", @(kVK_Delete) : @"⌫", @(kVK_ForwardDelete) : @"⌦",
+                   @(kVK_LeftArrow) : @"←", @(kVK_RightArrow) : @"→", @(kVK_UpArrow) : @"↑", @(kVK_DownArrow) : @"↓",
+                   @(kVK_F1) : @"F1", @(kVK_F2) : @"F2", @(kVK_F3) : @"F3", @(kVK_F4) : @"F4", @(kVK_F5) : @"F5", @(kVK_F6) : @"F6",
+                   @(kVK_F7) : @"F7", @(kVK_F8) : @"F8", @(kVK_F9) : @"F9", @(kVK_F10) : @"F10", @(kVK_F11) : @"F11", @(kVK_F12) : @"F12" };
+    });
     NSString *name = named[@(event.keyCode)];
     if (name) return name;
     NSString *typed = event.charactersIgnoringModifiers.uppercaseString;
@@ -47,25 +51,31 @@ BOOL DPEventIsKey(NSEvent *event, NSString *key) {
     if (typed.length == 1 && [typed characterAtIndex:0] < 128) return [typed caseInsensitiveCompare:key] == NSOrderedSame;
     // US keyboard by key code, 0 to 50; the space is a key with no character.
     static const char us[] = "asdfhgzxcv bqweryt123465=97-80]ou[ip lj'k;\\,/nm.  `";
-    unichar c = [key.lowercaseString characterAtIndex:0];
+    unichar c = [key characterAtIndex:0];
+    if (c >= 'A' && c <= 'Z') c += 'a' - 'A';
     const char *at = c > ' ' && c < 127 ? strchr(us, c) : NULL;
     return at && event.keyCode == at - us;
 }
 
 BOOL DPShortcutMatches(NSEvent *event, DPPatch *patch) {
+    if (DPShortcutRecording()) return NO;
     NSDictionary *shortcut = DPPatchShortcut(patch);
+    if (!shortcut.count || [shortcut[@"modifiers"] unsignedIntegerValue] != (event.modifierFlags & DPShortcutModifiers)) return NO;
     NSString *label = shortcut[@"key"];
     BOOL letter = label.length == 1 && [label characterAtIndex:0] < 128 && isalpha([label characterAtIndex:0]);
-    BOOL key = letter ? DPEventIsKey(event, label) : shortcut[@"keyCode"] && [shortcut[@"keyCode"] integerValue] == event.keyCode;
-    return !DPShortcutRecording() && key && [shortcut[@"modifiers"] unsignedIntegerValue] == (event.modifierFlags & DPShortcutModifiers);
+    return letter ? DPEventIsKey(event, label) : shortcut[@"keyCode"] && [shortcut[@"keyCode"] integerValue] == event.keyCode;
 }
 
 static NSDictionary *DPMenuShortcut(NSMenuItem *item) {
     NSString *equivalent = item.keyEquivalent;
     if (equivalent.length != 1) return nil;
     unichar c = [equivalent characterAtIndex:0];
-    NSDictionary *named = @{ @('\r') : @"↩", @('\t') : @"⇥", @(' ') : @"Space", @('\b') : @"⌫", @(0x7f) : @"⌫", @(NSDeleteFunctionKey) : @"⌦",
-                             @(NSLeftArrowFunctionKey) : @"←", @(NSRightArrowFunctionKey) : @"→", @(NSUpArrowFunctionKey) : @"↑", @(NSDownArrowFunctionKey) : @"↓" };
+    static NSDictionary *named;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        named = @{ @('\r') : @"↩", @('\t') : @"⇥", @(' ') : @"Space", @('\b') : @"⌫", @(0x7f) : @"⌫", @(NSDeleteFunctionKey) : @"⌦",
+                   @(NSLeftArrowFunctionKey) : @"←", @(NSRightArrowFunctionKey) : @"→", @(NSUpArrowFunctionKey) : @"↑", @(NSDownArrowFunctionKey) : @"↓" };
+    });
     NSString *name = named[@(c)] ?: (c >= NSF1FunctionKey && c <= NSF12FunctionKey ? [NSString stringWithFormat:@"F%d", c - NSF1FunctionKey + 1] : equivalent.uppercaseString);
     NSEventModifierFlags flags = item.keyEquivalentModifierMask & DPShortcutModifiers;
     if (![equivalent isEqualToString:equivalent.lowercaseString]) flags |= NSEventModifierFlagShift;
@@ -137,12 +147,14 @@ static NSArray<NSString *> *DPShortcutClashes(DPPatch *patch) {
     _label.textColor = text && !recording ? NSColor.labelColor : NSColor.secondaryLabelColor;
     _clear.hidden = !text || !_hovered;
     NSArray<NSString *> *clashes = DPShortcutClashes(_patch);
-    NSFont *font = [NSFont systemFontOfSize:11];
-    NSMutableAttributedString *warning = [[NSMutableAttributedString alloc] initWithString:@"This shortcut conflicts with another shortcut:\n"
-                                                                                attributes:@{ NSFontAttributeName : font, NSForegroundColorAttributeName : NSColor.secondaryLabelColor }];
-    [warning appendAttributedString:[[NSAttributedString alloc] initWithString:[clashes componentsJoinedByString:@", "]
-                                                                    attributes:@{ NSFontAttributeName : font, NSForegroundColorAttributeName : NSColor.systemRedColor }]];
-    _clash.attributedStringValue = warning;
+    if (clashes.count) {
+        NSFont *font = [NSFont systemFontOfSize:11];
+        NSMutableAttributedString *warning = [[NSMutableAttributedString alloc] initWithString:@"This shortcut conflicts with another shortcut:\n"
+                                                                                    attributes:@{ NSFontAttributeName : font, NSForegroundColorAttributeName : NSColor.secondaryLabelColor }];
+        [warning appendAttributedString:[[NSAttributedString alloc] initWithString:[clashes componentsJoinedByString:@", "]
+                                                                        attributes:@{ NSFontAttributeName : font, NSForegroundColorAttributeName : NSColor.systemRedColor }]];
+        _clash.attributedStringValue = warning;
+    }
     _clash.hidden = !clashes.count;
     ((NSStackView *)_clash.superview).edgeInsets = NSEdgeInsetsMake(0, 0, clashes.count ? 8 : 0, 0);
     self.needsDisplay = YES;

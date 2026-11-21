@@ -1,7 +1,7 @@
+#import <unistd.h>
 #import "Test/Test.m"
 #import "Patches/HideToolbar/HideToolbar.h"
 
-// Stand-ins for what the toolbar asks of the other tweaks.
 BOOL DPBesideSidebar(NSView *container) { return NO; }
 BOOL DPLittleDiaIsOver(NSWindow *window) { return NO; }
 void DPRepaintTabs(NSWindow *window) {}
@@ -19,7 +19,6 @@ static BOOL gStalledAtTheEnd, gStalledFading;
 @interface Page : NSView
 @end
 @implementation Page
-// Stands in for Dia taking a second over one frame of the animation, once at each point where a check would then read it half done.
 - (void)setFrame:(NSRect)frame {
     CGFloat hidden = DPHideToolbar.progress, kept = [DPToolbarHover forPane:gPane].inPlaceProgress;
     BOOL atTheEnd = !DPShowToolbarWithTopTabs.on && hidden > 0.995 && hidden < 1, fading = DPShowToolbarWithTopTabs.on && hidden > 0.2 && kept > 0.3 && kept < 0.9;
@@ -32,7 +31,6 @@ static BOOL gStalledAtTheEnd, gStalledFading;
 }
 @end
 
-// Never ordered in, but it counts as visible to DPFindViews.
 @interface Window : NSWindow
 @end
 @implementation Window
@@ -62,7 +60,7 @@ int main(void) {
         [window.contentView addSubview:gPane];
         DPApplyToolbar(gPane);
 
-        NSString *path = [NSTemporaryDirectory() stringByAppendingPathComponent:@"hide-toolbar-settle.json"];
+        NSString *path = [NSTemporaryDirectory() stringByAppendingPathComponent:[NSString stringWithFormat:@"hide-toolbar-settle-%d.json", getpid()]];
         [NSFileManager.defaultManager removeItemAtPath:path error:nil];
         NSMutableArray<NSArray<NSString *> *> *scenarios = [NSMutableArray arrayWithObjects:
             scenario(@"hidden, a frame stalls just before the end", @[@"hideToolbar", @"revealToolbarOnHover"]),

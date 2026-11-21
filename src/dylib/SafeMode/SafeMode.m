@@ -10,7 +10,6 @@ BOOL DPPaused, DPPausedAtLaunch;
 static NSURL *DPStateURL, *DPPauseURL;
 static NSMutableDictionary *DPState;
 
-// Pausing is a file, not a setting: it can't be confused with a tweak's own, an update leaves it, and leaving safe mode can't clear it.
 BOOL DPPauseSaved(void) { return [NSFileManager.defaultManager fileExistsAtPath:DPPauseURL.path]; }
 
 void DPSetPaused(BOOL paused) {
@@ -26,17 +25,18 @@ static NSString *DPBuildUUID(const struct mach_header_64 *header) {
     return @"";
 }
 
-// A force quit or a script kill leaves no crash report, so it doesn't count.
 static BOOL DPCrashed(NSDictionary *state) {
     NSDate *launched = state[@"launched"];
     if (!launched) return YES;
+    NSFileManager *files = NSFileManager.defaultManager;
     NSString *prefix = [NSProcessInfo.processInfo.processName stringByAppendingString:@"-"];
     NSString *pid = [NSString stringWithFormat:@"\"pid\" : %@,", state[@"pid"]];
-    NSURL *reports = [NSFileManager.defaultManager.homeDirectoryForCurrentUser URLByAppendingPathComponent:@"Library/Logs/DiagnosticReports"];
-    for (NSURL *url in [NSFileManager.defaultManager contentsOfDirectoryAtURL:reports includingPropertiesForKeys:@[NSURLContentModificationDateKey] options:0 error:nil]) {
+    NSURL *reports = [files.homeDirectoryForCurrentUser URLByAppendingPathComponent:@"Library/Logs/DiagnosticReports"];
+    for (NSURL *url in [files contentsOfDirectoryAtURL:reports includingPropertiesForKeys:@[NSURLContentModificationDateKey] options:0 error:nil]) {
+        if (![url.lastPathComponent hasPrefix:prefix] || ![url.pathExtension isEqual:@"ips"]) continue;
         NSDate *modified;
         [url getResourceValue:&modified forKey:NSURLContentModificationDateKey error:nil];
-        if (![url.lastPathComponent hasPrefix:prefix] || ![url.pathExtension isEqual:@"ips"] || [modified compare:launched] != NSOrderedDescending) continue;
+        if ([modified compare:launched] != NSOrderedDescending) continue;
         if ([[NSString stringWithContentsOfURL:url encoding:NSUTF8StringEncoding error:nil] containsString:pid]) return YES;
     }
     return NO;
@@ -44,10 +44,10 @@ static BOOL DPCrashed(NSDictionary *state) {
 
 static void DPSurvived(void) {
     if (![DPState[@"launching"] boolValue]) return;
-    // A relaunch can start before this process exits and write its own marker: that one stays.
+    // A newer relaunch may already own safe-mode.plist.
     if ([[NSDictionary dictionaryWithContentsOfURL:DPStateURL error:nil][@"pid"] integerValue] != getpid()) return;
     DPState[@"launching"] = @NO;
-    // Level 2 loads no Settings to leave it from, so one surviving launch steps down to 1, once per build.
+    // Level 2 skips Settings, so one clean launch steps down to 1 once per build.
     if (DPSafeMode == 2 && ![DPState[@"steppedDown"] boolValue]) {
         DPState[@"level"] = @1;
         DPState[@"steppedDown"] = @YES;
@@ -65,7 +65,7 @@ void DPBeginLaunch(void) {
     NSDictionary *saved = [NSDictionary dictionaryWithContentsOfURL:DPStateURL error:nil];
     DPState = [saved[@"build"] isEqual:build] ? [saved mutableCopy] : [NSMutableDictionary dictionaryWithObject:build forKey:@"build"];
     NSInteger crashes = [DPState[@"crashes"] integerValue];
-    // Paused tweaks can't crash Dia, so a crash while paused is Dia's own: it neither counts nor clears the count.
+    // Crashes while paused neither count toward nor reset safe mode.
     if (!DPPaused) {
         if ([DPState[@"launching"] boolValue]) crashes += DPCrashed(DPState);
         else crashes = 0;

@@ -14,15 +14,15 @@ static NSURL *DPPageURL(id page) {
     return [url isKindOfClass:NSURL.class] ? url : nil;
 }
 
-// A page can't be asked which tab it is in: scripting tab ids are UUIDs and a page's session id is a number. So it's the pinned icon
-// showing its address, and only when no other tab shows it too.
+// Pages expose no scripting tab id, so match the URL uniquely to a pinned icon.
 static BOOL DPOnPinnedIcon(id page) {
     NSString *url = DPPageURL(page).absoluteString;
+    if (!url.length) return NO;
     BOOL pinnedHere = NO;
     for (id window in DPList(NSApp.delegate, @selector(appleScriptWindows)))
         for (id tab in DPList(window, @selector(appleScriptTabs))) {
             NSString *address = [tab respondsToSelector:@selector(URL)] ? DPText(DPMsg(tab, @selector(URL))) : nil;
-            if (!url.length || ![address isEqual:url]) continue;
+            if (![address isEqual:url]) continue;
             if (![tab respondsToSelector:@selector(isPinned)] || !DPMsgBool(tab, @selector(isPinned))) return NO;
             pinnedHere = YES;
         }
@@ -43,7 +43,7 @@ static BOOL DPPlainClick(void) {
     return !(NSEvent.modifierFlags & held);
 }
 
-// Little Dia opens through the front browser. That has to be the clicked page's own, and never a private one: a private window's link must not land in the normal profile.
+// Little Dia opens via the front browser, which must match the clicked page and never be private.
 static BOOL DPOpensInOwnProfile(id browser) {
     id context = [browser respondsToSelector:@selector(context)] ? DPMsg(browser, @selector(context)) : nil;
     id contextID = [context respondsToSelector:@selector(id)] ? DPMsg(context, @selector(id)) : nil;
@@ -52,11 +52,11 @@ static BOOL DPOpensInOwnProfile(id browser) {
 
 BOOL DPLittleDiaTakesTabLink(id page, NSURL *url, BOOL leavesPinned) {
     if (!DPLittleDia.on || !DPLittleDiaTabLinks.on || !DPPeekIsWeb(url) || !DPPlainClick() || !DPLittleDiaReady()) return NO;
-    if (!page || DPInLittleDia(page) || DPPeekShows(page) || !DPPeekIsWeb(DPPageURL(page))) return NO;  // Not an extension's or Dia's own page.
-    id browser = DPBrowserOfContents(page);  // The page's own: the key window can be another one.
+    if (!page || DPInLittleDia(page) || DPPeekShows(page) || !DPPeekIsWeb(DPPageURL(page))) return NO;
+    id browser = DPBrowserOfContents(page);
     if (!DPOpensInOwnProfile(browser)) return NO;
     if (!leavesPinned && ![DPChoice(&DPLittleDiaTabLinks) isEqual:DPFromAllTabs] && !DPFromPinnedTab(page)) return NO;
-    NSWindow *source = DPBrowserWindow(browser);  // Where the click was; noted now, as Little Dia becomes key next.
+    NSWindow *source = DPBrowserWindow(browser);
     dispatch_async(dispatch_get_main_queue(), ^{ DPOpenTabLinkInLittleDia(url, source); });  // Not from inside Chromium's callback.
     return YES;
 }

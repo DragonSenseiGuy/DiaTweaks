@@ -20,7 +20,6 @@ pub struct Patch {
     pub default_on: bool,
     pub requires: Option<String>,
     pub disabled_by: Option<String>,
-    /// Only changes at launch: pausing or resuming it finishes when Dia next opens.
     #[serde(default)]
     pub relaunch: bool,
 }
@@ -34,7 +33,7 @@ impl Manifest {
                 path.display()
             ),
             Err(err) => {
-                return Err(err).with_context(|| format!("Couldn't read {}", path.display()))
+                return Err(err).with_context(|| format!("Couldn't read {}", path.display()));
             }
         };
         let manifest: Self = serde_json::from_slice(&data).map_err(|err| {
@@ -89,9 +88,11 @@ impl Manifest {
 
     pub fn hidden_by(&self, index: usize, state: &[bool]) -> Option<usize> {
         let disabler = self.disabler(index).filter(|&disabler| state[disabler])?;
-        let option_on = (0..self.patches.len())
-            .any(|option| state[option] && self.requirement(option) == Some(disabler));
-        (!option_on).then_some(disabler)
+        let disabler_key = self.patches[disabler].key.as_str();
+        let has_option_on = self.patches.iter().enumerate().any(|(option, patch)| {
+            state[option] && patch.requires.as_deref() == Some(disabler_key)
+        });
+        (!has_option_on).then_some(disabler)
     }
 
     pub fn title(&self, index: usize) -> &str {

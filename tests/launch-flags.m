@@ -1,6 +1,5 @@
 #import "StdPatch/StdPatch.h"
 
-// Stand-in for Dia's configuration: it records the argv the hook hands on.
 static NSArray<NSString *> *seen;
 static int seenCount;
 
@@ -25,7 +24,6 @@ NSString *DPAppSupport(NSString *path) { return [@"/Users/test/Library/Applicati
 
 static NSString *const kDia = @"/Applications/Dia.app/Contents/MacOS/Dia";
 
-// What Dia is handed once these folders are wanted, as a fresh launch of a Dia that started with `argv`.
 static NSArray<NSString *> *DPLaunch(NSArray<NSString *> *wanted, NSArray<NSString *> *argv) {
     DPHookConfiguration();
     [DPExtensionFolders removeAllObjects];
@@ -38,6 +36,11 @@ static NSArray<NSString *> *DPLaunch(NSArray<NSString *> *wanted, NSArray<NSStri
     return seen;
 }
 
+static void expectLaunch(NSArray<NSString *> *wanted, NSArray<NSString *> *argv, NSArray<NSString *> *expected, NSString *what) {
+    NSArray<NSString *> *got = DPLaunch(wanted, argv);
+    NSCAssert([got isEqual:expected], @"%@, got %@", what, got);
+}
+
 int main(void) {
     @autoreleasepool {
         NSString *little = DPAppSupport(@"DiaPatches/little-dia-2ee7906f"), *older = DPAppSupport(@"DiaPatches/little-dia-48da710a");
@@ -47,41 +50,27 @@ int main(void) {
         NSString *(^load)(NSString *) = ^(NSString *list) { return [@"--load-extension=" stringByAppendingString:list]; };
         NSString *(^pair)(NSString *, NSString *) = ^(NSString *a, NSString *b) { return [NSString stringWithFormat:@"%@,%@", a, b]; };
 
-        NSCAssert([DPLaunch(@[], @[ kDia ]) isEqual:@[ kDia ]], @"nothing wanted, nothing added");
-        NSCAssert([DPLaunch(@[ little ], @[ kDia ]) isEqual:(@[ kDia, load(little) ])], @"a wanted folder is loaded");
-        NSCAssert([DPLaunch(@[ little, passkeys ], @[ kDia ]) isEqual:(@[ kDia, load(pair(little, passkeys)) ])], @"every wanted folder shares one flag");
+        expectLaunch(@[], @[ kDia ], @[ kDia ], @"nothing wanted, nothing added");
+        expectLaunch(@[ little ], @[ kDia ], @[ kDia, load(little) ], @"a wanted folder is loaded");
+        expectLaunch(@[ little, passkeys ], @[ kDia ], @[ kDia, load(pair(little, passkeys)) ], @"every wanted folder shares one flag");
 
-        NSArray<NSString *> *got = DPLaunch(@[ little ], @[ kDia, load(little), @"--restart" ]);
-        NSCAssert([got isEqual:(@[ kDia, @"--restart", load(little) ])], @"a relaunch lists its folder once, got %@", got);
-        got = DPLaunch(@[ little ], @[ kDia, load(@"/a"), @"--restart", @"--restart" ]);
-        NSCAssert([got isEqual:(@[ kDia, @"--restart", @"--restart", load(pair(@"/a", little)) ])], @"other flags keep their order, got %@", got);
+        expectLaunch(@[ little ], @[ kDia, load(little), @"--restart" ], @[ kDia, @"--restart", load(little) ], @"a relaunch lists its folder once");
+        expectLaunch(@[ little ], @[ kDia, load(@"/a"), @"--restart", @"--restart" ], @[ kDia, @"--restart", @"--restart", load(pair(@"/a", little)) ], @"other flags keep their order");
 
-        got = DPLaunch(@[ little ], @[ kDia, load(pair(little, little)) ]);
-        NSCAssert([got isEqual:(@[ kDia, load(little) ])], @"a folder carried twice comes back once, got %@", got);
-        got = DPLaunch(@[ little ], @[ kDia, load(pair(pair(little, little), little)) ]);
-        NSCAssert([got isEqual:(@[ kDia, load(little) ])], @"later relaunches don't add another copy, got %@", got);
+        expectLaunch(@[ little ], @[ kDia, load(pair(little, little)) ], @[ kDia, load(little) ], @"a folder carried twice comes back once");
+        expectLaunch(@[ little ], @[ kDia, load(pair(pair(little, little), little)) ], @[ kDia, load(little) ], @"later relaunches don't add another copy");
 
-        got = DPLaunch(@[ little ], @[ kDia, load(older) ]);
-        NSCAssert([got isEqual:(@[ kDia, load(little) ])], @"a folder an update replaced is dropped, got %@", got);
-        got = DPLaunch(@[ little ], @[ kDia, load(pair(older, little)), @"--restart" ]);
-        NSCAssert([got isEqual:(@[ kDia, @"--restart", load(little) ])], @"the old folder goes, the current one stays, got %@", got);
-        got = DPLaunch(@[], @[ kDia, load(older), @"--restart" ]);
-        NSCAssert([got isEqual:(@[ kDia, @"--restart" ])], @"with the tweak off no folder is carried, got %@", got);
-        got = DPLaunch(@[ passkeys ], @[ kDia, load(pair(pair(passkeys, older), little)) ]);
-        NSCAssert([got isEqual:(@[ kDia, load(passkeys) ])], @"only the tweaks that are on keep a folder, got %@", got);
-        got = DPLaunch(@[ little, passkeys ], @[ kDia, load(pair(pair(passkeys, older), little)) ]);
-        NSCAssert([got isEqual:(@[ kDia, load(pair(little, passkeys)) ])], @"each wanted folder once, in the order it was added, got %@", got);
+        expectLaunch(@[ little ], @[ kDia, load(older) ], @[ kDia, load(little) ], @"a folder an update replaced is dropped");
+        expectLaunch(@[ little ], @[ kDia, load(pair(older, little)), @"--restart" ], @[ kDia, @"--restart", load(little) ], @"the old folder goes, the current one stays");
+        expectLaunch(@[], @[ kDia, load(older), @"--restart" ], @[ kDia, @"--restart" ], @"with the tweak off no folder is carried");
+        expectLaunch(@[ passkeys ], @[ kDia, load(pair(pair(passkeys, older), little)) ], @[ kDia, load(passkeys) ], @"only the tweaks that are on keep a folder");
+        expectLaunch(@[ little, passkeys ], @[ kDia, load(pair(pair(passkeys, older), little)) ], @[ kDia, load(pair(little, passkeys)) ], @"each wanted folder once, in the order it was added");
 
-        got = DPLaunch(@[ little ], @[ kDia, load(pair(mine, older)) ]);
-        NSCAssert([got isEqual:(@[ kDia, load(pair(mine, little)) ])], @"the user's own folder survives and stays first, got %@", got);
-        got = DPLaunch(@[ little ], @[ kDia, load(mine), load(other), load(older) ]);
-        NSCAssert([got isEqual:(@[ kDia, load(pair(pair(mine, other), little)) ])], @"several flags of the user's still merge, got %@", got);
-        got = DPLaunch(@[], @[ kDia, load(pair(pair(sibling, older), prefixed)) ]);
-        NSCAssert([got isEqual:(@[ kDia, load(pair(sibling, prefixed)) ])], @"folders beside DiaPatches aren't ours, got %@", got);
-        got = DPLaunch(@[], @[ kDia, load(mine) ]);
-        NSCAssert([got isEqual:(@[ kDia, load(mine) ])], @"a user's folder alone is untouched, got %@", got);
-        got = DPLaunch(@[], @[ kDia, load(pair(mine, mine)) ]);
-        NSCAssert([got isEqual:(@[ kDia, load(pair(mine, mine)) ])], @"the user's own repeats are theirs to keep, got %@", got);
+        expectLaunch(@[ little ], @[ kDia, load(pair(mine, older)) ], @[ kDia, load(pair(mine, little)) ], @"the user's own folder survives and stays first");
+        expectLaunch(@[ little ], @[ kDia, load(mine), load(other), load(older) ], @[ kDia, load(pair(pair(mine, other), little)) ], @"several flags of the user's still merge");
+        expectLaunch(@[], @[ kDia, load(pair(pair(sibling, older), prefixed)) ], @[ kDia, load(pair(sibling, prefixed)) ], @"folders beside DiaPatches aren't ours");
+        expectLaunch(@[], @[ kDia, load(mine) ], @[ kDia, load(mine) ], @"a user's folder alone is untouched");
+        expectLaunch(@[], @[ kDia, load(pair(mine, mine)) ], @[ kDia, load(pair(mine, mine)) ], @"the user's own repeats are theirs to keep");
 
         puts("all launch flag checks passed");
     }

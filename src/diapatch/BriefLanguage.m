@@ -4,15 +4,12 @@
 static NSString *const DPBriefHeading = @"## Output language: ";
 static NSString *const DPBriefPrompt = @"Contents/Resources/agent-server-resources/dist/prompts/skills/morning-brief/SKILL.md";
 
-// The choice goes into a prompt, so only the picker's English names (Patches/BriefLanguage) get through.
 static NSArray<NSString *> *DPLanguages(void) {
     return @[ @"English", @"Japanese", @"Chinese (Simplified)", @"Chinese (Traditional)", @"Korean", @"Spanish", @"French", @"German", @"Italian",
               @"Portuguese", @"Dutch", @"Russian", @"Turkish", @"Indonesian", @"Vietnamese", @"Thai", @"Hindi", @"Arabic" ];
 }
 
-// nil when the tweak is off, else the saved choice (empty when there is none).
 static NSString *DPChosenLanguage(void) {
-    // DIATWEAKS_DOMAIN lets a test build read settings of its own, as it does for diatweaks.
     NS_VALID_UNTIL_END_OF_SCOPE NSString *name = @(getenv("DIATWEAKS_DOMAIN") ?: "com.diapatches");
     CFStringRef domain = (__bridge CFStringRef)name;
     CFPreferencesAppSynchronize(domain);

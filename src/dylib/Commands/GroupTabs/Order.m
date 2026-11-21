@@ -9,7 +9,8 @@ static NSArray *DPWindowTabsMatching(BOOL (^match)(id tab)) {
     NSUInteger most = 0;
     for (id window in DPMsg(NSApp.delegate, @selector(appleScriptWindows))) {
         NSArray *tabs = DPMsg(window, @selector(appleScriptTabs));
-        NSUInteger count = [tabs indexesOfObjectsPassingTest:^BOOL(id tab, NSUInteger i, BOOL *stop) { return match(tab); }].count;
+        NSUInteger count = 0;
+        for (id tab in tabs) if (match(tab)) count++;
         if (count > most) { best = tabs; most = count; }
     }
     return best;
@@ -20,15 +21,16 @@ NSDictionary *DPTabPlaces(NSDictionary<NSNumber *, NSString *> *urls) {
     NSArray *tabs = DPWindowTabsMatching(^BOOL(id tab) { return [wanted containsObject:DPURLOf(tab)]; });
     NSMutableDictionary<NSString *, NSNumber *> *sessions = [NSMutableDictionary new];
     for (NSNumber *sid in urls)
-        for (id tab in tabs)
-            if (!sessions[[tab valueForKey:@"tabId"]] && [DPURLOf(tab) isEqualToString:urls[sid]]) {
-                sessions[[tab valueForKey:@"tabId"]] = sid;
+        for (id tab in tabs) {
+            id tabID = [tab valueForKey:@"tabId"];
+            if (!sessions[tabID] && [DPURLOf(tab) isEqualToString:urls[sid]]) {
+                sessions[tabID] = sid;
                 break;
             }
+        }
     return tabs && sessions.count == urls.count ? @{@"order": [tabs valueForKey:@"tabId"], @"sessions": sessions} : nil;
 }
 
-// index counts from the first unpinned tab; done, and failed (no group made for the tab), run on the main queue.
 void DPMoveTab(id delegate, id browser, NSNumber *sid, NSInteger index, void (^done)(void), void (^failed)(void)) {
     void (*create)(id, SEL, id, NSArray *, id, void (^)(id)) = (void *)objc_msgSend;
     void (*move)(id, SEL, id, id, NSInteger, void (^)(id)) = (void *)objc_msgSend;
@@ -53,7 +55,6 @@ static void DPRunMoves(id delegate, id browser, NSArray<NSArray *> *moves, NSUIn
     DPMoveTab(delegate, browser, moves[index][0], [moves[index][1] integerValue], ^{ DPRunMoves(delegate, browser, moves, index + 1); }, nil);
 }
 
-// One out of place means the window changed since, so planning stops.
 static NSArray<NSArray *> *DPPlanMoves(NSArray<NSString *> *target, NSMutableArray<NSString *> *now, NSDictionary<NSString *, NSNumber *> *sessions, NSUInteger start) {
     NSMutableArray *moves = [NSMutableArray new];
     if (![[NSSet setWithArray:now] isEqualToSet:[NSSet setWithArray:target]]) return moves;

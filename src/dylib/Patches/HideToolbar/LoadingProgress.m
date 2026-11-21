@@ -30,18 +30,19 @@ static BOOL DPToolbarOutOfSight(NSView *pane) {
 }
 
 static void DPRefreshProgress(void) {
-    id contents = DPVisibleLoadingContents();
+    BOOL on = DPShowLoadingProgress.on;
+    id contents = on ? DPVisibleLoadingContents() : nil;
     CGFloat progress = contents ? [DPGet(contents, &DPProgressKey) doubleValue] : 1;
     BOOL loading = NO;
     for (NSView *pane in DPPanes) {
-        BOOL inSight = pane.window && !pane.hiddenOrHasHiddenAncestor, paneLoading = inSight && DPPaneLoading(pane);
-        if (!DPShowLoadingProgress.on || !inSight || !DPToolbarOutOfSight(pane)) DPRemoveProgressLine(pane);
+        BOOL inSight = on && pane.window && !pane.hiddenOrHasHiddenAncestor, paneLoading = inSight && DPPaneLoading(pane);
+        if (!inSight || !DPToolbarOutOfSight(pane)) DPRemoveProgressLine(pane);
         else if (paneLoading) DPShowProgressLine(pane, MAX(0.1, progress));
         else DPFinishProgressLine(pane);
         loading = loading || paneLoading;
     }
     // Reload buttons and reveals change after Chromium's updates, so this polls.
-    BOOL watch = DPShowLoadingProgress.on && (loading || contents);
+    BOOL watch = on && (loading || contents);
     if (watch && !DPProgressTimer) {
         DPProgressTimer = [NSTimer timerWithTimeInterval:0.1 repeats:YES block:^(NSTimer *timer) { DPRefreshProgress(); }];
         [NSRunLoop.mainRunLoop addTimer:DPProgressTimer forMode:NSRunLoopCommonModes];

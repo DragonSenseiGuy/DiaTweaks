@@ -27,6 +27,14 @@ pub struct Status {
     pub channel: String,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SafeMode {
+    Off,
+    TweaksOff,
+    Disabled,
+    Parked,
+}
+
 impl Diapatch {
     pub fn find(env: &Env) -> Result<Self> {
         let path = env.diapatch();
@@ -63,7 +71,13 @@ impl Diapatch {
 }
 
 pub fn is_newer(version: &str, than: &str) -> bool {
-    numbers(build(version)) > numbers(build(than))
+    let version_parts = build(version)
+        .split(|c: char| !c.is_ascii_digit())
+        .filter_map(|part| part.parse::<u64>().ok());
+    let than_parts = build(than)
+        .split(|c: char| !c.is_ascii_digit())
+        .filter_map(|part| part.parse::<u64>().ok());
+    version_parts.gt(than_parts)
 }
 
 fn build(version: &str) -> &str {
@@ -71,12 +85,6 @@ fn build(version: &str) -> &str {
         .rsplit_once(" (")
         .and_then(|(_, build)| build.strip_suffix(')'))
         .unwrap_or(version)
-}
-
-fn numbers(text: &str) -> Vec<u64> {
-    text.split(|c: char| !c.is_ascii_digit())
-        .filter_map(|part| part.parse().ok())
-        .collect()
 }
 
 fn dictionary(path: PathBuf) -> Option<plist::Dictionary> {
@@ -96,42 +104,55 @@ pub fn is_patched(app: &Path) -> bool {
         .unwrap_or(false)
 }
 
-pub fn safe_mode(support: &Path) -> i64 {
-    dictionary(support.join("safe-mode.plist"))
-        .and_then(|state| state.get("level")?.as_signed_integer())
-        .unwrap_or(0)
+pub fn safe_mode(support: &Path) -> SafeMode {
+    let Some(state) = dictionary(support.join("safe-mode.plist")) else {
+        return SafeMode::Off;
+    };
+    let level = state
+        .get("level")
+        .and_then(plist::Value::as_signed_integer)
+        .unwrap_or(0);
+    match level {
+        0 => SafeMode::Off,
+        1 => SafeMode::TweaksOff,
+        _ => {
+            let parked = state
+                .get("steppedDown")
+                .and_then(plist::Value::as_boolean)
+                .unwrap_or(false);
+            if parked {
+                SafeMode::Parked
+            } else {
+                SafeMode::Disabled
+            }
+        }
+    }
 }
 
-pub fn safe_mode_parked(support: &Path) -> bool {
-    dictionary(support.join("safe-mode.plist"))
-        .and_then(|state| state.get("steppedDown")?.as_boolean())
-        .unwrap_or(false)
-}
-
-/// The file the dylib reads at launch and on every change: tweaks are off, and keep their settings.
-pub fn paused(support: &Path) -> bool {
+pub fn is_paused(support: &Path) -> bool {
     support.join("paused").is_file()
 }
 
-fn processes(app: &Path) -> Vec<(libc::pid_t, PathBuf)> {
-    let Ok(root) = app.canonicalize() else {
-        return Vec::new();
-    };
+fn has_running_process(root: &Path) -> bool {
     child::all_pids()
         .into_iter()
-        .filter_map(|pid| child::pid_path(pid).map(|path| (pid, path)))
-        .filter(|(_, path)| path.starts_with(&root))
-        .collect()
+        .filter_map(child::pid_path)
+        .any(|path| path.starts_with(root))
 }
 
 pub fn is_running(app: &Path) -> bool {
-    !processes(app).is_empty()
+    app.canonicalize()
+        .is_ok_and(|root| has_running_process(&root))
 }
 
-/// By process ID, as ⌘Q would: SIGTERM looks like a crash to safe mode, and another Dia may be open.
+// Terminate by PID like ⌘Q: SIGTERM triggers safe mode and another Dia may be open.
 pub fn quit(app: &Path) -> Result<()> {
-    let macos = app.canonicalize()?.join("Contents/MacOS");
-    for (pid, path) in processes(app) {
+    let root = app.canonicalize()?;
+    let macos = root.join("Contents/MacOS");
+    for pid in child::all_pids() {
+        let Some(path) = child::pid_path(pid) else {
+            continue;
+        };
         if path.parent() != Some(macos.as_path()) {
             continue;
         }
@@ -141,7 +162,7 @@ pub fn quit(app: &Path) -> Result<()> {
         child::quick(Command::new("/usr/bin/osascript").args(["-l", "JavaScript", "-e", &script]));
     }
     let deadline = Instant::now() + Duration::from_secs(60);
-    while is_running(app) {
+    while has_running_process(&root) {
         if Instant::now() > deadline {
             bail!(
                 "Dia didn't quit. If it's showing a dialog, answer it, quit Dia, then try again."

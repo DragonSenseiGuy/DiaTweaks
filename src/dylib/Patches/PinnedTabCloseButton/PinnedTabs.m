@@ -3,7 +3,7 @@
 
 extern void *swift_unknownObjectWeakLoadStrong(void *reference);
 
-// viewModel.delegate is a Swift weak reference, which DPSwiftValue can't read.
+// Swift weak reference, unreadable via DPSwiftValue.
 id DPViewModelDelegate(NSView *view) {
     void **viewModel = DPIvar(view, "viewModel");
     void *delegate = viewModel && *viewModel ? DPIvar((__bridge id)*viewModel, "delegate") : NULL;
@@ -19,7 +19,7 @@ void DPRelayoutTabContents(void) {
     for (NSView *content in DPFindViews(DPDiaTabContentView)) content.needsLayout = YES;
 }
 
-// The controller holds an enum whose other cases set top bits; only a web page's attributes pass.
+// Swift enum tags set top bits; only a web page's attributes pass.
 id DPAttributes(NSView *content) {
     void **slot = DPIvar(DPViewModelDelegate(content), "attributesController");
     uintptr_t raw = slot ? (uintptr_t)*slot : 0;
@@ -35,8 +35,8 @@ BOOL DPIsOpenPinned(NSView *content) {
     return pinned && *pinned && activeURL && *activeURL;
 }
 
-enum { DPCloseKeepingTabStyle = 1 };  // TabUI.TabCloseButtonStyle.closeKeepingTab.
-static BOOL DPKeeping;  // A click made by DPCloseKeepingTab, which the minus button's hook sees too.
+enum { DPCloseKeepingTabStyle = 1 };
+static BOOL DPKeeping;
 
 BOOL DPClickKeepingTab(NSView *content, void (^click)(void)) {
     if (DPKeeping) return click(), YES;
@@ -48,7 +48,7 @@ BOOL DPClickKeepingTab(NSView *content, void (^click)(void)) {
     click();
     DPKeeping = NO;
     *style = dia;
-    // The page is gone, but Dia doesn't lay the tab out again while the pointer is on it, so the minus would stay.
+    // Dia skips re-laying out hovered tabs after closing the page.
     __weak NSView *weakContent = content;
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, NSEC_PER_SEC / 4), dispatch_get_main_queue(), ^{ weakContent.needsLayout = YES; });
     return YES;

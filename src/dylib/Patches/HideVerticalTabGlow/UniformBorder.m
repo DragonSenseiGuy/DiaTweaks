@@ -25,8 +25,7 @@ static void DPSetColors(CAGradientLayer *border, id colors) {
     if (![DPColorsOf(border) isEqual:colors]) border.colors = colors == NSNull.null ? nil : colors;
 }
 
-static void DPRestoreTabBorder(NSView *shape) {
-    CAGradientLayer *border = DPBorderIn(shape);
+static void DPRestoreTabBorder(CAGradientLayer *border) {
     if (!DPGet(border, &DPColorsKey)) return;
     id dia = DPDiaValue(border, &DPColorsKey, DPColorsOf(border));
     DPSet(border, &DPColorsKey, nil);
@@ -36,7 +35,7 @@ static void DPRestoreTabBorder(NSView *shape) {
 void DPStyleUniformTabBorder(NSView *shape) {
     CAGradientLayer *border = DPBorderIn(shape);
     if (!border) return;
-    if (!DPHideVerticalTabGlow.on || !DPIsVerticalTab(shape)) return DPRestoreTabBorder(shape);
+    if (!DPHideVerticalTabGlow.on || !DPIsVerticalTab(shape)) return DPRestoreTabBorder(border);
     id dia = DPDiaValue(border, &DPColorsKey, DPColorsOf(border));
     id ours = dia == NSNull.null ? dia : DPUniformColors(dia);
     DPOverride(border, &DPColorsKey, dia, ours);

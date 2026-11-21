@@ -3,11 +3,10 @@
 
 extern DPPatch DPTabTitles;
 
-// ArcWebContents exposes Chromium's title to Dia; filtering it here leaves the page's document.title intact.
 static NSString *DPContents_title(id self, SEL _cmd) {
+    if (!DPTabTitles.on) return DPCallOriginal(DPContents_title, self);
     NSString *title = DPCallOriginal(DPContents_title, self);
-    if (!DPTabTitles.on || !title.length) return title;
-    return DPDisplayTitle(title);
+    return title.length ? DPDisplayTitle(title) : title;
 }
 
 static void DPInstallTabTitles(void) {

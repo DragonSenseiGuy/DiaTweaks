@@ -12,7 +12,6 @@ static NSString *DPEmoji(NSString *spaceID) {
     return DPProfileEmoji.on && spaceID ? [DPEmojiDefaults dictionaryForKey:DPEmojisKey][spaceID] : nil;
 }
 
-// Keys are Swift SpaceIDs, which describe themselves as the ID.
 static NSString *DPSpaceIDOf(NSView *view, NSDictionary *views) {
     for (id key in views) if (views[key] == view) return [key description];
     return nil;
@@ -42,6 +41,7 @@ static void DPShowEmoji(NSView *host, NSView *dot, NSString *emoji, CGFloat size
 }
 
 static void DPShowSidebarItem(NSView *item) {
+    if (!DPProfileEmoji.on && !DPGet(item, &DPLabelKey)) return;
     NSString *emoji = DPEmoji(DPSpaceIDOf(item, DPSwiftValue(item.superview, @"itemViews")));
     BOOL selected = [DPSwiftValue(item, @"isSelected") boolValue];
     NSView *dot = DPSwiftValue(item, @"$__lazy_storage_$_dotView");
@@ -49,29 +49,33 @@ static void DPShowSidebarItem(NSView *item) {
     DPShowEmoji(item, dot, emoji, DPSidebarEmojiSize, selected ? 1 : 0.45);
 }
 
-static CGFloat DPSidebarItemWidth(NSView *item, NSDictionary *views) {
-    return (DPEmoji(DPSpaceIDOf(item, views)) ? DPSidebarEmojiWidth : DPSidebarDotWidth) + DPSidebarGap;
+static CGFloat DPSidebarItemWidth(NSView *item, NSDictionary *views, NSDictionary *emojis) {
+    NSString *spaceID = DPSpaceIDOf(item, views);
+    return (spaceID && emojis[spaceID] ? DPSidebarEmojiWidth : DPSidebarDotWidth) + DPSidebarGap;
 }
 
-// Dia also sets frames outside layout, such as after switching profiles, so layout alone doesn't keep the row spaced.
 static void DPSidebarItem_setFrame(NSView *self, SEL _cmd, NSRect frame) {
+    if (!DPProfileEmoji.on || NSWidth(frame) <= 0 || NSWidth(frame) >= DPSidebarDotWidth + DPSidebarGap)
+        return DPCallOriginal(DPSidebarItem_setFrame, self, frame);
+    NSDictionary *emojis = [DPEmojiDefaults dictionaryForKey:DPEmojisKey];
+    if (!emojis.count) return DPCallOriginal(DPSidebarItem_setFrame, self, frame);
     NSView *switcher = self.superview;
     NSDictionary *views = DPSwiftValue(switcher, @"itemViews");
     BOOL anyEmoji = NO;
-    for (id key in views) anyEmoji = anyEmoji || DPEmoji([key description]);
-    if (anyEmoji && NSWidth(frame) > 0 && NSWidth(frame) < DPSidebarDotWidth + DPSidebarGap) {
+    for (id key in views) if (emojis[[key description]]) { anyEmoji = YES; break; }
+    if (anyEmoji) {
         CGFloat middle = NSMidX(switcher.bounds);
         NSInteger index = lround((NSMinX(frame) - (middle - views.count * NSWidth(frame) / 2)) / NSWidth(frame));
         NSMutableArray<NSView *> *row = [[views.allValues filteredArrayUsingPredicate:[NSPredicate predicateWithFormat:@"self != %@", self]] mutableCopy];
         [row sortUsingComparator:^NSComparisonResult(NSView *a, NSView *b) { return [@(NSMidX(a.frame)) compare:@(NSMidX(b.frame))]; }];
         [row insertObject:self atIndex:MIN(MAX(index, 0), (NSInteger)row.count)];
         CGFloat total = 0, x = 0;
-        for (NSView *item in row) total += DPSidebarItemWidth(item, views);
+        for (NSView *item in row) total += DPSidebarItemWidth(item, views, emojis);
         for (NSView *item in row) {
             if (item == self) break;
-            x += DPSidebarItemWidth(item, views);
+            x += DPSidebarItemWidth(item, views, emojis);
         }
-        frame = NSMakeRect(round(middle - total / 2 + x), NSMinY(frame), DPSidebarItemWidth(self, views), NSHeight(frame));
+        frame = NSMakeRect(round(middle - total / 2 + x), NSMinY(frame), DPSidebarItemWidth(self, views, emojis), NSHeight(frame));
     }
     DPCallOriginal(DPSidebarItem_setFrame, self, frame);
 }
@@ -88,6 +92,7 @@ static void DPSidebarItem_updateLayer(NSView *self, SEL _cmd) {
 
 static void DPTopDot_layout(NSView *self, SEL _cmd) {
     DPCallOriginal(DPTopDot_layout, self);
+    if (!DPProfileEmoji.on && !DPGet(self, &DPLabelKey)) return;
     NSView *indicator = self.superview;
     NSString *spaceID = DPSpaceIDOf(self, DPSwiftValue(indicator, @"dotViews"));
     BOOL focused = [[DPSwiftValue(indicator, @"focusedSpaceID") description] isEqual:spaceID];

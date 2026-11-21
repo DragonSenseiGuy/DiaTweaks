@@ -51,13 +51,16 @@ static NSView *DPWideRow(NSView *view) {
                                            DPLabel(option->detail, 11, NSFontWeightRegular, NSColor.secondaryLabelColor), nil];
         if (option->unavailable) [lines addObject:DPLabel(DPWhyDisabled(option), 11, NSFontWeightRegular, NSColor.secondaryLabelColor)];
         add(title, DPRow(DPColumn(lines, 2), [self switchFor:option]));
-        NSMutableArray<NSView *> *under = [NSMutableArray new];
-        if (option->choices) [under addObject:[self choiceRowFor:option]];
-        for (NSView *view in DPRowsOf(option)) [under addObject:DPWideRow(view)];
-        for (NSView *row in under) {
-            DPSet(row, &DPChoicePatchKey, [NSValue valueWithPointer:option]);
-            add(title, row);
-            [self->_optionChoices addObject:row];
+        NSArray<NSView *> *optionRows = DPRowsOf(option);
+        if (option->choices || optionRows.count) {
+            NSMutableArray<NSView *> *under = [NSMutableArray arrayWithCapacity:optionRows.count + (option->choices != NULL)];
+            if (option->choices) [under addObject:[self choiceRowFor:option]];
+            for (NSView *view in optionRows) [under addObject:DPWideRow(view)];
+            for (NSView *row in under) {
+                DPSet(row, &DPChoicePatchKey, [NSValue valueWithPointer:option]);
+                add(title, row);
+                [self->_optionChoices addObject:row];
+            }
         }
     });
     _rows = DPRowsOf(patch);
@@ -137,14 +140,15 @@ static NSView *DPWideRow(NSView *view) {
 - (void)sync {
     for (DPPatchSwitch *toggle in _switches) [toggle sync];
     for (NSPopUpButton *picker in _pickers) picker.enabled = !DPPaused;
+    BOOL controlsEnabled = _patch->on && !DPSafeMode && !DPPaused;
     for (NSView *row in _rows)
         DPFindView(row, ^BOOL(NSView *view) {
             BOOL label = [view isKindOfClass:NSTextField.class] && !((NSTextField *)view).editable;
-            if ([view isKindOfClass:NSControl.class] && !label) ((NSControl *)view).enabled = self->_patch->on && !DPSafeMode && !DPPaused;
+            if ([view isKindOfClass:NSControl.class] && !label) ((NSControl *)view).enabled = controlsEnabled;
             return NO;
         });
     // Fade in after the group has grown, or the row rides over the one above.
-    NSMutableArray<NSView *> *appeared = [NSMutableArray new];
+    NSMutableArray<NSView *> *appeared = nil;
     for (NSView *row in _optionChoices) {
         BOOL shown = ((DPPatch *)[DPGet(row, &DPChoicePatchKey) pointerValue])->on;
         if (row.hidden != shown) continue;
@@ -160,7 +164,10 @@ static NSView *DPWideRow(NSView *view) {
                 if (shown) view.alphaValue = 0;
             }
         }];
-        if (shown) [appeared addObjectsFromArray:views];
+        if (shown) {
+            if (!appeared) appeared = [NSMutableArray new];
+            [appeared addObjectsFromArray:views];
+        }
     }
     if (appeared.count)
         dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.2 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{

@@ -13,11 +13,9 @@ static void DPCollectPinned(NSMutableSet<NSNumber *> *sessions, NSMutableSet<NSS
         for (id tab in tabs) {
             NSString *url = [tab respondsToSelector:@selector(URL)] ? DPText(DPMsg(tab, @selector(URL))) : nil;
             BOOL pinned = [tab respondsToSelector:@selector(isPinned)] && DPMsgBool(tab, @selector(isPinned));
-            id rawID = [tab respondsToSelector:@selector(tabId)] ? DPMsg(tab, @selector(tabId)) : nil;
-            if (pinned && url.length) [pinnedURLs addObject:url];
-            else if (url.length) [openURLs addObject:url];
+            if (url.length) [pinned ? pinnedURLs : openURLs addObject:url];
             if (!pinned) continue;
-            long long sid = DPLongID(rawID);
+            long long sid = [tab respondsToSelector:@selector(tabId)] ? DPLongID(DPMsg(tab, @selector(tabId))) : 0;
             if (sid > 0) [sessions addObject:@(sid)];
         }
     }
@@ -45,9 +43,10 @@ static void DPArmUndo(void (^undo)(void)) {
     dispatch_once(&once, ^{
         [NSEvent addLocalMonitorForEventsMatchingMask:NSEventMaskKeyDown handler:^NSEvent *(NSEvent *event) {
             void (^undo)(void) = DPUndoGrouping;
+            if (!undo) return event;
             DPUndoGrouping = nil;
             NSEventModifierFlags mods = event.modifierFlags & (NSEventModifierFlagCommand | NSEventModifierFlagShift | NSEventModifierFlagOption | NSEventModifierFlagControl);
-            if (!undo || DPShortcutRecording() || mods != NSEventModifierFlagCommand || ![event.charactersIgnoringModifiers isEqualToString:@"z"]) return event;
+            if (DPShortcutRecording() || mods != NSEventModifierFlagCommand || ![event.charactersIgnoringModifiers isEqualToString:@"z"]) return event;
             undo();
             return nil;
         }];
@@ -108,15 +107,15 @@ static void DPGroupBrowser(id browser, NSSet<NSNumber *> *only) {
         [tabs addObject:@{@"session": @(sid), @"domain": domain, @"url": url}];
     }
     void (*ask)(id, SEL, id, void (^)(NSArray *)) = (void *)objc_msgSend;
-    NSArray *snapshot = [tabs copy];
     ask(delegate, @selector(browser:getAllTabGroupsWithCompletion:), browser, ^(NSArray *groups) {
         dispatch_async(dispatch_get_main_queue(), ^{
             if (![groups isKindOfClass:NSArray.class]) return;
-            NSArray *ops = DPOps(snapshot, groups);
+            NSArray *ops = DPOps(tabs, groups);
             NSArray *ids = [ops valueForKeyPath:@"@unionOfArrays.ids"];
             if (!ids.count) return;
+            NSSet *idSet = [NSSet setWithArray:ids];
             NSMutableDictionary *urls = [NSMutableDictionary new];
-            for (NSDictionary *tab in snapshot) if ([ids containsObject:tab[@"session"]]) urls[tab[@"session"]] = tab[@"url"];
+            for (NSDictionary *tab in tabs) if ([idSet containsObject:tab[@"session"]]) urls[tab[@"session"]] = tab[@"url"];
             NSDictionary *places = DPTabPlaces(urls);
             DPRunOps(delegate, browser, ops, 0, ^{ DPOfferUndo(delegate, browser, ids, places); });
         });

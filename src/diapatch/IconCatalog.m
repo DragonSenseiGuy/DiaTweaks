@@ -4,7 +4,8 @@
 enum { DPElement = 1, DPPart = 2, DPAppearance = 7, DPIdentifier = 17, DPPackedElement = 9, DPIconImagePart = 220 };
 
 id<DPAssetStorage> DPOpenCatalog(NSString *path, BOOL writing) {
-    dlopen("/System/Library/PrivateFrameworks/CoreUI.framework/CoreUI", RTLD_NOW);
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{ dlopen("/System/Library/PrivateFrameworks/CoreUI.framework/CoreUI", RTLD_NOW); });
     return writing ? [[NSClassFromString(@"CUIMutableCommonAssetStorage") alloc] initWithPath:path forWriting:YES]
                    : [[NSClassFromString(@"CUICommonAssetStorage") alloc] initWithPath:path];
 }

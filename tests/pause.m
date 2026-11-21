@@ -3,7 +3,6 @@
 #import "SafeMode/SafeMode.h"
 #import "Settings/Settings.h"
 
-// Stand-ins for what the patches and Settings ask of the rest of the dylib.
 void DPApplyHides(DPPatch *patch) {}
 NSString *DPVerifyHides(DPPatch *patch) { return nil; }
 void DPInstallHides(void) {}
@@ -49,7 +48,6 @@ void DPRunCLI(NSArray<NSString *> *args, void (^completion)(NSString *output)) {
 - (void)stopPretending {}
 @end
 
-// The launch guard keeps its state beside the dylib: point it at a temporary folder.
 static const char *DPTestDylib;
 static int DPTestDladdr(const void *address, Dl_info *info) {
     int found = dladdr(address, info);
@@ -127,7 +125,7 @@ int main(void) {
         DPTestDylib = [[support stringByAppendingPathComponent:@"DiaPatches.dylib"] fileSystemRepresentation];
         NSString *pause = [support stringByAppendingPathComponent:@"paused"];
 
-        // Registered defaults stand in for saved settings, so the test writes nobody's settings.
+        // Registered defaults avoid writing to disk.
         NSUserDefaults *defaults = [[NSUserDefaults alloc] initWithSuiteName:@"com.diapatches.pause-test"];
         [defaults registerDefaults:@{ @"pauseTest" : @YES, @"pauseRelaunchTest" : @NO }];
         DPDefaults = defaults;
@@ -140,22 +138,18 @@ int main(void) {
         for (NSUInteger i = 0; i < DPPatchCount; i++) DPPatches[i]->on = DPEffectiveOn(DPPatches[i]);
         expect(DPSavedOn(&DPStub) && DPStub.on, @"it starts on, as saved");
 
-        // Pausing from Terminal turns it off at once, and leaves what's saved alone.
         [NSData.data writeToFile:pause atomically:YES];
         DPApplySavedSettings();
         expect(DPPaused && !DPStub.on && applied == 1 && !lastOn, @"pausing turns it off");
         expect(DPSavedOn(&DPStub), @"pausing keeps its saved setting");
 
-        // Nothing turns on while paused.
         DPSetPatch(&DPStub, YES, NO);
         expect(!DPStub.on && applied == 1, @"a tweak can't be turned on while paused");
 
-        // Resuming from Terminal gives back exactly what was saved.
         [NSFileManager.defaultManager removeItemAtPath:pause error:nil];
         DPApplySavedSettings();
         expect(!DPPaused && DPStub.on && applied == 2 && lastOn, @"resuming turns it back on");
 
-        // Settings UI: one-click Pause and Resume from Patches and Home, keeping switches and pickers locked while paused.
         DPOverviewView *overview = [[DPOverviewView alloc] initWithFrame:NSMakeRect(0, 0, 560, 600)];
         DPHomeView *home = [[DPHomeView alloc] initWithFrame:NSMakeRect(0, 0, 560, 600)];
         DPPageView *page = [[DPPageView alloc] initWithPatch:&DPStub];
@@ -171,14 +165,12 @@ int main(void) {
         expect(stubSwitch.state == NSControlStateValueOn && stubSwitch.enabled, @"switch starts on and enabled");
         expect(picker.enabled, @"page choice picker starts enabled");
 
-        // Searching for an unrelated tweak hides the pause row; searching "pause" finds it without showing the Paused header.
         [overview syncWithQuery:@"relaunch"];
         expect(overviewPause.hiddenOrHasHiddenAncestor, @"unrelated search hides the pause row");
         [overview syncWithQuery:@"pause"];
         expect(!overviewPause.hiddenOrHasHiddenAncestor && pausedHeader.hidden, @"searching pause finds the row without the Paused header");
         [overview syncWithQuery:@""];
 
-        // Clicking Pause Tweaks in Patches pauses live with no relaunch when no relaunch-only tweak is on.
         lastHandOff = nil;
         [overviewPause performClick:nil];
         [overview syncWithQuery:@""];
@@ -190,7 +182,6 @@ int main(void) {
         expect(!pausedHeader.hidden && [overviewPause.title isEqual:@"Resume Tweaks"], @"Patches shows Paused header and Resume Tweaks");
         expect([homePause.title isEqual:@"Resume Tweaks"], @"Home syncs to Resume Tweaks via notification");
 
-        // Clicking Resume Tweaks on Home resumes live with no relaunch when Dia started unpaused.
         [homePause performClick:nil];
         [overview syncWithQuery:@""];
         [page sync];
@@ -199,13 +190,11 @@ int main(void) {
         expect(pausedHeader.hidden && [overviewPause.title isEqual:@"Pause Tweaks"] && [homePause.title isEqual:@"Pause Tweaks"], @"both panes return to Pause Tweaks");
         expect(stubSwitch.enabled && picker.enabled, @"switch and picker re-enable on resume");
 
-        // Launch-time tweaks on at pause time are reported for the relaunch prompt.
         expect(DPRelaunchingOnPause().count == 0, @"no launch-time tweaks listed when none are on");
         DPRelaunchStub.on = YES;
         expect([DPRelaunchingOnPause() isEqual:@[@"Relaunch Test"]], @"active launch-time tweak is named for relaunch");
         DPRelaunchStub.on = NO;
 
-        // A launch while paused starts with everything off, blocks live apply, and Settings Resume hands off to relaunch.
         [NSData.data writeToFile:pause atomically:YES];
         DPBeginLaunch();
         for (NSUInteger i = 0; i < DPPatchCount; i++) DPPatches[i]->on = DPEffectiveOn(DPPatches[i]);
@@ -221,7 +210,6 @@ int main(void) {
         expect([lastHandOff isEqual:@[@"apply"]], @"Resume and Relaunch hands off to diapatch apply");
         expect(applied == appliedBefore, @"paused launch does not run live apply handlers");
 
-        // Safe Mode + Paused: unpaused hides the Patches pause row; resuming while in Safe Mode clears pause without relaunching.
         DPSafeMode = 1;
         DPPaused = NO;
         [overview syncWithQuery:@""];
@@ -234,7 +222,6 @@ int main(void) {
         expect(!DPPaused && !DPPauseSaved() && !lastHandOff, @"resuming in Safe Mode clears pause without relaunching");
         DPSafeMode = 0;
 
-        // Leaving safe mode is not resuming.
         DPSetPaused(YES);
         DPLeaveSafeMode();
         expect(DPPauseSaved(), @"leaving safe mode leaves the pause alone");

@@ -10,11 +10,16 @@ static BOOL DPOnScreens(NSRect frame, NSArray<NSValue *> *screens) {
 }
 
 static NSRect DPLittleDiaFrame(void) {
+    NSArray<NSScreen *> *screens = NSScreen.screens;
     NSRect left = DPLittleDiaRemember.on ? DPLittleDiaSavedFrame() : NSZeroRect;
-    if (DPOnScreens(left, [NSScreen.screens valueForKey:@"frame"])) return left;
+    if (DPOnScreens(left, [screens valueForKey:@"frame"])) return left;
     NSScreen *screen = NSScreen.mainScreen;
-    for (NSScreen *each in NSScreen.screens)
-        if (NSMouseInRect(NSEvent.mouseLocation, each.frame, NO)) screen = each;
+    NSPoint mouse = NSEvent.mouseLocation;
+    for (NSScreen *each in screens)
+        if (NSMouseInRect(mouse, each.frame, NO)) {
+            screen = each;
+            break;
+        }
     NSRect visible = screen.visibleFrame;
     NSSize wanted = DPLittleDiaSize();
     NSSize size = NSMakeSize(round(MIN(wanted.width, NSWidth(visible) * 0.95)), round(MIN(wanted.height, NSHeight(visible) * 0.95)));
@@ -25,8 +30,8 @@ static NSURL *DPLittleDiaLink(NSAppleEventDescriptor *event) {
     if (event.eventClass != kInternetEventClass || event.eventID != kAEGetURL) return nil;
     NSString *string = [event paramDescriptorForKeyword:keyDirectObject].stringValue;
     NSURL *url = string ? [NSURL URLWithString:string] : nil;
-    NSString *scheme = url.scheme.lowercaseString;
-    if (![scheme isEqual:@"http"] && ![scheme isEqual:@"https"]) return nil;
+    NSString *scheme = url.scheme;
+    if (!scheme || ([scheme caseInsensitiveCompare:@"http"] != NSOrderedSame && [scheme caseInsensitiveCompare:@"https"] != NSOrderedSame)) return nil;
     if ([event attributeDescriptorForKeyword:keySenderPIDAttr].int32Value == getpid()) return nil;
     if (NSEvent.modifierFlags & NSEventModifierFlagOption) return nil;
     return url;
@@ -47,7 +52,6 @@ static BOOL DPOpenInLittleDia(NSURL *url, NSDictionary *noted, void (^missed)(vo
     return DPOpenFramed(url, DPLittleDiaFrame(), noted, missed, claimed);
 }
 
-// The pages in the window, without the sidebar; every pane of a split view together.
 static NSRect DPPageArea(NSWindow *window) {
     NSRect area = NSZeroRect;
     for (NSView *pane in DPFindViews(DPDiaContentPane))
@@ -56,7 +60,6 @@ static NSRect DPPageArea(NSWindow *window) {
     return NSIsEmptyRect(area) ? window.frame : area;
 }
 
-// 80% of the page area's width, centred on it, and the window's height less a sliver top and bottom. Tabs at the top stay clear: it starts at the page.
 static NSRect DPOverWindowFrame(NSWindow *source) {
     if (!source.visible) return DPLittleDiaFrame();
     // macOS keeps windows below the menu bar, which would take the margin from the bottom.
@@ -80,7 +83,7 @@ static void DPOpenURLEvents_handle(id self, SEL _cmd, NSAppleEventDescriptor *ev
     DPLinkArrived();
     NSAppleEventDescriptor *kept = [event copy];  // The event is the system's and is gone once this returns.
     DPOpenWhenReady(url, DPNoteStackForLink(), ^{
-        DPBringBackPutAway(nil);  // Not taken by Little Dia, so the tab opens in a window that must be showing.
+        DPBringBackPutAway(nil);
         DPCallOriginal(DPOpenURLEvents_handle, self, kept, [NSAppleEventDescriptor nullDescriptor]);
     }, 40);
 }

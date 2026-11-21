@@ -4,11 +4,8 @@ extern DPPatch DPBitwarden;
 
 static NSString *const kHost = @"com.8bit.bitwarden";
 static NSString *const kExtension = @"chrome-extension://nngceckbapebfimnlniiiahkandclblb/";
-
-// Tells our file from Bitwarden's, which it rewrites whenever it starts and Chrome's folder exists.
 static NSString *const kDescription = @"DiaTweaks link to the Bitwarden app";
 
-// Dia reads hosts from Chrome's folder, not its own.
 static NSString *DPHostManifestPath(void) { return DPAppSupport(@"Google/Chrome/NativeMessagingHosts/com.8bit.bitwarden.json"); }
 
 static NSDictionary *DPHostAt(NSString *path) {
@@ -24,17 +21,17 @@ static NSString *DPProxyPath(void) {
 
 static NSError *gWriteError;
 
-// Only our own file, told apart by its description, is added over nothing or taken away: Bitwarden's stays.
 static void DPRegisterHost(BOOL on) {
     NSFileManager *files = NSFileManager.defaultManager;
-    NSString *path = DPHostManifestPath(), *proxy = DPProxyPath();
-    BOOL exists = [files fileExistsAtPath:path], ours = [DPHostAt(path)[@"description"] isEqual:kDescription];
+    NSString *path = DPHostManifestPath();
+    BOOL ours = [DPHostAt(path)[@"description"] isEqual:kDescription];
     gWriteError = nil;
     if (!on) {
         if (ours) [files removeItemAtPath:path error:nil];
         return;
     }
-    if (!proxy || (exists && !ours)) return;
+    NSString *proxy = DPProxyPath();
+    if (!proxy || ([files fileExistsAtPath:path] && !ours)) return;
     NSDictionary *manifest = @{ @"name" : kHost, @"description" : kDescription, @"path" : proxy, @"type" : @"stdio", @"allowed_origins" : @[ kExtension ] };
     NSError *error;
     BOOL written = [files createDirectoryAtPath:path.stringByDeletingLastPathComponent withIntermediateDirectories:YES attributes:nil error:&error]

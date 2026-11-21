@@ -2,7 +2,6 @@
 
 extern DPPatch DPDockClickWindow;
 
-// With the Dock's switch-to-Space setting off, ordering a window front shows nothing, so Dia's own new window is left to open.
 static BOOL DPSwitchesToWindows(void) {
     CFPropertyListRef value = CFPreferencesCopyAppValue(CFSTR("workspaces-auto-swoosh"), CFSTR("com.apple.dock"));
     BOOL on = !value || CFEqual(value, kCFBooleanTrue) || ([(__bridge id)value respondsToSelector:@selector(boolValue)] && [(__bridge id)value boolValue]);
@@ -11,10 +10,9 @@ static BOOL DPSwitchesToWindows(void) {
 }
 
 static NSWindow *DPWindowToShow(void) {
-    NSMutableArray<NSWindow *> *windows = [NSApp.orderedWindows mutableCopy];
-    for (NSWindow *window in NSApp.windows) if (![windows containsObject:window]) [windows addObject:window];
-    for (NSWindow *window in windows)
-        if (DPIsKind(window, DPDiaWindow) && window.visible && !window.miniaturized && window.level == NSNormalWindowLevel) return window;
+    for (NSArray<NSWindow *> *list in @[ NSApp.orderedWindows, NSApp.windows ])
+        for (NSWindow *window in list)
+            if (DPIsKind(window, DPDiaWindow) && window.visible && !window.miniaturized && window.level == NSNormalWindowLevel) return window;
     return nil;
 }
 

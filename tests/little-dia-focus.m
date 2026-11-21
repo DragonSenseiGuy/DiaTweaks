@@ -71,7 +71,6 @@ int main(void) {
         DPLittleDia.on = YES;
         DPInstallLittleDiaWindows();
 
-        // Late-arriving page view in a claimed key Little Dia window takes first responder.
         _TtC5Popup19PlatformPopupWindow *w1 = DPClaimedPopup(YES);
         CHECK(DPIsLittleDiaWindow(w1) && w1.firstResponder == w1, "claimed popup starts with window as first responder");
         RenderWidgetHostViewCocoa *page1 = [[RenderWidgetHostViewCocoa alloc] initWithFrame:NSMakeRect(0, 0, 400, 260)];
@@ -79,7 +78,6 @@ int main(void) {
         DPDrain(0.05);
         CHECK(w1.firstResponder == page1, "arriving RenderWidgetHostViewCocoa becomes first responder");
 
-        // Hidden page view is ignored until visible, then picked up by the 300 ms settle pass.
         _TtC5Popup19PlatformPopupWindow *w2 = DPClaimedPopup(YES);
         RenderWidgetHostViewCocoa *page2 = [[RenderWidgetHostViewCocoa alloc] initWithFrame:NSMakeRect(0, 0, 400, 260)];
         page2.hidden = YES;
@@ -90,7 +88,6 @@ int main(void) {
         DPDrain(0.35);
         CHECK(w2.firstResponder == page2, "visible page view is focused on the 300 ms settle pass");
 
-        // Address bar / text view already holding first responder is never interrupted.
         _TtC5Popup19PlatformPopupWindow *w3 = DPClaimedPopup(YES);
         NSTextView *address = [[NSTextView alloc] initWithFrame:NSMakeRect(0, 260, 300, 30)];
         [w3.contentView addSubview:address];
@@ -100,7 +97,6 @@ int main(void) {
         DPDrain(0.35);
         CHECK(w3.firstResponder == address, "existing text responder keeps focus");
 
-        // Non-key Little Dia window waits until it becomes key.
         _TtC5Popup19PlatformPopupWindow *w4 = DPClaimedPopup(NO);
         RenderWidgetHostViewCocoa *page4 = [[RenderWidgetHostViewCocoa alloc] initWithFrame:NSMakeRect(0, 0, 400, 260)];
         [w4.contentView addSubview:page4];
@@ -110,7 +106,6 @@ int main(void) {
         [NSNotificationCenter.defaultCenter postNotificationName:NSWindowDidBecomeKeyNotification object:w4];
         CHECK(w4.firstResponder == page4, "becoming key focuses the waiting page view");
 
-        // Non-Little-Dia window (native popup) is never touched.
         _TtC5Popup19PlatformPopupWindow *nativePopup = DPNewPopup();
         nativePopup.fakeKey = YES;
         [nativePopup.contentView addSubview:[[RenderWidgetHostViewCocoa alloc] initWithFrame:NSMakeRect(0, 0, 400, 260)]];
@@ -118,7 +113,6 @@ int main(void) {
         DPDrain(0.05);
         CHECK(nativePopup.firstResponder == nativePopup, "unclaimed native popup is untouched");
 
-        // Promoted Little Dia window is never refocused.
         _TtC5Popup19PlatformPopupWindow *w5 = DPClaimedPopup(YES);
         DPPromoteLittleDiaWindow(w5);
         [w5.contentView addSubview:[[RenderWidgetHostViewCocoa alloc] initWithFrame:NSMakeRect(0, 0, 400, 260)]];
@@ -126,7 +120,6 @@ int main(void) {
         DPDrain(0.05);
         CHECK(w5.firstResponder == w5, "promoted Little Dia window is untouched");
 
-        // With Little Dia off, focus is untouched.
         _TtC5Popup19PlatformPopupWindow *w6 = DPClaimedPopup(YES);
         DPLittleDia.on = NO;
         [w6.contentView addSubview:[[RenderWidgetHostViewCocoa alloc] initWithFrame:NSMakeRect(0, 0, 400, 260)]];

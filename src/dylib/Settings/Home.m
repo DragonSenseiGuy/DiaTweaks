@@ -63,8 +63,11 @@ static NSView *DPWebRow(NSString *title, NSString *path) {
         : updates.checkProblem ? @"Couldn’t check"
         : updates.found ? @"Up to date" : @"";
 
+    static NSCharacterSet *vSet;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{ vSet = [NSCharacterSet characterSetWithCharactersInString:@"v"]; });
     id installed = updates.found[DPTweaks][@"installed"];
-    _version.stringValue = [installed isKindOfClass:NSString.class] ? [@"Version " stringByAppendingString:[installed stringByTrimmingCharactersInSet:[NSCharacterSet characterSetWithCharactersInString:@"v"]]]
+    _version.stringValue = [installed isKindOfClass:NSString.class] ? [@"Version " stringByAppendingString:[installed stringByTrimmingCharactersInSet:vSet]]
         : updates.found ? @"Development build" : @"";
     _version.hidden = !_version.stringValue.length;
 }

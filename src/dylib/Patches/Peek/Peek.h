@@ -2,7 +2,7 @@
 
 extern DPPatch DPPeek, DPPeekPinnedLinks;
 
-typedef NS_ENUM(NSInteger, DPPeekExit) { DPPeekClose, DPPeekTab, DPPeekSplit };  // Also the controls' button tags.
+typedef NS_ENUM(NSInteger, DPPeekExit) { DPPeekClose, DPPeekTab, DPPeekSplit };
 typedef NS_ENUM(NSInteger, DPPeekStep) { DPPeekBack, DPPeekForward, DPPeekReload };
 
 // Dia's ArcWebContentsNavigationDisposition, numbered differently from Chromium's.
@@ -40,6 +40,7 @@ enum { DPIgnoreAction = 0, DPCurrentTab = 1, DPForegroundTab = 2, DPBackgroundTa
 @end
 
 DPPeekCard *DPPeekCardIn(NSWindow *window);
+DPPeekCard *DPPeekCardForPage(id page);
 DPPeekCard *DPPeekShowCard(NSWindow *window, id<DPPeekPage> page, NSView *warmHost, NSRect screenLink);
 NSView *DPPeekWarmHost(NSWindow *window, id<DPPeekPage> page);
 
@@ -91,5 +92,5 @@ void DPPeekWarm(NSWindow *window, id source, NSURL *url);
 void DPPeekCool(void);
 void DPPeekOpenDragged(NSURL *url, NSPoint origin);
 BOOL DPPeekIsWeb(NSURL *url);
-BOOL DPPeekOverLink(id page, NSURL *url);  // The pointer is on a link to url in page.
-NSString *DPPeekLinkKey(NSString *address);  // Same for a link's URL and for the status text Dia shows over it.
+BOOL DPPeekOverLink(id page, NSURL *url);
+NSString *DPPeekLinkKey(NSString *address);
