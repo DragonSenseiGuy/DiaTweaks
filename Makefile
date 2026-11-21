@@ -102,7 +102,10 @@ build/launch-flags: tests/launch-flags.m src/dylib/StdPatch/Extensions.m src/dyl
 build/command-bar-swap: tests/command-bar-swap.m src/dylib/Patches/CommandBar/CommandBarSwap.m src/dylib/Patches/CommandBar/HideTabButton.m src/dylib/Patches/CommandBar/CommandBarOverlay.h src/dylib/Patches/CommandBar/HideTab.h src/dylib/StdPatch/Hook.m src/dylib/StdPatch/Views.m $(wildcard src/dylib/StdPatch/*.h) | build
 	clang $(CFLAGS) -Isrc/dylib -framework AppKit -o $@ tests/command-bar-swap.m src/dylib/StdPatch/Hook.m src/dylib/StdPatch/Views.m
 
-check: build/diapatch build/group-tabs build/mouse-back-forward build/vertical-tab-glow build/split-client-hello build/peek-cursor build/peek-link build/safe-mode build/hook-table build/tidy-tabs build/drag-offset build/toolbar-permission build/launch-flags build/little-dia-stack build/little-dia-profile build/little-dia-over build/tracking build/hide-toolbar-settle build/command-bar-swap build/patches.json
+build/command-bar-spare: tests/command-bar-spare.m src/dylib/Patches/CommandBar/CommandBarSpare.m src/dylib/Patches/CommandBar/CommandBarSpareMaker.m src/dylib/Patches/CommandBar/HideTab.m src/dylib/Patches/CommandBar/HideTabButton.m src/dylib/Patches/CommandBar/Tabs.m src/dylib/Patches/CommandBar/CommandBarOverlay.h src/dylib/Patches/CommandBar/HideTab.h src/dylib/Patches/CommandBar/Tabs.h src/dylib/StdPatch/Hook.m src/dylib/StdPatch/Views.m $(wildcard src/dylib/StdPatch/*.h) | build
+	clang $(CFLAGS) -Isrc/dylib -framework AppKit -framework QuartzCore -o $@ tests/command-bar-spare.m src/dylib/Patches/CommandBar/Tabs.m src/dylib/StdPatch/Hook.m src/dylib/StdPatch/Views.m
+
+check: build/diapatch build/group-tabs build/mouse-back-forward build/vertical-tab-glow build/split-client-hello build/peek-cursor build/peek-link build/safe-mode build/hook-table build/tidy-tabs build/drag-offset build/toolbar-permission build/launch-flags build/little-dia-stack build/little-dia-profile build/little-dia-over build/tracking build/hide-toolbar-settle build/command-bar-swap build/command-bar-spare build/patches.json
 	tests/tweaks-update
 	build/group-tabs
 	build/tidy-tabs
@@ -122,6 +125,7 @@ check: build/diapatch build/group-tabs build/mouse-back-forward build/vertical-t
 	build/little-dia-over
 	build/hide-toolbar-settle
 	build/command-bar-swap
+	build/command-bar-spare
 	tests/sidebar-grain
 	scripts/check-patches
 

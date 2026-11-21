@@ -3,6 +3,7 @@
 id DPScriptWindow(NSWindow *window);
 id DPScriptTab(NSWindow *window, NSString *tabID);
 id DPScriptTabIn(id scriptWindow, NSString *tabID);
+id DPScriptTabInAnyProfile(id scriptWindow, NSString *tabID);  // Also in the window's other spaces.
 NSString *DPTabID(id tab);
 NSString *DPActiveTabID(NSWindow *window);
 NSString *DPActiveTabIDIn(id scriptWindow);

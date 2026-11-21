@@ -28,6 +28,7 @@ void DPWatch(DPCommandBarOverlay *overlay);
 NSMutableSet<NSString *> *DPSplits(NSWindow *window);
 NSMutableSet<NSString *> *DPBlanks(NSWindow *window);
 NSView *DPBlankPage(NSWindow *window);
+void DPMakeBlank(NSView *page, NSString *tab, NSString *closing);  // closing: the tab Dia is closing, if any.
 NSMenuItem *DPMenuItemTitled(NSMenu *menu, NSString *title);
 NSUserDefaults *DPSettings(void);
 void DPShowHiddenBars(void);  // Bars hidden for an empty window come back.
@@ -42,3 +43,15 @@ void DPFinishHandOver(NSWindow *window);
 NSEvent *DPHandToDia(NSWindow *window, NSEvent *event, BOOL newTab);  // ⌘T or ⌘L goes on to Dia, which opens its tab or bar.
 BOOL DPWaitForDia(NSWindow *window, NSEvent *event, BOOL newTab);     // Pressed before Dia has: noted, and nothing else to do.
 void DPDiaCaughtUp(NSWindow *window);                                  // The tab or bar is up.
+
+BOOL DPSparesOn(void);
+BOOL DPParkSpare(DPCommandBarOverlay *overlay);
+void DPParkIfSpare(DPCommandBarOverlay *overlay);
+BOOL DPShowSpare(NSWindow *window);
+void DPDropSpare(NSWindow *window);
+DPCommandBarOverlay *DPSpareIn(NSWindow *window);
+void DPCloseLeftSpares(NSArray<NSString *> *tabIDs, BOOL last);
+void DPNoteSpare(NSString *tabID, BOOL parked);       // A spare or a bar's hidden tab: closed at the next launch if still empty.
+BOOL DPAdoptSpare(NSWindow *window, NSView *page);    // Dia brought it to the front, on that page: kept as an empty tab.
+void DPWantSpare(void);
+void DPNotMakingSpare(void);  // A bar the person asked for, so not the spare's even if it comes while one is being made.

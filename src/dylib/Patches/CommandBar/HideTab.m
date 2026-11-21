@@ -56,6 +56,8 @@ void DPParkTab(NSString *tabID, BOOL parked) {
     DPRelayoutLists();
 }
 
+BOOL DPHiddenTab(NSString *tab) { return DPHiding() && tab && [DPHidden containsObject:tab] && DPOwned(tab); }
+
 BOOL DPHidesTab(NSString *tab) {
     if (!DPHiding() || !tab) return NO;
     if ([DPHidden containsObject:tab]) return DPOwned(tab);
