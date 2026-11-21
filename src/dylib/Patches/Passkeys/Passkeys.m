@@ -9,11 +9,12 @@ static NSString *const kExtensionID = @"ljonmeeapeagnkmjklinbocjbjepecce";
 
 static NSString *const kFiles[] = { @"manifest.json", @"page.js", @"bridge.js", @"worker.js" };
 
+static NSString *const kHostFile = @"com.diapatches.passkeys.json";
+
 static NSString *DPExtensionFolder(void) { return DPAppSupport(@"DiaPatches/passkeys-extension"); }
 
-static NSString *DPHostManifestPath(void) { return DPAppSupport(@"Google/Chrome/NativeMessagingHosts/com.diapatches.passkeys.json"); }
-
 static NSError *gWriteError;
+static NSString *gWritePath;
 
 static BOOL DPWrite(NSData *data, NSString *path) {
     NSError *error;
@@ -21,17 +22,26 @@ static BOOL DPWrite(NSData *data, NSString *path) {
         && [data writeToFile:path options:NSDataWritingAtomic error:&error])
         return YES;
     gWriteError = error;
+    gWritePath = path;
     return NO;
 }
 
 static BOOL DPSetUpPasskeys(void) {
     gWriteError = nil;
+    gWritePath = nil;
     NSString *folder = DPExtensionFolder();
     for (int i = 0; i < 4; i++) {
         NSString *section = [@"__pk_" stringByAppendingString:kFiles[i].stringByDeletingPathExtension];
         unsigned long size = 0;
         uint8_t *bytes = getsectiondata(&_mh_dylib_header, "__TEXT", section.UTF8String, &size);
         if (!bytes || !DPWrite([NSData dataWithBytes:bytes length:size], [folder stringByAppendingPathComponent:kFiles[i]])) return NO;
+    }
+    NSError *error = nil;
+    NSString *hostFolder = DPHostFolder(YES, &error);
+    if (!hostFolder) {
+        gWriteError = error;
+        gWritePath = [DPHostFolders().lastObject stringByAppendingPathComponent:kHostFile];
+        return NO;
     }
     NSDictionary *manifest = @{
         @"name" : @"com.diapatches.passkeys",
@@ -40,18 +50,28 @@ static BOOL DPSetUpPasskeys(void) {
         @"type" : @"stdio",
         @"allowed_origins" : @[ [NSString stringWithFormat:@"chrome-extension://%@/", kExtensionID] ],
     };
-    return DPWrite([NSJSONSerialization dataWithJSONObject:manifest options:NSJSONWritingPrettyPrinted error:nil], DPHostManifestPath());
+    if (!DPWrite([NSJSONSerialization dataWithJSONObject:manifest options:NSJSONWritingPrettyPrinted error:nil],
+                 [hostFolder stringByAppendingPathComponent:kHostFile]))
+        return NO;
+    NSFileManager *fm = NSFileManager.defaultManager;
+    for (NSString *dir in DPHostFolders()) {
+        if ([dir isEqualToString:hostFolder]) continue;
+        NSString *stale = [dir stringByAppendingPathComponent:kHostFile];
+        if ([fm fileExistsAtPath:stale]) [fm removeItemAtPath:stale error:nil];
+    }
+    return YES;
 }
 
 static NSString *DPPasskeysProblem(DPPatch *patch) {
     NSString *folder = DPExtensionFolder();
-    if (gWriteError) return DPWriteProblem(folder, gWriteError);
+    if (gWriteError) return DPWriteProblem(gWritePath ?: folder, gWriteError);
     NSFileManager *fm = NSFileManager.defaultManager;
     for (int i = 0; i < 4; i++) {
         NSString *file = [folder stringByAppendingPathComponent:kFiles[i]];
         if (![fm fileExistsAtPath:file]) return [NSString stringWithFormat:@"%@ is missing.", file];
     }
-    return DPRelayProblem() ?: DPHostProblem(DPHostManifestPath(), @"com.diapatches.passkeys");
+    NSString *manifest = [DPHostFolder(NO, nil) stringByAppendingPathComponent:kHostFile];
+    return DPRelayProblem() ?: DPHostProblem(manifest, @"com.diapatches.passkeys");
 }
 
 static BOOL gExtensionLoaded;
@@ -73,7 +93,10 @@ static void DPInstallPasskeys(void) {
     if (!DPPasskeys.on) {
         NSFileManager *fm = NSFileManager.defaultManager;
         [fm removeItemAtPath:folder error:nil];
-        [fm removeItemAtPath:DPHostManifestPath() error:nil];
+        for (NSString *dir in DPHostFolders()) {
+            NSString *path = [dir stringByAppendingPathComponent:kHostFile];
+            if ([fm fileExistsAtPath:path]) [fm removeItemAtPath:path error:nil];
+        }
         DPDropExtension(folder);
         return;
     }

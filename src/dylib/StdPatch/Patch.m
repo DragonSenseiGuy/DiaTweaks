@@ -96,42 +96,6 @@ NSString *DPAppSupport(NSString *path) {
     return [base stringByAppendingPathComponent:path];
 }
 
-NSString *DPRelayProblem(void) {
-    for (NSString *path in @[ @"DiaPatches/bin/diapatch", @"DiaPatches/pristine/Dia.app/Contents/MacOS/Dia" ])
-        if (![NSFileManager.defaultManager isExecutableFileAtPath:DPAppSupport(path)])
-            return [NSString stringWithFormat:@"%@ is missing. Install DiaTweaks again to put it back.", DPAppSupport(path)];
-    return nil;
-}
-
-// Find the highest unwritable directory under Application Support.
-static NSString *DPFolderToRepair(NSString *folder) {
-    NSString *support = DPAppSupport(@""), *repair = nil;
-    for (NSString *dir = folder; [dir hasPrefix:support]; dir = dir.stringByDeletingLastPathComponent) {
-        if (access(dir.fileSystemRepresentation, W_OK | X_OK) == 0) return repair && [NSFileManager.defaultManager fileExistsAtPath:repair] ? repair : nil;
-        repair = dir;
-    }
-    return nil;
-}
-
-NSString *DPWriteProblem(NSString *path, NSError *error) {
-    path = error.userInfo[NSFilePathErrorKey] ?: path;
-    NSString *problem = [NSString stringWithFormat:@"Couldn’t write %@: %@", path, error.localizedDescription];
-    NSString *folder = error.code == NSFileWriteNoPermissionError ? DPFolderToRepair(path.stringByDeletingLastPathComponent) : nil;
-    if (!folder) return problem;
-    if ([folder hasPrefix:NSHomeDirectory()]) folder = [@"$HOME" stringByAppendingString:[folder substringFromIndex:NSHomeDirectory().length]];
-    return [problem stringByAppendingFormat:@" To fix it, run sudo chown -R \"$(whoami)\" \"%@\" && chmod -R u+rwX \"%@\" in Terminal, then turn this on again.", folder, folder];
-}
-
-NSString *DPHostProblem(NSString *manifest, NSString *name) {
-    NSData *data = [NSData dataWithContentsOfFile:manifest];
-    if (!data) return [NSString stringWithFormat:@"%@ couldn’t be written.", manifest];
-    NSDictionary *host = [NSJSONSerialization JSONObjectWithData:data options:0 error:nil];
-    if (![host isKindOfClass:NSDictionary.class] || ![host[@"name"] isEqual:name]) return [NSString stringWithFormat:@"%@ isn’t a valid host file.", manifest];
-    if (![host[@"path"] isEqual:DPAppSupport(@"DiaPatches/bin/diapatch")])
-        return [NSString stringWithFormat:@"Another app has replaced %@, so its extension goes to %@ instead.", manifest, host[@"path"]];
-    return nil;
-}
-
 BOOL DPSavedOn(DPPatch *patch) {
     id value = [DPDefaults objectForKey:patch->key];
     return !patch->unavailable && (value ? [value boolValue] : patch->defaultOn);

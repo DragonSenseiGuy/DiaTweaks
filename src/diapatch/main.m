@@ -780,14 +780,20 @@ static BOOL update(void) {
 }
 
 static void removePasswordsHost(void) {
+    NSArray<NSString *> *folders = @[
+        [NSHomeDirectory() stringByAppendingPathComponent:@"Library/Application Support/Google/Chrome/NativeMessagingHosts"],
+        [NSHomeDirectory() stringByAppendingPathComponent:@"Library/Application Support/Dia/User Data/NativeMessagingHosts"],
+    ];
     for (NSString *file in @[ @"com.apple.passwordmanager.json", @"io.github.fanckush.betterpasswords.bridge.json", @"com.openpasswords.icloud.json", @"com.diapatches.passkeys.json" ]) {
-        NSString *path = [NSHomeDirectory() stringByAppendingPathComponent:[@"Library/Application Support/Google/Chrome/NativeMessagingHosts" stringByAppendingPathComponent:file]];
-        NSData *data = [NSData dataWithContentsOfFile:path];
-        if (!data) continue;
-        NSDictionary *host = [NSJSONSerialization JSONObjectWithData:data options:0 error:NULL];
-        if (![host isKindOfClass:NSDictionary.class] || ![host[@"path"] isEqual:inHome(@"bin/diapatch")]) continue;
-        removeTree(path);
-        [NSFileManager.defaultManager moveItemAtPath:inHome(file) toPath:path error:NULL];
+        for (NSString *folder in folders) {
+            NSString *path = [folder stringByAppendingPathComponent:file];
+            NSData *data = [NSData dataWithContentsOfFile:path];
+            if (!data) continue;
+            NSDictionary *host = [NSJSONSerialization JSONObjectWithData:data options:0 error:NULL];
+            if (![host isKindOfClass:NSDictionary.class] || ![host[@"path"] isEqual:inHome(@"bin/diapatch")]) continue;
+            removeTree(path);
+            [NSFileManager.defaultManager moveItemAtPath:inHome(file) toPath:path error:NULL];
+        }
     }
 }
 
