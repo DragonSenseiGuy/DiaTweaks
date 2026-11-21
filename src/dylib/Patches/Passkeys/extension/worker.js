@@ -1,5 +1,5 @@
 chrome.runtime.onConnect.addListener((port) => {
-  const origin = new URL(port.sender.url).origin;
+  const { origin, pathname: path } = new URL(port.sender.url);
   port.onMessage.addListener((request) => {
     const host = chrome.runtime.connectNative('com.diapatches.passkeys');
     let answered = false;
@@ -13,6 +13,6 @@ chrome.runtime.onConnect.addListener((port) => {
       port.postMessage({ error: { name: 'NotAllowedError', message: chrome.runtime.lastError?.message ?? 'No reply from diapatch' } });
     });
     port.onDisconnect.addListener(() => host.disconnect());
-    host.postMessage({ ...request, origin });
+    host.postMessage({ ...request, origin, path });
   });
 });
