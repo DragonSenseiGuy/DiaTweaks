@@ -16,8 +16,9 @@ static unsigned DPIconStyle(void) {
     static Class configuration;
     static dispatch_once_t once;
     dispatch_once(&once, ^{ configuration = NSClassFromString(@"SLSIconAppearanceConfiguration"); });
-    id current = ((id (*)(id, SEL))objc_msgSend)(configuration, NSSelectorFromString(@"fetchCurrentIconAppearanceConfiguration"));
-    return current ? ((unsigned (*)(id, SEL))objc_msgSend)(current, NSSelectorFromString(@"iconAppearanceTheme")) : 1;
+    SEL fetch = NSSelectorFromString(@"fetchCurrentIconAppearanceConfiguration"), theme = NSSelectorFromString(@"iconAppearanceTheme");
+    id current = [configuration respondsToSelector:fetch] ? ((id (*)(id, SEL))objc_msgSend)(configuration, fetch) : nil;
+    return [current respondsToSelector:theme] ? ((unsigned (*)(id, SEL))objc_msgSend)(current, theme) : 1;
 }
 
 static void DPSetTileImage(NSImage *image) {

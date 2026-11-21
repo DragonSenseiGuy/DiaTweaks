@@ -9,13 +9,22 @@ static char DPStatusKey, DPLineKey, DPAdjustedKey, DPEditsKey;
 @implementation DPPRStatusLine
 @end
 
+static void DPCollectLists(NSView *view, Class cls, NSMutableArray<NSView *> *out) {
+    if ([view isKindOfClass:cls]) [out addObject:view];
+    for (NSView *sub in view.subviews) DPCollectLists(sub, cls, out);
+}
+
 static void DPInvalidateRows(void) {
     static BOOL scheduled;
     if (scheduled) return;
     scheduled = YES;
     dispatch_async(dispatch_get_main_queue(), ^{
         scheduled = NO;
-        for (NSView *view in DPFindViews(DPDiaTabListCollection)) [((NSCollectionView *)view).collectionViewLayout invalidateLayout];
+        Class cls = objc_getClass(DPDiaTabListCollection);
+        if (!cls) return;
+        NSMutableArray<NSView *> *lists = [NSMutableArray new];
+        for (NSWindow *window in NSApp.windows) DPCollectLists(window.contentView, cls, lists);
+        for (NSView *view in lists) [((NSCollectionView *)view).collectionViewLayout invalidateLayout];
     });
 }
 
@@ -49,6 +58,7 @@ static void DPLayout_prepareLayout(NSCollectionViewLayout *self, SEL _cmd) {
     DPCallOriginal(DPLayout_prepareLayout, self);
     if (!DPPullRequestRepo.on || !DPTallTabs.count) {
         if (DPGet(self, &DPEditsKey)) DPSet(self, &DPEditsKey, nil);
+        if (DPGet(self, &DPAdjustedKey)) DPSet(self, &DPAdjustedKey, nil);
         return;
     }
     id diffable = self.collectionView.dataSource;
@@ -108,12 +118,12 @@ static id<NSDraggingInfo> DPDiaDrag(NSView *tabList, id<NSDraggingInfo> info) {
 
 static NSDragOperation DPTabList_entered(NSView *self, SEL _cmd, id<NSDraggingInfo> info) {
     NSDragOperation operation = DPCallOriginal(DPTabList_entered, self, DPDiaDrag(self, info));
-    DPPlaceDraggedTab();
+    if (DPPullRequestRepo.on) DPPlaceDraggedTab();
     return operation;
 }
 static NSDragOperation DPTabList_updated(NSView *self, SEL _cmd, id<NSDraggingInfo> info) {
     NSDragOperation operation = DPCallOriginal(DPTabList_updated, self, DPDiaDrag(self, info));
-    DPPlaceDraggedTab();
+    if (DPPullRequestRepo.on) DPPlaceDraggedTab();
     return operation;
 }
 static BOOL DPTabList_prepare(NSView *self, SEL _cmd, id<NSDraggingInfo> info) { return DPCallOriginal(DPTabList_prepare, self, DPDiaDrag(self, info)); }
@@ -129,6 +139,12 @@ static void DPContent_layout(NSView *self, SEL _cmd) {
     NSString *status = DPPullRequestRepo.on ? DPGet(self, &DPStatusKey) : nil;
     NSTextField *line = DPGet(self, &DPLineKey);
     if (!status && !line) return;
+    if (!DPPullRequestRepo.on) {
+        [line removeFromSuperview];
+        DPSet(self, &DPLineKey, nil);
+        DPSet(self, &DPStatusKey, nil);
+        return;
+    }
     NSView *title = DPPart(self, "$__lazy_storage_$_titleView"), *subtitle = DPPart(self, "subtitleView"), *icon = DPPart(self, "subtitleIconView");
     NSTextField *source = (NSTextField *)DPSubview(subtitle, DPDiaFeatheredLabel);
     BOOL tall = status && title && source && NSHeight(self.bounds) >= DPCompactRowHeight() + DPExtra - 1;

@@ -60,6 +60,9 @@ int main(void) { @autoreleasepool {
             assert(CGImageGetWidth(DPGrainAppearanceTile(texture, YES, YES, scale.integerValue)) == side * (size_t)scale.integerValue / 100);
         }
     }
+    CGImageRef scale150 = DPGrainAppearanceTile(@"sand", NO, NO, 150);
+    CGImageRef scale200 = DPGrainAppearanceTile(@"sand", NO, NO, 200);
+    assert(DPGrainAppearanceTile(@"sand", NO, NO, 150) == scale150 && DPGrainAppearanceTile(@"sand", NO, NO, 200) == scale200);
     [defaults setInteger:61 forKey:@"sidebarGrainAmount"];
     [defaults setInteger:23 forKey:@"sidebarGrainSoftness"];
     [defaults setInteger:170 forKey:@"sidebarGrainScale"];

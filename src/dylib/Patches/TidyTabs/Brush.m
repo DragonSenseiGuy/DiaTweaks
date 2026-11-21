@@ -43,11 +43,11 @@ BOOL DPTidyIsBusy(void) { return DPBrushesBusy; }
 void DPTidySetBusy(BOOL busy) {
     DPBrushesBusy = busy;
     for (DPTidyBrush *brush in DPTidyBrushes()) [brush showBusy];
-    for (NSView *list in DPFindViews(DPDiaTabList)) {
+    for (NSView *list in DPTidyTrackedLists()) {
         DPTidyRowIn(list, NO).needsLayout = YES;
         NSView *separator = DPTidySeparatorIn(list);
         if (separator) DPPlaceSeparatorBrush(separator);
-        if (!busy) [[DPTidyHover forList:list] track];
+        if (!busy && DPTidyTabs.on) [[DPTidyHover forList:list] track];
     }
 }
 

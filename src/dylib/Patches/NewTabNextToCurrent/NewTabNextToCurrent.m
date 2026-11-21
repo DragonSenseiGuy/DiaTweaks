@@ -91,10 +91,15 @@ static void DPPlace(NSWindow *window, NSString *newID, NSString *fromID, long lo
     void (^finish)(void) = ^{ DPDoneMoving(window, state); };
     // Move to index 0 to find where unpinned tabs begin.
     DPMoveTab(delegate, browser, sid, 0, ^{
-        NSUInteger start = [DPTabIDs(window) indexOfObject:newID];
-        if (start == NSNotFound || fromIndex < start) return finish();
+        if (!DPNewTabNextToCurrent.on) return finish();
+        NSMutableArray<NSString *> *after = [DPTabIDs(window) mutableCopy];
+        NSUInteger start = [after indexOfObject:newID];
+        [after removeObject:newID];
+        NSUInteger currentFrom = [after indexOfObject:fromID];
+        if (start == NSNotFound || currentFrom == NSNotFound || currentFrom < start) return finish();
         DPAskGroups(delegate, browser, ^(NSArray *groups) {
-            NSInteger to = (NSInteger)(fromIndex - start) + 1 + (fromSession > 0 ? DPTabsLeftInFolder(groups, fromSession) : 0);
+            if (!DPNewTabNextToCurrent.on) return finish();
+            NSInteger to = (NSInteger)(currentFrom - start) + 1 + (fromSession > 0 ? DPTabsLeftInFolder(groups, fromSession) : 0);
             DPMoveTab(delegate, browser, sid, to, finish, finish);
         });
     }, finish);
@@ -163,10 +168,13 @@ static void DPRelayMenuItem(BOOL on) {
 }
 
 static void DPNewTabButton_mouseDown(NSView *self, SEL _cmd, NSEvent *event) {
-    if (!(self.window && DPOpenNextToCurrent(self.window))) DPCallOriginal(DPNewTabButton_mouseDown, self, event);
+    NSEventModifierFlags mods = event.modifierFlags & (NSEventModifierFlagControl | NSEventModifierFlagOption | NSEventModifierFlagShift | NSEventModifierFlagCommand);
+    if (!mods && self.window && DPOpenNextToCurrent(self.window)) return;
+    DPCallOriginal(DPNewTabButton_mouseDown, self, event);
 }
 
 static void DPReturnTo(NSWindow *window, NSString *originID, NSString *expectedFront) {
+    if (!DPNewTabNextToCurrent.on) return;
     id origin = DPScriptTab(window, originID);
     if (origin && [DPActiveTabID(window) isEqual:expectedFront]) DPFocusTab(origin);
 }

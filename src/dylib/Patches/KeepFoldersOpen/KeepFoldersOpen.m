@@ -52,16 +52,28 @@ static void DPReopenFolders(void) {
     DPClickHeader(folders[0]);
 }
 
+static void DPClearFolder(NSView *folder) {
+    DPSet(folder, &DPExpandedKey, nil);
+    DPSet(folder, &DPModelKey, nil);
+    DPSet(folder, &DPClickedKey, nil);
+    DPSet(folder, &DPReopenedKey, nil);
+}
+
 static void DPCheckFolder(NSView *folder) {
+    if (!DPKeepFoldersOpen.on) {
+        if (DPGet(folder, &DPExpandedKey) || DPGet(folder, &DPModelKey)) DPClearFolder(folder);
+        return;
+    }
     NSNumber *expanded = DPFolderExpanded(folder);
     if (!expanded || !folder.window) return;
     id model = DPObjectIvar(folder, "viewModel");
-    if (model && DPGet(folder, &DPModelKey) != model) DPSet(folder, &DPExpandedKey, nil);
-    DPSet(folder, &DPModelKey, model);
+    NSValue *modelID = model ? [NSValue valueWithPointer:(__bridge const void *)model] : nil;
+    if (modelID && ![DPGet(folder, &DPModelKey) isEqual:modelID]) DPSet(folder, &DPExpandedKey, nil);
+    DPSet(folder, &DPModelKey, modelID);
     BOOL collapsed = [DPGet(folder, &DPExpandedKey) boolValue] && !expanded.boolValue;
     DPSet(folder, &DPExpandedKey, expanded);
     CFTimeInterval now = CACurrentMediaTime();
-    if (!collapsed || !DPKeepFoldersOpen.on || now - [DPGet(folder, &DPClickedKey) doubleValue] < 1) return;
+    if (!collapsed || now - [DPGet(folder, &DPClickedKey) doubleValue] < 1) return;
     if (now - DPFoldedAt < 2) return;
     if (now - [DPGet(folder, &DPReopenedKey) doubleValue] < 1) return;
     if (!DPCollapsedFolders.count)
@@ -91,6 +103,24 @@ static void DPHeader_mouse(NSView *self, SEL _cmd, NSEvent *event) {
 static void DPFolder_prepareForReuse(NSView *self, SEL _cmd) {
     DPCallOriginal(DPFolder_prepareForReuse, self);
     DPSet(self, &DPExpandedKey, nil);
+    DPSet(self, &DPModelKey, nil);
+}
+
+static void DPApplyKeepFoldersOpen(DPPatch *patch) {
+    if (!patch->on) [DPCollapsedFolders removeAllObjects];
+    const char *names[] = { DPDiaTabGroupCell, DPDiaTabGroupView, NULL };
+    for (const char **name = names; *name; name++) {
+        Class cls = objc_getClass(*name);
+        if (!cls) continue;
+        for (NSWindow *window in NSApp.windows)
+            DPFindView(window.contentView, ^BOOL(NSView *view) {
+                if ([view isKindOfClass:cls]) {
+                    if (patch->on) DPCheckFolder(view);
+                    else DPClearFolder(view);
+                }
+                return NO;
+            });
+    }
 }
 
 static void DPInstallKeepFoldersOpen(void) {
@@ -114,4 +144,5 @@ DP_PATCH(DPKeepFoldersOpen) {
     .section = @"Sidebar & Tab Bar",
     .classes = DPClasses(DPDiaTabGroupCell, DPDiaTabGroupView, DPDiaTabGroupHeader),
     .install = DPInstallKeepFoldersOpen,
+    .apply = DPApplyKeepFoldersOpen,
 };

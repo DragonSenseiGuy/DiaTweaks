@@ -50,6 +50,7 @@ static NSView *DPSelectedTab(NSWindow *window) {
 
 // Pin as Tab reuses a tab's first-ever pinned URL; replace it with the current page once pinned.
 static void DPPinCurrentURL(NSWindow *window, NSURL *url, int tries) {
+    if (!DPPinTabShortcut.on) return;
     NSView *tab = DPSelectedTab(window);
     DPHeld NSMenu *menu = tab && [DPTabURL(tab) isEqual:url] ? DPTabContextMenu(tab) : nil;
     if (DPShownItem([menu itemWithTitle:@"Unpin"])) {

@@ -42,7 +42,7 @@ static void DPLayout_prepareLayout(NSCollectionViewLayout *self, SEL _cmd) {
     double *contentHeight = DPIvar(self, "contentHeight");
     NSArray<NSCollectionViewLayoutAttributes *> *all = DPKeptAttributes(self);
     CGFloat height = DPRowHeight(all), cut = height - DPCompactRowHeight();
-    if (!contentHeight || cut < 0.5) return;
+    if (!contentHeight || cut < 0.5) return DPSet(self, &DPMovesKey, nil);
     NSMutableArray<NSValue *> *rows = [NSMutableArray new];
     for (NSCollectionViewLayoutAttributes *a in all)
         if (a.representedElementCategory == NSCollectionElementCategoryItem && NSHeight(a.frame) >= height - 0.5)
@@ -122,6 +122,7 @@ void DPPlaceDraggedTab(void) {
 }
 
 static id<NSDraggingInfo> DPDiaDrag(NSView *tabList, id<NSDraggingInfo> info) {
+    if (!DPCompactTabRows.on) return info;
     NSCollectionView *list = (NSCollectionView *)DPFindView(tabList, ^BOOL(NSView *view) { return DPIsKind(view, DPDiaTabListCollection); });
     NSArray *moves = DPGet(list.collectionViewLayout, &DPMovesKey);
     if (!moves) return info;
@@ -160,8 +161,16 @@ static void DPLabel_layout(NSTextField *self, SEL _cmd) {
     DPCallOriginal(DPLabel_layout, self);
     BOOL small = DPSmall();
     if ((!small && !DPGet(self, &DPDiaFontKey)) || !DPIsRowTitle(self) || !DPMayAdjust(self)) return;
-    NSFont *dia = DPDiaValue(self, &DPDiaFontKey, self.font), *shown = small ? [NSFont fontWithDescriptor:dia.fontDescriptor size:dia.pointSize - 1] : dia;
-    if ([self.font isEqual:shown]) return;
+    NSFont *dia = DPDiaValue(self, &DPDiaFontKey, self.font);
+    if (!dia) {
+        if (!small) DPSet(self, &DPDiaFontKey, nil);
+        return;
+    }
+    NSFont *shown = small ? [NSFont fontWithDescriptor:dia.fontDescriptor size:dia.pointSize - 1] : dia;
+    if ([self.font isEqual:shown]) {
+        if (!small) DPSet(self, &DPDiaFontKey, nil);
+        return;
+    }
     DPSet(self, &DPDiaFontKey, nil);
     if (small) DPOverride(self, &DPDiaFontKey, dia, shown);
     self.font = shown;
@@ -292,10 +301,23 @@ static void DPInstallCompactTabRows(void) {
     DPHook(DPDiaTabList, @selector(performDragOperation:), (IMP)DPTabList_perform);
 }
 
+static void DPCollectCompactViews(NSView *view, Class cls, NSMutableArray<NSView *> *out) {
+    if ([view isKindOfClass:cls]) [out addObject:view];
+    for (NSView *sub in view.subviews) DPCollectCompactViews(sub, cls, out);
+}
+
+static NSArray<NSView *> *DPAllCompactViews(const char *className) {
+    Class cls = objc_getClass(className);
+    if (!cls) return @[];
+    NSMutableArray<NSView *> *out = [NSMutableArray new];
+    for (NSWindow *window in NSApp.windows) DPCollectCompactViews(window.contentView, cls, out);
+    return out;
+}
+
 static void DPApplyCompactTabRows(DPPatch *patch) {
-    for (NSView *view in DPFindViews(DPDiaTabListCollection)) [((NSCollectionView *)view).collectionViewLayout invalidateLayout];
-    for (NSView *shape in DPFindViews(DPDiaTabShape)) shape.needsLayout = YES;
-    for (NSView *label in DPFindViews(DPDiaFeatheredLabel)) {
+    for (NSView *view in DPAllCompactViews(DPDiaTabListCollection)) [((NSCollectionView *)view).collectionViewLayout invalidateLayout];
+    for (NSView *shape in DPAllCompactViews(DPDiaTabShape)) shape.needsLayout = YES;
+    for (NSView *label in DPAllCompactViews(DPDiaFeatheredLabel)) {
         label.needsLayout = YES;
         [label layoutSubtreeIfNeeded];
     }

@@ -43,18 +43,23 @@ static NSInteger DPList_count(id self, SEL _cmd, NSCollectionView *view, NSInteg
 }
 
 // Dia requests cells at its own index, which can be past the end of the shorter grid.
+static NSCollectionView *DPShownGrid;
 static NSIndexPath *DPShownPath;
 
 static NSCollectionViewItem *DPList_item(id self, SEL _cmd, NSCollectionView *view, NSIndexPath *path) {
     if (!DPHideSleepingTabs.on) return DPCallOriginal(DPList_item, self, view, path);
+    NSCollectionView *prevGrid = DPShownGrid;
+    NSIndexPath *prevPath = DPShownPath;
+    DPShownGrid = view;
     DPShownPath = path;
     NSCollectionViewItem *item = DPCallOriginal(DPList_item, self, view, DPDiaIndexPath(self, path));
-    DPShownPath = nil;
+    DPShownGrid = prevGrid;
+    DPShownPath = prevPath;
     return item;
 }
 
 static NSCollectionViewItem *DPGrid_makeItem(NSCollectionView *self, SEL _cmd, NSUserInterfaceItemIdentifier identifier, NSIndexPath *path) {
-    return DPCallOriginal(DPGrid_makeItem, self, identifier, DPShownPath ?: path);
+    return DPCallOriginal(DPGrid_makeItem, self, identifier, self == DPShownGrid && DPShownPath ? DPShownPath : path);
 }
 
 static NSSize DPList_size(id self, SEL _cmd, NSCollectionView *view, NSCollectionViewLayout *layout, NSIndexPath *path) {
@@ -70,45 +75,71 @@ static void DPList_select(id self, SEL _cmd, NSCollectionView *view, NSSet<NSInd
 }
 
 static const CGFloat DPSwitcherChrome = 152;
-static char DPWatchedKey;
+static NSMapTable<NSLayoutConstraint *, id> *DPWatchedSizes;
 static BOOL DPFitting;
 
-static void DPFitSwitcherSize(NSLayoutConstraint *size, id list) {
+static CGFloat DPFittedConstant(NSLayoutConstraint *size, CGFloat proposed, id list) {
     NSCollectionView *grid = DPSwiftValue(list, @"collectionView");
     NSArray *shown = DPHideSleepingTabs.on ? DPShownItems(list) : nil;
-    if (DPFitting || !grid || !shown) return;
+    if (!grid || !shown) return proposed;
     NSSize cell = [list collectionView:grid layout:grid.collectionViewLayout sizeForItemAtIndexPath:[NSIndexPath indexPathForItem:0 inSection:0]];
     BOOL width = size.firstAttribute == NSLayoutAttributeWidth;
     CGFloat step = width ? cell.width : cell.height;
-    if (step <= 0) return;
-    NSInteger dia = MAX(1, lround((size.constant - DPSwitcherChrome) / step));
-    NSInteger columns = MIN((NSInteger)shown.count, dia);
+    if (step <= 0) return proposed;
+    NSInteger dia = MAX(1, lround((proposed - DPSwitcherChrome) / step));
+    NSInteger maxColumns = dia;
+    if (!width && cell.width > 0) {
+        NSView *content = size.firstItem;
+        for (NSLayoutConstraint *other in content.constraints) {
+            if (other.firstItem == content && !other.secondItem && other.firstAttribute == NSLayoutAttributeWidth) {
+                maxColumns = MAX(1, lround((other.constant - DPSwitcherChrome) / cell.width));
+                break;
+            }
+        }
+    }
+    NSInteger columns = MIN((NSInteger)shown.count, maxColumns);
     NSInteger fit = width ? columns : MIN(dia, ((NSInteger)shown.count + columns - 1) / columns);
+    return DPSwitcherChrome + fit * step;
+}
+
+static void DPFitSwitcherSize(NSLayoutConstraint *size, id list) {
+    if (DPFitting || !DPHideSleepingTabs.on) return;
+    CGFloat fitted = DPFittedConstant(size, size.constant, list);
+    if (fabs(fitted - size.constant) < 0.5) return;
     DPFitting = YES;
-    size.constant = DPSwitcherChrome + fit * step;
+    size.constant = fitted;
     DPFitting = NO;
 }
 
-@interface DPSwitcherSizeWatch : NSObject
-@property (nonatomic, weak) id list;
-@end
-
-@implementation DPSwitcherSizeWatch
-- (void)observeValueForKeyPath:(NSString *)keyPath ofObject:(NSLayoutConstraint *)size change:(NSDictionary *)change context:(void *)context {
-    DPFitSwitcherSize(size, self.list);
+static void DPConstraint_setConstant(NSLayoutConstraint *self, SEL _cmd, CGFloat constant) {
+    id list = !DPFitting && DPHideSleepingTabs.on && DPWatchedSizes.count ? [DPWatchedSizes objectForKey:self] : nil;
+    if (list) {
+        DPFitting = YES;
+        constant = DPFittedConstant(self, constant, list);
+        DPFitting = NO;
+    }
+    DPCallOriginal(DPConstraint_setConstant, self, constant);
+    if (list && self.firstAttribute == NSLayoutAttributeWidth) {
+        NSView *content = self.firstItem;
+        for (NSLayoutConstraint *other in content.constraints)
+            if (other.firstItem == content && !other.secondItem && other.firstAttribute == NSLayoutAttributeHeight && [DPWatchedSizes objectForKey:other])
+                DPFitSwitcherSize(other, list);
+    }
 }
-@end
 
 static void DPWatchSwitcherSize(id list) {
     NSView *content = [list view];
     for (NSLayoutConstraint *size in content.constraints) {
         BOOL dimension = size.firstAttribute == NSLayoutAttributeWidth || size.firstAttribute == NSLayoutAttributeHeight;
-        if (size.firstItem != content || size.secondItem || !dimension || DPGet(size, &DPWatchedKey)) continue;
-        DPSwitcherSizeWatch *watch = [DPSwitcherSizeWatch new];
-        watch.list = list;
-        [size addObserver:watch forKeyPath:@"constant" options:0 context:NULL];
-        DPSet(size, &DPWatchedKey, watch);
-        dispatch_async(dispatch_get_main_queue(), ^{ DPFitSwitcherSize(size, list); });
+        if (size.firstItem != content || size.secondItem || !dimension || [DPWatchedSizes objectForKey:size]) continue;
+        [DPWatchedSizes setObject:list forKey:size];
+        __weak NSLayoutConstraint *weakSize = size;
+        __weak id weakList = list;
+        dispatch_async(dispatch_get_main_queue(), ^{
+            NSLayoutConstraint *s = weakSize;
+            id l = weakList;
+            if (s && l) DPFitSwitcherSize(s, l);
+        });
     }
 }
 
@@ -122,7 +153,7 @@ static void DPStepSoon(void) {
 }
 
 static void DPStepPastSleeping(void) {
-    if (!DPHideSleepingTabs.on) {
+    if (!DPHideSleepingTabs.on || !(NSEvent.modifierFlags & NSEventModifierFlagControl) || DPStepsLeft <= 0) {
         DPStepsLeft = 0;
         return;
     }
@@ -140,15 +171,17 @@ static void DPStepPastSleeping(void) {
         if (tagged) CFRelease(tagged);
     }
     DPStepsLeft = focused && !sleeping ? 0 : DPStepsLeft - 1;
-    if (DPStepsLeft) DPStepSoon();
+    if (DPStepsLeft > 0) DPStepSoon();
 }
 
 static void DPInstallHideSleepingTabs(void) {
+    DPWatchedSizes = [NSMapTable weakToWeakObjectsMapTable];
     DPHook(DPDiaTabSwitcherList, @selector(collectionView:numberOfItemsInSection:), (IMP)DPList_count);
     DPHook(DPDiaTabSwitcherList, @selector(collectionView:itemForRepresentedObjectAtIndexPath:), (IMP)DPList_item);
     DPHook(DPDiaTabSwitcherList, @selector(collectionView:layout:sizeForItemAtIndexPath:), (IMP)DPList_size);
     DPHook(DPDiaTabSwitcherList, @selector(collectionView:didSelectItemsAtIndexPaths:), (IMP)DPList_select);
     DPHookClass(NSCollectionView.class, @selector(makeItemWithIdentifier:forIndexPath:), (IMP)DPGrid_makeItem);
+    DPHookClass(NSLayoutConstraint.class, @selector(setConstant:), (IMP)DPConstraint_setConstant);
     [NSEvent addLocalMonitorForEventsMatchingMask:NSEventMaskKeyDown handler:^NSEvent *(NSEvent *event) {
         if (!DPHideSleepingTabs.on || event.keyCode != 48 || !(event.modifierFlags & NSEventModifierFlagControl)) return event;
         if (event.CGEvent && CGEventGetIntegerValueField(event.CGEvent, kCGEventSourceUserData) == DPOwnKey) return event;

@@ -29,13 +29,10 @@ CGImageRef DPGrainAppearanceTile(NSString *material, BOOL soft, BOOL dark, NSInt
     dark = dark && !fine;
     if (!image || (scale == 100 && !dark)) return image;
     static NSMutableDictionary<NSString *, id> *tiles;
-    static NSInteger tilesScale;
-    if (!tiles || tilesScale != scale) {
-        tiles = [NSMutableDictionary new];
-        tilesScale = scale;
-    }
-    NSString *key = [NSString stringWithFormat:@"%@-%d-%d", material, soft, dark];
+    if (!tiles) tiles = [NSMutableDictionary new];
+    NSString *key = [NSString stringWithFormat:@"%@-%d-%d-%ld", material, soft, dark, (long)scale];
     if (!tiles[key]) {
+        if (tiles.count >= 24) [tiles removeAllObjects];
         CGImageRef tile = DPScaledGrainTile(image, scale, !fine, soft, dark);
         if (tile) tiles[key] = CFBridgingRelease(tile);
     }

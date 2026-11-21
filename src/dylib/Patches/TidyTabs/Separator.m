@@ -33,7 +33,7 @@ NSView *DPTidySeparatorIn(NSView *list) {
 
 static void DPCloseAll_setHidden(NSView *self, SEL _cmd, BOOL hidden) {
     DPCallOriginal(DPCloseAll_setHidden, self, hidden);
-    if (DPIsKind(self.superview, DPDiaTabListSeparator)) DPPlaceSeparatorBrush(self.superview);
+    if (![self isKindOfClass:DPTidyBrush.class] && DPIsKind(self.superview, DPDiaTabListSeparator)) DPPlaceSeparatorBrush(self.superview);
 }
 
 NSInteger DPTidyTabsBelowLine(NSView *list) {
@@ -80,20 +80,21 @@ static NSView *DPListOf(NSView *view) {
 }
 
 void DPPlaceSeparatorBrush(NSView *separator) {
-    if (!DPTidyTabs.on && !DPBrushIn(separator, NO)) return;
+    DPTidyBrush *existing = DPBrushIn(separator, NO);
+    if (!DPTidyTabs.on && !existing) return;
     NSView *closeAll = DPCloseAll(separator);
-    static BOOL hooked;
-    if (closeAll && !hooked) {
-        hooked = YES;
-        DPHookClass(object_getClass(closeAll), @selector(setHidden:), (IMP)DPCloseAll_setHidden);
-    }
+    if (DPTidyTabs.on && closeAll) DPHookClass(object_getClass(closeAll), @selector(setHidden:), (IMP)DPCloseAll_setHidden);
     BOOL shown = DPTidyTabs.on && closeAll && !closeAll.hidden && (DPTidyIsBusy() || DPTidyTabsBelowLine(DPListOf(separator)) >= DPTidyMinimumTabs);
-    DPTidyBrush *brush = DPBrushIn(separator, shown);
+    DPTidyBrush *brush = existing ?: DPBrushIn(separator, shown);
     CALayer *line = DPSeparatorLine(separator);
     if (!brush && !line) return;
     CGFloat right = closeAll ? NSMinX(closeAll.frame) - DPCloseAllGap : NSMaxX(separator.bounds) - 7;
-    brush.frame = NSMakeRect(right - DPTidyBrushSize, round(NSMidY(separator.bounds) - DPTidyBrushSize / 2), DPTidyBrushSize, DPTidyBrushSize);
-    brush.hidden = !shown;
+    if (DPTidyTabs.on) {
+        brush.frame = NSMakeRect(right - DPTidyBrushSize, round(NSMidY(separator.bounds) - DPTidyBrushSize / 2), DPTidyBrushSize, DPTidyBrushSize);
+        if (brush.hidden != !shown) brush.hidden = !shown;
+    } else {
+        [brush removeFromSuperview];
+    }
     if (!line) return;
     NSRect dia = [DPDiaValue(line, &DPLineFrameKey, [NSValue valueWithRect:line.frame]) rectValue], frame = dia;
     CGFloat trimmed = MIN(NSWidth(dia), MAX(0, right - DPTidyBrushSize - DPTidyLineGap - NSMinX(dia)));

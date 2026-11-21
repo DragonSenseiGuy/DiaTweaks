@@ -21,6 +21,13 @@ static NSStackView *DPGrainLabeledRow(NSString *title, NSView *control) {
     return row;
 }
 
+static NSPopover *DPGrainPopover;
+
+void DPCloseGrainPopover(void) {
+    [DPGrainPopover close];
+    DPGrainPopover = nil;
+}
+
 @implementation DPGrainMenu
 - (void)chooseTexture:(NSPopUpButton *)picker {
     NSString *material = picker.selectedItem.representedObject;
@@ -50,10 +57,9 @@ static NSStackView *DPGrainLabeledRow(NSString *title, NSView *control) {
 
 - (void)editGrain:(NSMenuItem *)item {
     NSView *sidebar = self.sidebar;
-    if (!sidebar.window) return;
-    static NSPopover *popover;
-    [popover close];
-    popover = [NSPopover new];
+    if (!DPSidebarGrain.on || !sidebar.window) return;
+    [DPGrainPopover close];
+    NSPopover *popover = DPGrainPopover = [NSPopover new];
     popover.behavior = NSPopoverBehaviorTransient;
     self.profile = DPGrainSpaceOf(sidebar);
     self.space = DPGrainHasOverrides(self.profile) ? self.profile : nil;
@@ -123,6 +129,7 @@ NSEvent *DPGrainRightClick(NSEvent *event) {
         DPGrainMenu *target = [DPGrainMenu new];
         target.sidebar = sidebar;
         target.anchor = point;
+        item.representedObject = target;
         item.target = target;
         NSInteger index = [menu indexOfItemWithTitle:@"Auto-Hide Tabs"];
         if (index >= 0) {

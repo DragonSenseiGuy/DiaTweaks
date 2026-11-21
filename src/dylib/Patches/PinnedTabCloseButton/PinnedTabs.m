@@ -15,13 +15,23 @@ NSView *DPEnclosingTab(NSView *view) {
     return view;
 }
 
+static void DPCollectPinnedViews(NSView *view, Class cls, NSMutableArray<NSView *> *out) {
+    if ([view isKindOfClass:cls]) [out addObject:view];
+    for (NSView *sub in view.subviews) DPCollectPinnedViews(sub, cls, out);
+}
+
 void DPRelayoutTabContents(void) {
-    for (NSView *content in DPFindViews(DPDiaTabContentView)) content.needsLayout = YES;
+    Class cls = objc_getClass(DPDiaTabContentView);
+    if (!cls) return;
+    NSMutableArray<NSView *> *views = [NSMutableArray new];
+    for (NSWindow *window in NSApp.windows) DPCollectPinnedViews(window.contentView, cls, views);
+    for (NSView *content in views) content.needsLayout = YES;
 }
 
 // Swift enum tags set top bits; only a web page's attributes pass.
 id DPAttributes(NSView *content) {
-    void **slot = DPIvar(DPViewModelDelegate(content), "attributesController");
+    __attribute__((objc_precise_lifetime)) id controller = DPViewModelDelegate(content);
+    void **slot = DPIvar(controller, "attributesController");
     uintptr_t raw = slot ? (uintptr_t)*slot : 0;
     if (!raw || (raw & 0xF000000000000007)) return nil;
     id attributes = (__bridge id)(void *)raw;
@@ -29,7 +39,7 @@ id DPAttributes(NSView *content) {
 }
 
 BOOL DPIsOpenPinned(NSView *content) {
-    id attributes = DPAttributes(content);
+    __attribute__((objc_precise_lifetime)) id attributes = DPAttributes(content);
     BOOL *pinned = DPIvar(attributes, "isInFavoritesOrPinnedContainer");
     void **activeURL = DPIvar(attributes, "activeURL");
     return pinned && *pinned && activeURL && *activeURL;
@@ -40,7 +50,8 @@ static BOOL DPKeeping;
 
 BOOL DPClickKeepingTab(NSView *content, void (^click)(void)) {
     if (DPKeeping) return click(), YES;
-    uint8_t *style = DPIvar(DPViewModelDelegate(DPEnclosingTab(content)), "requestedCloseButtonStyle");
+    __attribute__((objc_precise_lifetime)) id controller = DPViewModelDelegate(DPEnclosingTab(content));
+    uint8_t *style = DPIvar(controller, "requestedCloseButtonStyle");
     if (!style) return NO;
     uint8_t dia = *style;
     *style = DPCloseKeepingTabStyle;

@@ -29,19 +29,21 @@ static id DPPageAt(NSURL *url) {
 static id DPPageOf(id content) {
     NSURL *url = DPSwiftValue(content, @"webContentURL");
     NSString *tabID = DPUUIDsIn([DPSwiftValue(content, @"tabID") description]).firstObject;
+    if (!url || !tabID) return nil;
     NSMutableArray<NSString *> *sharing = [NSMutableArray array];
     for (id window in [(id)NSApp.delegate valueForKey:@"appleScriptWindows"])
         for (id tab in [window valueForKey:@"appleScriptTabs"]) {
             NSString *text = [tab respondsToSelector:@selector(URL)] ? DPText(DPMsg(tab, @selector(URL))) : nil;
-            if (text && [[NSURL URLWithString:text] isEqual:url]) [sharing addObject:DPTabID(tab)];
+            NSString *tid = text && [[NSURL URLWithString:text] isEqual:url] ? DPTabID(tab) : nil;
+            if (tid) [sharing addObject:tid];
         }
     return sharing.count == 1 && [sharing.firstObject isEqual:tabID] ? DPPageAt(url) : nil;
 }
 
 static BOOL DPTabOpen(NSView *tab) {
-    NSString *state = [DPSwiftValue(DPSwiftValue(DPSwiftValue(tab, @"viewModel"), @"stateSubject"), @"currentValue") description];
-    NSString *style = [state componentsSeparatedByString:@"selectionStyle: "].lastObject;
-    return ![style hasPrefix:@"nil"] && ![style hasPrefix:@"none"] && ![style hasPrefix:@"above"] && ![style hasPrefix:@"below"];
+    id state = DPSwiftValue(DPSwiftValue(DPSwiftValue(tab, @"viewModel"), @"stateSubject"), @"currentValue");
+    NSString *style = [[DPSwiftValue(state, @"selectionStyle") description] lowercaseString];
+    return style && ![style isEqualToString:@"nil"] && ![style containsString:@"none"] && ![style containsString:@"above"] && ![style containsString:@"below"];
 }
 
 static void DPPage_setVisibility(id self, SEL _cmd, NSInteger visibility) {

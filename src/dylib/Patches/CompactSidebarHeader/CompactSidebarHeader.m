@@ -46,7 +46,10 @@ static NSView *DPNoteButtons(NSView *header) {
 }
 
 static void DPHeader_layout(NSView *self, SEL _cmd) {
-    if (!DPCompactSidebarHeader.on) return DPCallOriginal(DPHeader_layout, self);
+    if (!DPCompactSidebarHeader.on) {
+        if (DPGet(self, &DPRetriesKey)) DPSet(self, &DPRetriesKey, nil);
+        return DPCallOriginal(DPHeader_layout, self);
+    }
     DPNoteButtons(self);
     DPCallOriginal(DPHeader_layout, self);
     NSView *lights = DPNoteButtons(self), *row = lights.superview;
@@ -64,7 +67,10 @@ static void DPHeader_layout(NSView *self, SEL _cmd) {
 
 // Rewritten in setFrame:, not after layout, to avoid a second pass that jitters during resize.
 static void DPCompactFrame_setFrame(NSView *self, SEL _cmd, NSRect frame) {
-    if (!DPCompactSidebarHeader.on || !DPSidebars) return DPCallOriginal(DPCompactFrame_setFrame, self, frame);
+    if (!DPCompactSidebarHeader.on || !DPSidebars) {
+        if (DPGet(self, &DPHeaderFrameKey)) DPSet(self, &DPHeaderFrameKey, nil);
+        return DPCallOriginal(DPCompactFrame_setFrame, self, frame);
+    }
     if (DPIsKind(self, DPDiaSidebarHeader)) {
         NSArray *values = DPGet(self, &DPHeaderFrameKey);
         if (!values || ![values[1] isEqual:[NSValue valueWithRect:frame]]) {
@@ -85,8 +91,9 @@ static void DPCompactFrame_setFrame(NSView *self, SEL _cmd, NSRect frame) {
 
 static void DPSidebar_viewWillLayout(NSViewController *self, SEL _cmd) {
     [DPSidebars addObject:self.view];
-    for (NSView *sub in self.view.subviews)
-        DPHookClass([sub class], @selector(setFrame:), (IMP)DPCompactFrame_setFrame);
+    if (DPCompactSidebarHeader.on)
+        for (NSView *sub in self.view.subviews)
+            DPHookClass([sub class], @selector(setFrame:), (IMP)DPCompactFrame_setFrame);
     DPCallOriginal(DPSidebar_viewWillLayout, self);
 }
 
@@ -98,7 +105,10 @@ static void DPInstallCompactSidebarHeader(void) {
     DPHookClass(NSStackView.class, @selector(setFrame:), (IMP)DPButtonsRow_setFrame);
 }
 
-static void DPApplyCompactSidebarHeader(DPPatch *patch) { DPRelayoutViews(DPSidebars); }
+static void DPApplyCompactSidebarHeader(DPPatch *patch) {
+    for (NSView *sidebar in DPSidebars.allObjects) DPSubview(sidebar, DPDiaSidebarHeader).needsLayout = YES;
+    DPRelayoutViews(DPSidebars);
+}
 
 static NSString *DPVerifyCompactSidebarHeader(DPPatch *patch) {
     for (NSView *header in DPFindViews(DPDiaSidebarHeader)) {

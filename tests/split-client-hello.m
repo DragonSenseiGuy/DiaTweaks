@@ -107,6 +107,11 @@ static void DPCheckSend(NSData *hello) {
     NSCAssert(handled && result.sent == -1 && errno == EPIPE, @"a failure partway keeps its errno");
     result = DPSendScripted(pair[0], hello, true, 1, (DPStep[]){ { -1, 0, 1 } }, &handled);
     NSCAssert(handled && result.sent == -1 && errno == ECONNRESET, @"the kernel bug Chromium checks for fails the send");
+    result = DPSendScripted(pair[0], hello, true, 2, (DPStep[]){ { 50, 0, 0 }, { 0, 0, 0 } }, &handled);
+    NSCAssert(handled && result.sent == -1 && errno == ECONNRESET && gCalls == 2, @"zero-byte send after partial progress fails instead of spinning");
+    result = DPSendScripted(pair[0], hello, true, 1, (DPStep[]){ { 0, 0, 0 } }, &handled);
+    NSCAssert(handled && result.sent == 0 && gCalls == 1, @"zero-byte initial send returns 0 instead of spinning");
+    NSCAssert(!DPSendSplit(pair[0], NULL, hello.length, MSG_NOSIGNAL, 7, DPScriptedSend, true, &result), @"NULL buffer falls through");
 
     const char *request = "GET / HTTP/1.1\r\nHost: split-client-hello.example\r\nAccept: */*\r\n\r\n";
     DPSendScripted(pair[0], [NSData dataWithBytes:request length:strlen(request)], true, 0, NULL, &handled);
@@ -161,6 +166,18 @@ int main(void) {
         NSMutableData *serverHello = [hello mutableCopy];
         ((uint8_t *)serverHello.mutableBytes)[5] = 0x02;
         NSCAssert(!DPSplitHello(serverHello.bytes, serverHello.length, out, 7), @"leaves other handshake messages alone");
+
+        // Malformed SNI listLength smaller than 3 + nameLength must be rejected.
+        NSMutableData *badSni = [hello mutableCopy];
+        const uint8_t *found = memmem(badSni.bytes, badSni.length, name.UTF8String, strlen(name.UTF8String));
+        NSCAssert(found != NULL, @"finds SNI name in captured hello");
+        size_t listLenAt = (size_t)(found - (const uint8_t *)badSni.bytes) - 5;
+        ((uint8_t *)badSni.mutableBytes)[listLenAt] = 0x00;
+        ((uint8_t *)badSni.mutableBytes)[listLenAt + 1] = 0x04;
+        NSCAssert(!DPSplitHello(badSni.bytes, badSni.length, out, 7), @"rejects truncated SNI server_name_list length");
+        ((uint8_t *)badSni.mutableBytes)[listLenAt] = 0x7F;
+        ((uint8_t *)badSni.mutableBytes)[listLenAt + 1] = 0xFF;
+        NSCAssert(!DPSplitHello(badSni.bytes, badSni.length, out, 7), @"rejects oversized SNI server_name_list length");
 
         for (int i = 0; i < 20000; i++) {
             NSMutableData *garbled = [hello mutableCopy];

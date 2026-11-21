@@ -57,7 +57,7 @@ static void DPInstallSkipAccount(void) {
 }
 
 static void DPApplySkipAccount(DPPatch *patch) {
-    if (patch->on == gSkipping || patch->on != DPSavedOn(patch) || DPSkipAccountProblem(patch)) return;
+    if (DPTesting || patch->on == gSkipping || patch->on != DPSavedOn(patch) || DPSkipAccountProblem(patch)) return;
     NSAlert *alert = [NSAlert new];
     alert.messageText = patch->on ? @"Relaunch Dia to skip account sign-in" : @"Relaunch Dia to use account sign-in";
     [alert addButtonWithTitle:@"Relaunch"];

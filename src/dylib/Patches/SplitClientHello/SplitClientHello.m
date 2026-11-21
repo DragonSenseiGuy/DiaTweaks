@@ -29,7 +29,8 @@ static void DPCheckInProcess(void) {
 
 static void DPInstallSplitClientHello(void) {
     DPInstallSplitSend();
-    DPSplitting = gInProcess = DPSplitClientHello.on;
+    gInProcess = DPSplitClientHello.on;
+    atomic_store_explicit(&DPSplitting, gInProcess, memory_order_release);
     if (!gInProcess) {
         DPDropLaunchFlag(@"--enable-features=NetworkServiceInProcess2");
         return;
@@ -39,8 +40,8 @@ static void DPInstallSplitClientHello(void) {
 }
 
 static void DPApplySplitClientHello(DPPatch *patch) {
-    DPSplitting = patch->on && gInProcess;
-    if (patch->on == gInProcess || patch->on != DPSavedOn(patch)) return;
+    atomic_store_explicit(&DPSplitting, patch->on && gInProcess, memory_order_release);
+    if (DPTesting || patch->on == gInProcess || patch->on != DPSavedOn(patch)) return;
     NSAlert *alert = [NSAlert new];
     alert.messageText = patch->on ? @"Relaunch Dia to split ClientHellos" : @"Relaunch Dia to sandbox its network service again";
     alert.informativeText = patch->on ? @"Until then, Dia sends them whole. After, its network code runs outside its sandbox." : @"Until then, its network code keeps running outside its sandbox.";

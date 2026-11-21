@@ -45,5 +45,7 @@ NSString *DPTidyAddress(NSString *url, NSString *host) {
     NSString *path = [NSURL URLWithString:url].path ?: @"";
     while ([path hasSuffix:@"/"]) path = [path substringToIndex:path.length - 1];
     NSString *address = [host stringByAppendingString:path];
-    return address.length > 70 ? [address substringToIndex:70] : address;
+    if (address.length <= 70) return address;
+    NSRange boundary = [address rangeOfComposedCharacterSequenceAtIndex:70];
+    return [address substringToIndex:boundary.location];
 }

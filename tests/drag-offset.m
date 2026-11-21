@@ -59,6 +59,11 @@ int main(void) {
         id<NSDraggingInfo> info = (id<NSDraggingInfo>)drag;
         NSPoint home = tab.frame.origin;
 
+        DPCompactTabRows.on = NO;
+        [compacted draggingUpdated:info];
+        NSCAssert(NSEqualPoints(tab.frame.origin, home), @"disabled patch leaves dragged tab untouched even with stale moves");
+
+        DPCompactTabRows.on = YES;
         [compacted draggingUpdated:info];
         NSCAssert(NSMinY(tab.frame) != home.y, @"over compacted rows the tab is put back under the pointer");
         tab.frame = NSMakeRect(home.x, home.y, 100, 30);

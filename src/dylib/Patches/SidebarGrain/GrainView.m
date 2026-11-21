@@ -69,7 +69,7 @@
     CGFloat soft = MAX(0, MIN(100, softness)) / 100, zoom = MAX(50, MIN(300, scale)) / 100;
     BOOL fine = [material isEqual:@"fine"];
     CGFloat opacity = MAX(0, MIN(100, amount)) / 100 * (fine ? 0.3 : 0.8 / sqrt(1 - 1.5 * soft * (1 - soft)));
-    if (self.tracksWindowActivity && self.window && !self.window._hasActiveAppearance) opacity = 0;
+    if (self.tracksWindowActivity && self.window && [self.window respondsToSelector:@selector(_hasActiveAppearance)] && !self.window._hasActiveAppearance) opacity = 0;
     BOOL dark = DPGrainDarkAppearance(self.effectiveAppearance);
     if (_darkAppearance == dark && _grainOpacity == opacity && _softness == soft && _scale == zoom && [_material isEqual:material]) return;
     _darkAppearance = dark;

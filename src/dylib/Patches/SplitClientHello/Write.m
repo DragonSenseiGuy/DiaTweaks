@@ -10,10 +10,11 @@ static DPSendResult DPSendAll(int fd, const uint8_t *data, size_t length, int fl
     for (size_t sent = 0; sent < length;) {
         DPSendResult result = send(fd, data + sent, length - sent, flags, NULL, 0);
         if (result.sent >= 0 && result.secondary && checkSecondary) return errno = ECONNRESET, (DPSendResult){ -1, 0 };
-        if (result.sent >= 0) {
+        if (result.sent > 0) {
             sent += (size_t)result.sent;
             continue;
         }
+        if (result.sent == 0) return sent ? (errno = ECONNRESET, (DPSendResult){ -1, 0 }) : result;
         if (errno == EINTR) continue;
         if (errno != EAGAIN || !sent) return result;
         uint64_t now = clock_gettime_nsec_np(CLOCK_UPTIME_RAW);
@@ -30,11 +31,12 @@ static bool DPHasRoom(int fd, size_t length) {
     return getsockopt(fd, SOL_SOCKET, SO_TYPE, &type, &size) == 0 && type == SOCK_STREAM
         && getsockopt(fd, SOL_SOCKET, SO_SNDBUF, &buffer, &bufferSize) == 0
         && getsockopt(fd, SOL_SOCKET, SO_NWRITE, &queued, &queuedSize) == 0 && buffer >= 0 && queued >= 0
-        && (size_t)buffer >= (size_t)queued + length;
+        && (size_t)buffer >= (size_t)queued && (size_t)buffer - (size_t)queued >= length;
 }
 
 bool DPSendSplit(int fd, const uint8_t *data, size_t length, int flags, uint32_t random, DPSendFunction send,
                  bool checkSecondary, DPSendResult *result) {
+    if (!data || length > SIZE_MAX - 5) return false;
     uint8_t stack[4096];
     uint8_t *out = length <= sizeof stack - 5 ? stack : malloc(length + 5);
     size_t split = out ? DPSplitHello(data, length, out, random) : 0;
@@ -48,6 +50,6 @@ bool DPSendSplit(int fd, const uint8_t *data, size_t length, int flags, uint32_t
         free(out);
         errno = error;
     }
-    if (result->sent >= 0) *result = (DPSendResult){ (ssize_t)length, 0 };
+    if (result->sent > 0) *result = (DPSendResult){ (ssize_t)length, 0 };
     return true;
 }

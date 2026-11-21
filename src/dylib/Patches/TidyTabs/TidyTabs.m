@@ -2,7 +2,7 @@
 
 static void DPApplyTidyTabs(DPPatch *patch) {
     if (!patch->on)
-        for (NSView *list in DPFindViews(DPDiaTabList)) [[DPTidyHover forList:list] detach];
+        for (NSView *list in DPTidyTrackedLists()) [[DPTidyHover forList:list] detach];
     DPRelayoutTidyLists();
 }
 

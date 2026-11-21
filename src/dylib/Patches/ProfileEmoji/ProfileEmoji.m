@@ -92,16 +92,28 @@ static void DPSidebarItem_updateLayer(NSView *self, SEL _cmd) {
 
 static void DPTopDot_layout(NSView *self, SEL _cmd) {
     DPCallOriginal(DPTopDot_layout, self);
-    if (!DPProfileEmoji.on && !DPGet(self, &DPLabelKey)) return;
-    NSView *indicator = self.superview;
+    NSView *label = DPGet(self, &DPLabelKey);
+    if (!DPProfileEmoji.on && !label) return;
+    NSView *indicator = self.superview, *dot = nil;
+    for (NSView *sub in self.subviews) if (sub != label) { dot = sub; break; }
     NSString *spaceID = DPSpaceIDOf(self, DPSwiftValue(indicator, @"dotViews"));
     BOOL focused = [[DPSwiftValue(indicator, @"focusedSpaceID") description] isEqual:spaceID];
-    DPShowEmoji(self, self.subviews.firstObject, DPEmoji(spaceID), 8, focused ? 1 : 0.45);
+    DPShowEmoji(self, dot, DPEmoji(spaceID), 8, focused ? 1 : 0.45);
+}
+
+static void DPCollectEmojiViews(NSView *view, Class cls, NSMutableArray<NSView *> *out) {
+    if ([view isKindOfClass:cls]) [out addObject:view];
+    for (NSView *sub in view.subviews) DPCollectEmojiViews(sub, cls, out);
 }
 
 static void DPRefresh(void) {
-    for (NSString *name in @[ @DPDiaSpaceSwitcher, @DPDiaSpaceSwitcherItem, @DPDiaPageIndicatorDot ])
-        for (NSView *view in DPFindViews(name.UTF8String)) view.needsLayout = YES;
+    for (NSString *name in @[ @DPDiaSpaceSwitcher, @DPDiaSpaceSwitcherItem, @DPDiaPageIndicatorDot ]) {
+        Class cls = objc_getClass(name.UTF8String);
+        if (!cls) continue;
+        NSMutableArray<NSView *> *views = [NSMutableArray new];
+        for (NSWindow *window in NSApp.windows) DPCollectEmojiViews(window.contentView, cls, views);
+        for (NSView *view in views) view.needsLayout = YES;
+    }
 }
 
 @interface DPEmojiField : NSTextField <NSTextFieldDelegate>

@@ -21,7 +21,7 @@ static id DPWithoutHistory(id result) {
         NSArray *matches = [perProvider[provider] filteredArrayUsingPredicate:kept];
         if (matches.count) filtered[provider] = matches;
     }
-    NSArray *combined = [[result valueForKey:@"combinedMatches"] filteredArrayUsingPredicate:kept];
+    NSArray *combined = [[result valueForKey:@"combinedMatches"] filteredArrayUsingPredicate:kept] ?: @[];
     return ((id (*)(id, SEL, id, id))objc_msgSend)([[result class] alloc], make, combined, filtered);
 }
 

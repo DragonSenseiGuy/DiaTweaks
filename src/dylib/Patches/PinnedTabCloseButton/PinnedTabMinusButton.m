@@ -27,7 +27,10 @@ static void DPContent_layout(NSView *self, SEL _cmd) {
     BOOL on = DPMinusOn();
     if (!on && !DPGet(button, &DPDiaImageKey)) return;
     NSImage *dia = DPDiaValue(button, &DPDiaImageKey, button.image);
-    if (!dia) return;
+    if (!dia) {
+        if (!on) DPSet(button, &DPDiaImageKey, nil);
+        return;
+    }
     BOOL minus = on && DPMinusController(self);
     if (minus) DPOverride(button, &DPDiaImageKey, dia, DPMinus);
     else if (DPGet(button, &DPDiaImageKey)) DPSet(button, &DPDiaImageKey, nil);

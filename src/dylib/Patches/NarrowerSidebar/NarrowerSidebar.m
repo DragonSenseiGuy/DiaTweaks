@@ -32,10 +32,16 @@ static BOOL DPIsSidebarClamp(const uint32_t words[4]) {
 static BOOL DPWriteSidebarClamp(const uint32_t words[4]) {
     uintptr_t page = vm_page_size, address = (uintptr_t)DPSidebarClamp();
     uintptr_t start = address & ~(page - 1), end = (address + 4 * sizeof(uint32_t) + page - 1) & ~(page - 1);
+    uint32_t previous[4];
+    memcpy(previous, (const void *)address, sizeof previous);
     if (mach_vm_protect(mach_task_self(), start, end - start, FALSE, VM_PROT_READ | VM_PROT_WRITE | VM_PROT_COPY) != KERN_SUCCESS) return NO;
     memcpy((void *)address, words, 4 * sizeof(uint32_t));
     sys_icache_invalidate((void *)address, 4 * sizeof(uint32_t));
-    return mach_vm_protect(mach_task_self(), start, end - start, FALSE, VM_PROT_READ | VM_PROT_EXECUTE) == KERN_SUCCESS;
+    if (mach_vm_protect(mach_task_self(), start, end - start, FALSE, VM_PROT_READ | VM_PROT_EXECUTE) == KERN_SUCCESS) return YES;
+    memcpy((void *)address, previous, sizeof previous);
+    sys_icache_invalidate((void *)address, 4 * sizeof(uint32_t));
+    mach_vm_protect(mach_task_self(), start, end - start, FALSE, VM_PROT_READ | VM_PROT_EXECUTE);
+    return NO;
 }
 
 static void DPApplyNarrowerSidebar(DPPatch *patch) {
@@ -49,6 +55,7 @@ static void DPApplyNarrowerSidebar(DPPatch *patch) {
 static void DPInstallNarrowerSidebar(void) {
     if (!DPIsSidebarClamp(DPSidebarClampWide) && !DPIsSidebarClamp(DPSidebarClampNarrow)) {
         DPNarrowerSidebar.unavailable = YES;
+        DPNarrowerSidebar.on = NO;
         return (void)NSLog(@"DiaPatches: Narrower Sidebar doesn't know this Dia's resize code, so it stays off");
     }
     DPApplyNarrowerSidebar(&DPNarrowerSidebar);

@@ -11,6 +11,7 @@ int main(void) {
         NSCAssert([DPDisplayTitle([prefix stringByAppendingString:@"文档标题"]) isEqual:@"文档标题"], @"Long prefix");
 
         const unichar stripped[] = {
+            0x061C,
             0x200B, 0x200C, 0x200D, 0x200E, 0x200F,
             0x202A, 0x202B, 0x202C, 0x202D, 0x202E,
             0x2060, 0x2061, 0x2062, 0x2063, 0x2064, 0x2065, 0x2066, 0x2067,

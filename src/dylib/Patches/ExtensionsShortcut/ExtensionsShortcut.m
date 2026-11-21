@@ -27,12 +27,12 @@ static NSMenu *DPExtensionsMenu(id browser, NSWindow *window) {
     NSMenu *menu = [[NSMenu alloc] initWithTitle:@"Extensions"];
     id extensions = [[browser performSelector:@selector(context)] performSelector:@selector(extensions)];
     NSArray *all = [[extensions performSelector:@selector(listExtensions)] sortedArrayUsingComparator:^NSComparisonResult(id a, id b) {
-        return [[a valueForKey:@"name"] localizedCaseInsensitiveCompare:[b valueForKey:@"name"]];
+        return [([a valueForKey:@"name"] ?: @"") localizedCaseInsensitiveCompare:([b valueForKey:@"name"] ?: @"")];
     }];
     for (id info in all) {
         if (![[info valueForKey:@"enabled"] boolValue] || ![[info valueForKey:@"hasAction"] boolValue]) continue;
         NSString *extensionID = [info valueForKey:@"id"];
-        NSMenuItem *item = DPMenuItem([info valueForKey:@"name"], ^{ [browser performSelector:@selector(executeExtensionAction:) withObject:extensionID]; });
+        NSMenuItem *item = DPMenuItem([info valueForKey:@"name"] ?: @"", ^{ [browser performSelector:@selector(executeExtensionAction:) withObject:extensionID]; });
         item.image = DPIconFor(info, window);
         [menu addItem:item];
     }
@@ -42,6 +42,7 @@ static NSMenu *DPExtensionsMenu(id browser, NSWindow *window) {
 
 static void DPShowExtensions(NSWindow *window, id browser) {
     NSView *content = window.contentView;
+    if (!window.isVisible || !content) return;
     NSRect page = content.bounds;
     NSPoint corner = NSMakePoint(NSMaxX(page) - 240, content.isFlipped ? 48 : NSMaxY(page) - 48);
     [DPExtensionsMenu(browser, window) popUpMenuPositioningItem:nil atLocation:corner inView:content];

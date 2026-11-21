@@ -19,7 +19,7 @@ __attribute__((noinline)) static DPSendResult DPSendHello(int fd, const void *bu
 static DPSendResult DPSendto(int fd, const void *buffer, size_t length, int flags, const struct sockaddr *address,
                              socklen_t addressLength) {
     const uint8_t *data = buffer;
-    if (atomic_load_explicit(&DPSplitting, memory_order_relaxed) && !address && length >= 64 && (data[0] == 0x16 || data[0] == 0x14))
+    if (atomic_load_explicit(&DPSplitting, memory_order_acquire) && !address && data && length >= 64 && (data[0] == 0x16 || data[0] == 0x14))
         return DPSendHello(fd, buffer, length, flags);
     return DPRealSendto(fd, buffer, length, flags, address, addressLength);
 }

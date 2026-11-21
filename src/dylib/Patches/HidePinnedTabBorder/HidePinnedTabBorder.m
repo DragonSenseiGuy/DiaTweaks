@@ -1,11 +1,14 @@
 #import "StdPatch/Hide.h"
 
+extern DPPatch DPHidePinnedTabBorder;
+
 static BOOL DPIsPinnedTabOutline(NSView *view) { return DPIsKind(view, DPDiaPinnedTabOutline); }
 
 static void DPPinnedTab_layout(NSView *self, SEL _cmd) {
     [DPHideHosts addObject:self];
     DPEnforceHides(self);
     DPCallOriginal(DPPinnedTab_layout, self);
+    if (DPHidePinnedTabBorder.on) DPEnforceHides(self);
 }
 
 static void DPInstallHidePinnedTabBorder(void) { DPHook(DPDiaPinnedTab, @selector(layout), (IMP)DPPinnedTab_layout); }

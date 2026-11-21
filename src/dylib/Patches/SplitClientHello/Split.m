@@ -34,8 +34,9 @@ static const uint8_t *DPServerName(DPReader body, size_t *nameLength) {
         DPReader extension = { extensions.at, extensions.at + length };
         extensions.at += length;
         if (type != 0) continue;
-        if (!DPRead(&extension, 2, &listLength) || !DPRead(&extension, 1, &nameType) || nameType != 0
-            || !DPRead(&extension, 2, nameLength) || (size_t)(extension.end - extension.at) < *nameLength)
+        if (!DPRead(&extension, 2, &listLength) || (size_t)(extension.end - extension.at) < listLength
+            || !DPRead(&extension, 1, &nameType) || nameType != 0
+            || !DPRead(&extension, 2, nameLength) || listLength < 3 || listLength - 3 < *nameLength)
             return NULL;
         return extension.at;
     }
