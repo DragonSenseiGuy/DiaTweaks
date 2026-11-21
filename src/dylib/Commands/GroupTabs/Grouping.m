@@ -45,8 +45,9 @@ static void DPArmUndo(void (^undo)(void)) {
             void (^undo)(void) = DPUndoGrouping;
             if (!undo) return event;
             DPUndoGrouping = nil;
+            if (!DPGroupTabs.on) return event;
             NSEventModifierFlags mods = event.modifierFlags & (NSEventModifierFlagCommand | NSEventModifierFlagShift | NSEventModifierFlagOption | NSEventModifierFlagControl);
-            if (DPShortcutRecording() || mods != NSEventModifierFlagCommand || ![event.charactersIgnoringModifiers isEqualToString:@"z"]) return event;
+            if (DPShortcutRecording() || mods != NSEventModifierFlagCommand || !DPEventIsKey(event, @"z")) return event;
             undo();
             return nil;
         }];
@@ -58,6 +59,7 @@ void DPOfferUndo(id delegate, id browser, NSArray *ids, NSDictionary *places) {
     __weak id weakDelegate = delegate, weakBrowser = browser;
     DPArmUndo(^{
         id delegate = weakDelegate, browser = weakBrowser;
+        if (!delegate || !browser) return;
         void (*ungroup)(id, SEL, id, NSArray *, void (^)(id)) = (void *)objc_msgSend;
         ungroup(delegate, @selector(browser:removeTabsFromGroupWithSessionIds:completion:), browser, ids, ^(id _) {
             if (places) dispatch_async(dispatch_get_main_queue(), ^{ DPRestorePlaces(delegate, browser, places); });

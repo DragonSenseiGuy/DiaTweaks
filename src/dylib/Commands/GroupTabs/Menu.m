@@ -21,7 +21,7 @@ static BOOL DPIsNewGroupTitle(NSString *title) {
 }
 
 static NSMenuItem *DPCommandItem(NSString *title, NSInteger tag, NSString *symbol, void (^action)(void)) {
-    NSMenuItem *item = DPMenuItem(title, action);
+    NSMenuItem *item = DPMenuItem(title, ^{ if (DPGroupTabs.on) action(); });
     item.tag = tag;
     item.image = [NSImage imageWithSystemSymbolName:symbol accessibilityDescription:nil];
     item.hidden = !DPGroupTabs.on;
@@ -49,6 +49,12 @@ static NSInteger DPFollowersInPlace(NSMenu *menu, NSInteger index) {
     return n;
 }
 
+static void DPSyncMenuVisibility(NSMenu *menu) {
+    BOOL hidden = !DPGroupTabs.on;
+    for (NSMenuItem *item in menu.itemArray)
+        if (item.tag >= DPGroupMenuTag && item.tag <= DPGroupSelectedMenuTag) item.hidden = hidden;
+}
+
 // Dia removes the tagged copies it added, so keep the last item with a tag: dropping Dia's copy crashes Dia.
 static void DPPlaceFollowerItems(NSMenu *menu) {
     if (DPInserting || !menu) return;
@@ -61,16 +67,21 @@ static void DPPlaceFollowerItems(NSMenu *menu) {
         kept[@(item.tag)] = item;
         count++;
     }
-    if (group == NSNotFound || (count == DPFollowerCount && DPFollowersInPlace(menu, group) == DPFollowerCount)) return;
+    if (group == NSNotFound) return;
+    if (count == DPFollowerCount && DPFollowersInPlace(menu, group) == DPFollowerCount) return DPSyncMenuVisibility(menu);
     DPInserting = YES;
     for (NSInteger i = menu.numberOfItems - 1; i >= 0; i--) {
         if (!DPIsFollowerTag([menu itemAtIndex:i].tag)) continue;
         [menu removeItemAtIndex:i];
         if (i < group) group--;
     }
-    for (NSInteger n = 0; n < DPFollowerCount; n++)
-        [menu insertItem:kept[@(DPFollowerTags[n])] ?: DPFollowerItem(DPFollowerTags[n]) atIndex:group + 1 + n];
+    for (NSInteger n = 0; n < DPFollowerCount; n++) {
+        NSMenuItem *item = kept[@(DPFollowerTags[n])] ?: DPFollowerItem(DPFollowerTags[n]);
+        item.hidden = !DPGroupTabs.on;
+        [menu insertItem:item atIndex:group + 1 + n];
+    }
     DPInserting = NO;
+    DPSyncMenuVisibility(menu);
 }
 
 static void DPPlaceGroupItem(NSMenu *menu) {
@@ -87,7 +98,7 @@ static void DPPlaceGroupItem(NSMenu *menu) {
         }
     }
     if (visible != NSNotFound) anchor = visible;
-    if (anchor == NSNotFound) return;
+    if (anchor == NSNotFound) return DPSyncMenuVisibility(menu);
     if (groupCount > 1) {
         DPInserting = YES;
         for (NSInteger i = menu.numberOfItems - 1; i >= 0; i--)
@@ -140,6 +151,7 @@ static void DPInstallMenuBarItem(void) {
 }
 
 static void DPMenuAdded(NSMenu *menu, NSMenuItem *item) {
+    if (!DPGroupTabs.on && !DPHasGroupOrFollower(menu)) return;
     if (DPIsNewGroupTitle(item.title) || DPHasGroupOrFollower(menu)) DPPlaceGroupItem(menu);
 }
 
@@ -160,6 +172,7 @@ void DPInstallGroupMenus(void) {
 }
 
 static void DPApplyGroupTabs(DPPatch *patch) {
+    if (!patch->on) DPForgetGroupingUndo();
     for (NSMenuItem *top in NSApp.mainMenu.itemArray) {
         [top.submenu itemWithTag:DPGroupMenuTag].hidden = !patch->on;
         for (NSInteger i = 0; i < DPFollowerCount; i++) [top.submenu itemWithTag:DPFollowerTags[i]].hidden = !patch->on;

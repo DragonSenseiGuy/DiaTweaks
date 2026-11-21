@@ -46,18 +46,29 @@ static NSString *DPReasonIn(NSData *data) {
     return line.length ? line : nil;
 }
 
+static BOOL DPHandedOff;
+
 void DPRunCLIReporting(NSArray<NSString *> *args, void (^completion)(NSString *output, NSString *reason)) {
-    dispatch_async(dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{
+    dispatch_queue_t queue = dispatch_get_global_queue(QOS_CLASS_UTILITY, 0);
+    dispatch_async(queue, ^{
         NSTask *task = DPCLITask(args);
         NSPipe *pipe = [NSPipe pipe], *errors = [NSPipe pipe];
         task.standardOutput = pipe;
         task.standardError = errors;
         NSString *output = nil, *reason = nil;
-        if ([task launchAndReturnError:nil]) {
+        NSError *launchError = nil;
+        if ([task launchAndReturnError:&launchError]) {
+            // Drain stderr concurrently so verbose child output can't fill the pipe buffer and deadlock stdout.
+            __block NSData *errData = nil;
+            dispatch_group_t group = dispatch_group_create();
+            dispatch_group_async(group, queue, ^{ errData = [errors.fileHandleForReading readDataToEndOfFile]; });
             NSData *data = [pipe.fileHandleForReading readDataToEndOfFile];
+            dispatch_group_wait(group, DISPATCH_TIME_FOREVER);
             [task waitUntilExit];
             if (task.terminationStatus == 0) output = [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding];
-            else reason = DPReasonIn([errors.fileHandleForReading readDataToEndOfFile]);
+            else reason = DPReasonIn(errData);
+        } else {
+            reason = launchError.localizedDescription;
         }
         if (completion) dispatch_async(dispatch_get_main_queue(), ^{ completion(output, reason); });
     });
@@ -68,13 +79,16 @@ void DPRunCLI(NSArray<NSString *> *args, void (^completion)(NSString *output)) {
 }
 
 void DPHandOffAndQuit(NSArray<NSString *> *args) {
-    if (DPLaunchCLI([args arrayByAddingObjectsFromArray:@[@"--wait", @(getpid()).stringValue, @"--relaunch"]])) [NSApp terminate:nil];
+    if (!DPLaunchCLI([args arrayByAddingObjectsFromArray:@[@"--wait", @(getpid()).stringValue, @"--relaunch"]])) return;
+    DPHandedOff = YES;
+    [NSApp terminate:nil];
 }
 
 @implementation DPUpdates {
     NSMutableDictionary<NSString *, NSMutableArray *> *_whenDownloaded;
-    NSMutableArray *_checked;
+    NSMutableArray *_checked, *_recheck;
     NSMutableDictionary<NSString *, NSString *> *_failed;
+    NSString *_unpatchable;
     NSTimer *_progress;
     NSDictionary *_found;
     NSMutableDictionary<NSString *, id> *_pretend;
@@ -91,6 +105,7 @@ void DPHandOffAndQuit(NSArray<NSString *> *args) {
     if (!(self = [super init])) return nil;
     _whenDownloaded = [NSMutableDictionary new];
     _checked = [NSMutableArray new];
+    _recheck = [NSMutableArray new];
     _failed = [NSMutableDictionary new];
     _pretend = [NSMutableDictionary new];
     return self;
@@ -99,20 +114,33 @@ void DPHandOffAndQuit(NSArray<NSString *> *args) {
 - (void)changed { [NSNotificationCenter.defaultCenter postNotificationName:DPUpdatesDidChangeNotification object:self]; }
 
 - (void)check:(void (^)(void))done {
-    if (done) [_checked addObject:done];
+    if (done) [_checked addObject:[done copy]];
     if (_checking) return;
     _checking = YES;
     [self changed];
     DPRunCLI(@[@"check", @"--json"], ^(NSString *output) {
         id found = output ? [NSJSONSerialization JSONObjectWithData:[output dataUsingEncoding:NSUTF8StringEncoding] options:0 error:nil] : nil;
         self->_found = [found isKindOfClass:NSDictionary.class] ? found : nil;
+        for (NSString *part in @[DPDia, DPTweaks])
+            if ([self staged:part]) [self->_failed removeObjectForKey:part];
         NSString *unpatchable = self->_found[DPDia][@"unpatchable"];
-        if ([unpatchable isKindOfClass:NSString.class] && !self->_failed[DPDia] && !self->_whenDownloaded[DPDia]) self->_failed[DPDia] = unpatchable;
+        if ([unpatchable isKindOfClass:NSString.class]) {
+            if (!self->_failed[DPDia] && !self->_whenDownloaded[DPDia]) self->_failed[DPDia] = self->_unpatchable = unpatchable;
+        } else if (self->_unpatchable && [self->_failed[DPDia] isEqualToString:self->_unpatchable]) {
+            [self->_failed removeObjectForKey:DPDia];
+            self->_unpatchable = nil;
+        }
         self->_checking = NO;
         NSArray *waiting = [self->_checked copy];
         [self->_checked removeAllObjects];
+        NSArray *recheck = self->_recheck.count ? [self->_recheck copy] : nil;
+        [self->_recheck removeAllObjects];
         [self changed];
         for (void (^block)(void) in waiting) block();
+        if (recheck) {
+            [self->_checked addObjectsFromArray:recheck];
+            [self check:nil];
+        }
     });
 }
 
@@ -154,17 +182,18 @@ void DPHandOffAndQuit(NSArray<NSString *> *args) {
         cacheDir = [NSSearchPathForDirectoriesInDomains(NSCachesDirectory, NSUserDomainMask, YES).firstObject stringByAppendingPathComponent:@"DiaPatches"];
     });
     NSString *file = [cacheDir stringByAppendingPathComponent:[part isEqual:DPDia] ? @"download/Dia.zip" : @"release/DiaTweaks.zip"];
-    double size = [self.found[part][@"size"] doubleValue];
+    id rawSize = self.found[part][@"size"];
+    double size = [rawSize isKindOfClass:NSNumber.class] ? [rawSize doubleValue] : 0;
     double got = [[NSFileManager.defaultManager attributesOfItemAtPath:file error:nil][NSFileSize] doubleValue];
     return size > 0 && got < size ? got / size : got > 0 ? -1 : 0;
 }
 
 - (void)download:(NSString *)part then:(void (^)(void))done {
     if (_whenDownloaded[part]) {
-        if (done) [_whenDownloaded[part] addObject:done];
+        if (done) [_whenDownloaded[part] addObject:[done copy]];
         return;
     }
-    _whenDownloaded[part] = done ? [NSMutableArray arrayWithObject:done] : [NSMutableArray new];
+    _whenDownloaded[part] = done ? [NSMutableArray arrayWithObject:[done copy]] : [NSMutableArray new];
     [_failed removeObjectForKey:part];
     if (!_progress) _progress = [NSTimer scheduledTimerWithTimeInterval:0.25 repeats:YES block:^(NSTimer *_) { [self tick]; }];
     [self changed];
@@ -190,7 +219,10 @@ void DPHandOffAndQuit(NSArray<NSString *> *args) {
         [self changed];
         for (void (^block)(void) in waiting) block();
     } else {
-        [self check:^{ for (void (^block)(void) in waiting) block(); }];
+        void (^notify)(void) = ^{ for (void (^block)(void) in waiting) block(); };
+        // A check started before the download finished holds a stale snapshot, so schedule a fresh check after it.
+        if (_checking) [_recheck addObject:[notify copy]];
+        else [self check:notify];
     }
 }
 
@@ -216,7 +248,13 @@ void DPHandOffAndQuit(NSArray<NSString *> *args) {
 }
 
 - (void)stopPretending {
+    for (NSString *part in _pretend.allKeys)
+        if ([_pretend[part] isKindOfClass:NSDate.class]) [_whenDownloaded removeObjectForKey:part];
     [_pretend removeAllObjects];
+    if (!_whenDownloaded.count) {
+        [_progress invalidate];
+        _progress = nil;
+    }
     [self changed];
 }
 @end
@@ -256,20 +294,28 @@ static void DPShowUpdateAlert(void) {
             return;
         }
         alert.messageText = [[names componentsJoinedByString:@" and "] stringByAppendingString:@" available"];
-        alert.informativeText = parts.count > 1 ? @"Dia relaunches to install them once they’re downloaded."
-                                                : @"Dia relaunches to install it once it’s downloaded.";
+        BOOL allStaged = YES;
+        for (NSString *part in parts) allStaged &= [updates staged:part];
+        alert.informativeText = allStaged ? (parts.count > 1 ? @"Dia relaunches to install them." : @"Dia relaunches to install it.")
+            : parts.count > 1 ? @"Dia relaunches to install them once they’re downloaded."
+                              : @"Dia relaunches to install it once it’s downloaded.";
         [alert addButtonWithTitle:@"Update and Relaunch"];
         [alert addButtonWithTitle:@"Later"];
         if ([alert runModal] != NSAlertFirstButtonReturn) return;
         __block NSUInteger left = parts.count;
-        for (NSString *part in parts)
-            [updates download:part then:^{ if (--left == 0) DPInstallDownloaded(updates, parts); }];
+        void (^ready)(void) = ^{ if (--left == 0) DPInstallDownloaded(updates, parts); };
+        for (NSString *part in parts) {
+            if ([updates staged:part]) ready();
+            else [updates download:part then:ready];
+        }
     }];
 }
 
 static void DPInstallOnQuit(void) {
-    BOOL dia = DPAutoLevelOf(DPDia) == DPAutoInstall && [NSFileManager.defaultManager fileExistsAtPath:DPSupport(@"staged/Dia.app")];
-    BOOL tweaks = DPAutoLevelOf(DPTweaks) == DPAutoInstall && !DPIsLocalBuild(DPTweaks) && [NSFileManager.defaultManager fileExistsAtPath:DPSupport(@"staged/DiaTweaks")];
+    if (DPHandedOff) return;
+    NSFileManager *files = NSFileManager.defaultManager;
+    BOOL dia = DPAutoLevelOf(DPDia) == DPAutoInstall && [files fileExistsAtPath:DPSupport(@"staged/Dia.app")] && [files fileExistsAtPath:DPSupport(@"staged/ready")];
+    BOOL tweaks = DPAutoLevelOf(DPTweaks) == DPAutoInstall && !DPIsLocalBuild(DPTweaks) && [files fileExistsAtPath:DPSupport(@"staged/DiaTweaks/release.plist")];
     if (!dia && !tweaks) return;
     NSMutableArray *args = [NSMutableArray arrayWithObjects:@"apply", @"--wait", @(getpid()).stringValue, nil];
     if (dia) [args addObject:@"--dia"];
@@ -277,12 +323,12 @@ static void DPInstallOnQuit(void) {
     DPLaunchCLI(args);
 }
 
-@protocol DPSparkleUpdater
+@protocol DPSparkleUpdater <NSObject>
 @property (nonatomic, readonly) NSURL *feedURL;
 @end
 
 static void DPSaveDiaFeed(id<DPSparkleUpdater> updater) {
-    NSString *feed = updater.feedURL.absoluteString;
+    NSString *feed = [updater respondsToSelector:@selector(feedURL)] ? updater.feedURL.absoluteString : nil;
     if (feed) [DPUpdateDefaults() setObject:feed forKey:@"diaFeed"];
 }
 

@@ -11,6 +11,7 @@ static const CFTimeInterval DPAnimationDuration = 0.25;
 DPPatch *const *DPPatches;
 NSUInteger DPPatchCount;
 static NSUserDefaults *DPDefaults;
+static NSMutableDictionary<NSString *, NSString *> *DPAppliedChoices;
 
 NSNotificationName const DPPatchesDidChangeNotification = @"DPPatchesDidChange";
 
@@ -102,13 +103,26 @@ BOOL DPSavedOn(DPPatch *patch) {
 }
 
 NSString *DPChoice(DPPatch *patch) {
-    id value = [DPDefaults objectForKey:patch->choice];
-    return [value isKindOfClass:NSString.class] ? value : patch->defaultChoice;
+    id value = patch && patch->choice ? [DPDefaults objectForKey:patch->choice] : nil;
+    return [value isKindOfClass:NSString.class] ? value : patch ? patch->defaultChoice : nil;
+}
+
+static void DPRecordChoice(DPPatch *patch) {
+    if (!patch->choice) return;
+    if (!DPAppliedChoices) DPAppliedChoices = [NSMutableDictionary new];
+    NSString *choice = DPChoice(patch);
+    if (choice) DPAppliedChoices[patch->key] = choice;
+    else [DPAppliedChoices removeObjectForKey:patch->key];
 }
 
 void DPSetChoice(DPPatch *patch, NSString *value) {
+    if (!patch || !patch->choice) return;
     [DPDefaults setObject:value forKey:patch->choice];
-    if (!DPSafeMode && !DPPausedAtLaunch && patch->on && patch->apply) patch->apply(patch);
+    if (!DPSafeMode && !DPPausedAtLaunch && patch->on && patch->apply) {
+        DPRecordChoice(patch);
+        patch->apply(patch);
+    }
+    [NSNotificationCenter.defaultCenter postNotificationName:DPPatchesDidChangeNotification object:nil];
 }
 
 static int DPCompareOrder(const void *a, const void *b) {
@@ -127,7 +141,9 @@ static void DPReadPatches(void) {
     NSMutableArray<NSString *> *sections = [NSMutableArray new];
     for (NSUInteger i = 0; i < DPPatchCount; i++) {
         DPPatch *patch = sorted[i];
-        NSString *section = patch->section ?: DPRequired(patch)->section ?: @"Other";
+        NSString *section = patch->section;
+        for (DPPatch *req = DPRequired(patch); !section && req; req = DPRequired(req)) section = req->section;
+        section = section ?: @"Other";
         NSUInteger sectionIndex = [sections indexOfObject:section];
         if (sectionIndex == NSNotFound) {
             sectionIndex = sections.count;
@@ -160,6 +176,7 @@ void DPLoadPatches(void) {
         }
         patch->on = DPEffectiveOn(patch);
         patch->progress = patch->on;
+        DPRecordChoice(patch);
         if (!patch->hides) continue;
         patch->apply = patch->apply ?: DPApplyHides;
         patch->verify = patch->verify ?: DPVerifyHides;
@@ -169,20 +186,35 @@ void DPLoadPatches(void) {
 void DPApplySavedSettings(void) {
     CFPreferencesAppSynchronize(CFSTR("com.diapatches"));
     DPPaused = DPPauseSaved();
-    for (NSUInteger i = 0; i < DPPatchCount; i++) DPSetPatch(DPPatches[i], DPEffectiveOn(DPPatches[i]), NO);
+    for (NSUInteger i = 0; i < DPPatchCount; i++) {
+        DPPatch *patch = DPPatches[i];
+        BOOL wasOn = patch->on;
+        DPSetPatch(patch, DPEffectiveOn(patch), NO);
+        if (patch->choice && patch->on && patch->apply && !DPSafeMode && !DPPausedAtLaunch) {
+            NSString *choice = DPChoice(patch), *applied = DPAppliedChoices[patch->key];
+            BOOL changed = (choice != applied) && ![choice isEqualToString:applied];
+            DPRecordChoice(patch);
+            if (wasOn && changed) patch->apply(patch);
+        }
+    }
     [NSNotificationCenter.defaultCenter postNotificationName:DPPatchesDidChangeNotification object:nil];
 }
 
+void DPWatchSavedSettings(void) {
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        int token;
+        notify_register_dispatch("com.diapatches.changed", &token, dispatch_get_main_queue(), ^(int _) { DPApplySavedSettings(); });
+    });
+}
+
 // Hooks install in Settings order (section, non-"Hide" first, then title length): a later hook runs first, and the sidebar drag tweaks rely on it.
-// Registered here because a Dia launched paused has no hooks to apply live changes.
 void DPInstallPatches(void) {
     for (NSUInteger i = 0; i < DPPatchCount; i++) if (!DPPatches[i]->unavailable && DPPatches[i]->install) DPPatches[i]->install();
     DPOnLaunch(^{
         for (NSUInteger i = 0; i < DPPatchCount; i++) if (DPPatches[i]->on && DPPatches[i]->ready) DPEnsureReady(DPPatches[i]);
     });
     DPInstallHides();
-    int token;
-    notify_register_dispatch("com.diapatches.changed", &token, dispatch_get_main_queue(), ^(int _) { DPApplySavedSettings(); });
 }
 
 BOOL DPWriteManifest(NSString *path) {

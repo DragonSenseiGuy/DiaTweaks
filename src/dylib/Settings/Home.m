@@ -31,7 +31,7 @@ static NSView *DPWebRow(NSString *title, NSString *path) {
     trailing.spacing = 10;
     __weak DPHomeView *weakSelf = self;
     NSView *updateRow = DPLinkRow(DPRow(leading, trailing), @"Software Update", ^{
-        weakSelf.open(@"Software Update", [DPSoftwareUpdateView new]);
+        if (weakSelf.open) weakSelf.open(@"Software Update", [DPSoftwareUpdateView new]);
     });
     _pauseLabel = DPLabel(@"", 13, NSFontWeightRegular, NSColor.labelColor);
     _pauseButton = [NSButton buttonWithTitle:@"" target:self action:@selector(togglePause:)];

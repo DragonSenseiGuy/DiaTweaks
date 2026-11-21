@@ -55,7 +55,7 @@ void DPRunTests(NSString *path) {
             [timer invalidate];
             if (DPSafeMode) return DPWriteReport(@[], path);
             NSMutableArray<NSArray<NSString *> *> *scenarios = DPScenarios();
-            int8_t saved[DPPatchCount];
+            int8_t saved[DPPatchCount ?: 1];
             for (NSUInteger i = 0; i < DPPatchCount; i++) saved[i] = DPSavedOn(DPPatches[i]);
             [scenarios insertObject:@[@"at launch", DPBits(saved)] atIndex:0];
             [scenarios addObject:@[@"saved settings", DPBits(saved)]];

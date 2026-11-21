@@ -17,8 +17,11 @@ static long long DPVisibleSession(id browser) {
 }
 
 static id DPScriptWindow(NSWindow *window) {
-    if (!window) return nil;
-    for (id scripted in DPMsg(NSApp.delegate, @selector(appleScriptWindows)))
+    id app = NSApp.delegate;
+    if (!window || ![app respondsToSelector:@selector(appleScriptWindows)]) return nil;
+    NSArray *windows = DPMsg(app, @selector(appleScriptWindows));
+    if (![windows isKindOfClass:NSArray.class]) return nil;
+    for (id scripted in windows)
         if ([[scripted valueForKey:@"windowId"] isEqual:window.identifier]) return scripted;
     return nil;
 }

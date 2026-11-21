@@ -71,6 +71,19 @@ int main(void) {
         expectLaunch(@[], @[ kDia, load(pair(pair(sibling, older), prefixed)) ], @[ kDia, load(pair(sibling, prefixed)) ], @"folders beside DiaPatches aren't ours");
         expectLaunch(@[], @[ kDia, load(mine) ], @[ kDia, load(mine) ], @"a user's folder alone is untouched");
         expectLaunch(@[], @[ kDia, load(pair(mine, mine)) ], @[ kDia, load(pair(mine, mine)) ], @"the user's own repeats are theirs to keep");
+        expectLaunch(@[ little ], @[ kDia, @"--load-extension=" ], @[ kDia, load(little) ], @"empty --load-extension= does not inject a leading comma");
+
+        // Dropping a boolean flag without '=' must remove only that flag and leave comma-bearing args untouched.
+        DPHookConfiguration();
+        [DPExtensionFolders removeAllObjects];
+        [DPLaunchFlags removeAllObjects];
+        [DPDroppedFlags removeAllObjects];
+        DPDropLaunchFlag(@"--disable-gpu");
+        DPDropLaunchFlag(@"--enable-features=Foo");
+        NSArray<NSString *> *argv = @[ kDia, @"--disable-gpu", @"--user-agent=a, b", @"--enable-features=Foo" ];
+        (void)[[ArcBrowserApplicationConfiguration alloc] init:(int)argv.count argv:argv profilePath:@"" applicationID:1 isProduction:YES
+                                      sessionRestorationPolicy:0 shouldLoadAllProfilesAtStartup:NO quitRunLoopOnTermination:NO userDefaultsSuiteName:nil];
+        NSCAssert([seen isEqual:(@[ kDia, @"--user-agent=a, b" ])], @"boolean drop leaves other flags intact and empty feature flag is removed, got %@", seen);
 
         puts("all launch flag checks passed");
     }

@@ -63,7 +63,7 @@ NSToolbarItemIdentifier const DPSearchItemIdentifier = @"DiaPatchesSearch";
 
 - (void)openPage:(NSView *)page title:(NSString *)title {
     [self showPage:page];
-    self.titleChanged(title, YES);
+    if (self.titleChanged) self.titleChanged(title, YES);
 }
 
 - (BOOL)showsPage { return _page != nil; }
@@ -71,7 +71,7 @@ NSToolbarItemIdentifier const DPSearchItemIdentifier = @"DiaPatchesSearch";
 - (void)goBack {
     if (!_page) return;
     [self showPage:nil];
-    self.titleChanged(self.title, NO);
+    if (self.titleChanged) self.titleChanged(self.title, NO);
 }
 
 - (void)reset {

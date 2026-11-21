@@ -13,7 +13,7 @@ static BOOL DPKeepsScheme(NSString *scheme) {
 static BOOL DPIsPort(NSString *text) {
     static NSCharacterSet *nonDigits;
     static dispatch_once_t once;
-    dispatch_once(&once, ^{ nonDigits = NSCharacterSet.decimalDigitCharacterSet.invertedSet; });
+    dispatch_once(&once, ^{ nonDigits = [NSCharacterSet characterSetWithCharactersInString:@"0123456789"].invertedSet; });
     return text.length && text.length <= 5 && text.integerValue <= 65535 && [text rangeOfCharacterFromSet:nonDigits].location == NSNotFound;
 }
 

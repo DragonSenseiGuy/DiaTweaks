@@ -36,9 +36,9 @@ struct DPPatch {
 
 #define DPClasses(...) ((const char *const []){__VA_ARGS__, NULL})
 
-#define DP_PATCH(name)                                                                              \
-    DPPatch name;                                                                                   \
-    __attribute__((used, section("__DATA,__dppatches"))) static DPPatch *const name##Entry = &name; \
+#define DP_PATCH(name)                                                                                                      \
+    DPPatch name;                                                                                                           \
+    __attribute__((used, no_sanitize("address"), section("__DATA,__dppatches"))) static DPPatch *const name##Entry = &name; \
     DPPatch name =
 
 extern DPPatch *const *DPPatches;
@@ -53,6 +53,7 @@ BOOL DPSavedOn(DPPatch *patch);
 NSString *DPChoice(DPPatch *patch);
 void DPSetChoice(DPPatch *patch, NSString *value);
 void DPLoadPatches(void);
+void DPWatchSavedSettings(void);
 void DPInstallPatches(void);
 BOOL DPWriteManifest(NSString *path);
 NSString *DPAppSupport(NSString *path);
@@ -66,13 +67,26 @@ extern NSNotificationName const DPPatchesDidChangeNotification;
 #define DPLeadingOption @"DPLeadingOption"
 extern BOOL DPTesting;
 
+typedef struct DPHookFrame {
+    const void *object;
+    SEL sel;
+    IMP replacement;
+    Class cls;
+    struct DPHookFrame *previous;
+} DPHookFrame;
+
 void DPHook(const char *className, SEL sel, IMP replacement);
 void DPHookClass(Class cls, SEL sel, IMP replacement);
 IMP DPDiaIMP(Class cls, SEL sel);
 IMP DPOriginalIMP(id object, SEL sel, IMP replacement);
+IMP DPPushOriginalIMP(id object, SEL sel, IMP replacement, DPHookFrame *frame);
+void DPPopOriginalIMP(DPHookFrame *frame);
 
-#define DPCallOriginal(hook, self, ...) \
-    ((__typeof__(&hook))DPOriginalIMP(self, _cmd, (IMP)hook))(self, _cmd, ##__VA_ARGS__)
+#define DPCallOriginal(hook, self, ...)                                                                      \
+    ({                                                                                                       \
+        DPHookFrame dp_frame __attribute__((cleanup(DPPopOriginalIMP)));                                     \
+        ((__typeof__(&hook))DPPushOriginalIMP(self, _cmd, (IMP)hook, &dp_frame))(self, _cmd, ##__VA_ARGS__); \
+    })
 
 NSView *DPFindView(NSView *root, BOOL (^match)(NSView *view));
 NSArray<NSView *> *DPFindViews(const char *className);

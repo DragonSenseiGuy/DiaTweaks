@@ -1,5 +1,17 @@
 #import <dlfcn.h>
+#import <objc/runtime.h>
 #import "StdPatch/StdPatch.h"
+
+static NSString *DPPauseTestDomain(void) { return [NSString stringWithFormat:@"com.diapatches.pause-test.%d", getpid()]; }
+
+@interface NSUserDefaults (DPPauseTest)
+- (instancetype)dp_pauseInitWithSuiteName:(NSString *)suite;
+@end
+@implementation NSUserDefaults (DPPauseTest)
+- (instancetype)dp_pauseInitWithSuiteName:(NSString *)suite {
+    return [self dp_pauseInitWithSuiteName:[suite isEqual:@"com.diapatches"] ? DPPauseTestDomain() : suite];
+}
+@end
 #import "SafeMode/SafeMode.h"
 #import "Settings/Settings.h"
 
@@ -10,7 +22,6 @@ void DPOnLaunch(void (^block)(void)) {}
 void DPOnQuit(void (^block)(void)) {}
 void DPSetHint(NSView *view, NSString *text) {}
 NSString *DPHintOf(NSView *view) { return nil; }
-NSView *DPShortcutRow(DPPatch *patch) { return [NSView new]; }
 NSString *const DPDia = @"dia", *const DPTweaks = @"tweaks";
 NSNotificationName const DPUpdatesDidChangeNotification = @"DPUpdatesDidChange";
 
@@ -66,7 +77,12 @@ static void DPApplyStub(DPPatch *patch) {
 static NSMenu *DPStubChoices(void) {
     NSMenu *menu = [[NSMenu alloc] initWithTitle:@"Style"];
     [menu addItemWithTitle:@"One" action:nil keyEquivalent:@""].representedObject = @"one";
+    [menu addItemWithTitle:@"Two" action:nil keyEquivalent:@""].representedObject = @"two";
     return menu;
+}
+
+static NSDictionary *DPStubShortcut(void) {
+    return @{ @"keyCode" : @5, @"modifiers" : @(NSEventModifierFlagCommand), @"key" : @"G" };
 }
 
 DP_PATCH(DPStub) {
@@ -77,6 +93,21 @@ DP_PATCH(DPStub) {
     .tint = @"systemBlueColor",
     .section = @"Test",
     .choice = @"pauseTestChoice",
+    .defaultChoice = @"one",
+    .choices = DPStubChoices,
+    .shortcut = @"pauseTestShortcut",
+    .defaultShortcut = DPStubShortcut,
+    .apply = DPApplyStub,
+};
+
+DP_PATCH(DPSubOptionStub) {
+    .key = @"pauseSubOption",
+    .title = @"Sub Option",
+    .detail = @"",
+    .symbol = @"star.fill",
+    .tint = @"systemBlueColor",
+    .requires = @"pauseTest",
+    .choice = @"pauseSubChoice",
     .defaultChoice = @"one",
     .choices = DPStubChoices,
     .apply = DPApplyStub,
@@ -94,6 +125,7 @@ DP_PATCH(DPRelaunchStub) {
 
 #import "SafeMode/SafeMode.m"
 #import "StdPatch/Patch.m"
+#import "StdPatch/Shortcut.m"
 #import "Settings/Controls.m"
 #import "Settings/Items.m"
 #import "Settings/Overview.m"
@@ -119,6 +151,8 @@ static NSTextField *findLabel(NSView *root, NSString *text) {
 int main(void) {
     @autoreleasepool {
         [NSApplication sharedApplication];
+        method_exchangeImplementations(class_getInstanceMethod(NSUserDefaults.class, @selector(initWithSuiteName:)),
+                                       class_getInstanceMethod(NSUserDefaults.class, @selector(dp_pauseInitWithSuiteName:)));
         NSString *temporary = [NSTemporaryDirectory() stringByAppendingPathComponent:[NSUUID UUID].UUIDString];
         NSString *support = [temporary stringByAppendingPathComponent:@"support"];
         [NSFileManager.defaultManager createDirectoryAtPath:support withIntermediateDirectories:YES attributes:nil error:nil];
@@ -126,29 +160,32 @@ int main(void) {
         NSString *pause = [support stringByAppendingPathComponent:@"paused"];
 
         // Registered defaults avoid writing to disk.
-        NSUserDefaults *defaults = [[NSUserDefaults alloc] initWithSuiteName:@"com.diapatches.pause-test"];
-        [defaults registerDefaults:@{ @"pauseTest" : @YES, @"pauseRelaunchTest" : @NO }];
+        NSUserDefaults *defaults = [[NSUserDefaults alloc] initWithSuiteName:@"com.diapatches"];
+        [defaults registerDefaults:@{ @"pauseTest" : @YES, @"pauseSubOption" : @YES, @"pauseRelaunchTest" : @NO }];
         DPDefaults = defaults;
-        static DPPatch *patches[] = { &DPStub, &DPRelaunchStub };
+        static DPPatch *patches[] = { &DPStub, &DPSubOptionStub, &DPRelaunchStub };
         DPPatches = patches;
-        DPPatchCount = 2;
+        DPPatchCount = 3;
 
         DPBeginLaunch();
         expect(!DPPaused && !DPPausedAtLaunch, @"a launch without the pause file isn't paused");
-        for (NSUInteger i = 0; i < DPPatchCount; i++) DPPatches[i]->on = DPEffectiveOn(DPPatches[i]);
+        for (NSUInteger i = 0; i < DPPatchCount; i++) {
+            DPPatches[i]->on = DPEffectiveOn(DPPatches[i]);
+            DPRecordChoice(DPPatches[i]);
+        }
         expect(DPSavedOn(&DPStub) && DPStub.on, @"it starts on, as saved");
 
         [NSData.data writeToFile:pause atomically:YES];
         DPApplySavedSettings();
-        expect(DPPaused && !DPStub.on && applied == 1 && !lastOn, @"pausing turns it off");
+        expect(DPPaused && !DPStub.on && applied == 2 && !lastOn, @"pausing turns it off");
         expect(DPSavedOn(&DPStub), @"pausing keeps its saved setting");
 
         DPSetPatch(&DPStub, YES, NO);
-        expect(!DPStub.on && applied == 1, @"a tweak can't be turned on while paused");
+        expect(!DPStub.on && applied == 2, @"a tweak can't be turned on while paused");
 
         [NSFileManager.defaultManager removeItemAtPath:pause error:nil];
         DPApplySavedSettings();
-        expect(!DPPaused && DPStub.on && applied == 2 && lastOn, @"resuming turns it back on");
+        expect(!DPPaused && DPStub.on && applied == 4 && lastOn, @"resuming turns it back on");
 
         DPOverviewView *overview = [[DPOverviewView alloc] initWithFrame:NSMakeRect(0, 0, 560, 600)];
         DPHomeView *home = [[DPHomeView alloc] initWithFrame:NSMakeRect(0, 0, 560, 600)];
@@ -158,12 +195,34 @@ int main(void) {
         NSButton *homePause = findButton(home, ^BOOL(NSButton *b) { return [b.title isEqual:@"Pause Tweaks"]; });
         DPPatchSwitch *stubSwitch = (DPPatchSwitch *)DPFindView(overview, ^BOOL(NSView *v) { return [v isKindOfClass:DPPatchSwitch.class] && ((DPPatchSwitch *)v).patch == &DPStub; });
         NSPopUpButton *picker = (NSPopUpButton *)DPFindView(page, ^BOOL(NSView *v) { return [v isKindOfClass:NSPopUpButton.class]; });
+        DPShortcutButton *shortcut = (DPShortcutButton *)DPFindView(page, ^BOOL(NSView *v) { return [v isKindOfClass:DPShortcutButton.class]; });
 
         expect(overviewPause && !overviewPause.hiddenOrHasHiddenAncestor, @"Patches shows a Pause Tweaks button while unpaused");
         expect(pausedHeader && pausedHeader.hidden, @"Patches hides the Paused header while unpaused");
         expect(homePause != nil, @"Home shows a Pause Tweaks button");
         expect(stubSwitch.state == NSControlStateValueOn && stubSwitch.enabled, @"switch starts on and enabled");
-        expect(picker.enabled, @"page choice picker starts enabled");
+        expect(picker.enabled && shortcut.enabled, @"page choice picker and shortcut button start enabled");
+
+        // DPSetChoice syncs picker selection and DPApplySavedSettings re-applies external choice changes.
+        DPSetChoice(&DPStub, @"two");
+        [page sync];
+        expect([picker.selectedItem.representedObject isEqual:@"two"], @"DPSetChoice updates picker selection on sync");
+        int appliedChoiceBefore = applied;
+        [defaults setObject:@"one" forKey:DPStub.choice];
+        DPApplySavedSettings();
+        [page sync];
+        expect(applied == appliedChoiceBefore + 1 && [picker.selectedItem.representedObject isEqual:@"one"],
+               @"DPApplySavedSettings re-applies externally changed choice while patch stays on");
+
+        // Sub-option choice picker disables when parent tweak is turned off.
+        NSPopUpButton *subPicker = (NSPopUpButton *)DPFindView(page, ^BOOL(NSView *v) { return [v isKindOfClass:NSPopUpButton.class] && v != picker; });
+        expect(subPicker && subPicker.enabled, @"sub-option picker starts enabled when parent is on");
+        DPSetPatch(&DPStub, NO, NO);
+        [page sync];
+        expect(!subPicker.enabled && !shortcut.enabled && !shortcut.acceptsFirstResponder, @"parent off disables sub-option picker and shortcut button");
+        DPSetPatch(&DPStub, YES, NO);
+        [page sync];
+        expect(subPicker.enabled && shortcut.enabled, @"parent back on re-enables sub-option picker and shortcut button");
 
         [overview syncWithQuery:@"relaunch"];
         expect(overviewPause.hiddenOrHasHiddenAncestor, @"unrelated search hides the pause row");
@@ -171,24 +230,26 @@ int main(void) {
         expect(!overviewPause.hiddenOrHasHiddenAncestor && pausedHeader.hidden, @"searching pause finds the row without the Paused header");
         [overview syncWithQuery:@""];
 
+        int appliedBeforePause = applied;
         lastHandOff = nil;
         [overviewPause performClick:nil];
         [overview syncWithQuery:@""];
         [page sync];
-        expect(DPPaused && DPPauseSaved() && !DPStub.on && applied == 3 && !lastOn, @"Settings Pause turns tweaks off and writes paused");
+        expect(DPPaused && DPPauseSaved() && !DPStub.on && applied == appliedBeforePause + 2 && !lastOn, @"Settings Pause turns tweaks off and writes paused");
         expect(!lastHandOff, @"Settings Pause does not relaunch when no launch-time tweak is on");
         expect(DPSavedOn(&DPStub) && stubSwitch.state == NSControlStateValueOn && !stubSwitch.enabled, @"switch keeps its saved state and disables");
-        expect(!picker.enabled, @"page choice picker disables while paused");
+        expect(!picker.enabled && !subPicker.enabled && !shortcut.enabled, @"pickers and shortcut button disable while paused");
+        expect(!subPicker.hiddenOrHasHiddenAncestor, @"sub-option choice stays visible (disabled) while paused");
         expect(!pausedHeader.hidden && [overviewPause.title isEqual:@"Resume Tweaks"], @"Patches shows Paused header and Resume Tweaks");
         expect([homePause.title isEqual:@"Resume Tweaks"], @"Home syncs to Resume Tweaks via notification");
 
         [homePause performClick:nil];
         [overview syncWithQuery:@""];
         [page sync];
-        expect(!DPPaused && !DPPauseSaved() && DPStub.on && applied == 4 && lastOn, @"Settings Resume turns tweaks back on live");
+        expect(!DPPaused && !DPPauseSaved() && DPStub.on && applied == appliedBeforePause + 4 && lastOn, @"Settings Resume turns tweaks back on live");
         expect(!lastHandOff, @"Settings Resume does not relaunch when Dia started unpaused");
         expect(pausedHeader.hidden && [overviewPause.title isEqual:@"Pause Tweaks"] && [homePause.title isEqual:@"Pause Tweaks"], @"both panes return to Pause Tweaks");
-        expect(stubSwitch.enabled && picker.enabled, @"switch and picker re-enable on resume");
+        expect(stubSwitch.enabled && picker.enabled && subPicker.enabled && shortcut.enabled, @"switch, pickers and shortcut re-enable on resume");
 
         expect(DPRelaunchingOnPause().count == 0, @"no launch-time tweaks listed when none are on");
         DPRelaunchStub.on = YES;
@@ -203,6 +264,21 @@ int main(void) {
         [home refresh];
         expect([overviewPause.title isEqual:@"Resume and Relaunch"] && [homePause.title isEqual:@"Resume and Relaunch"], @"paused launch labels the button Resume and Relaunch");
 
+        // External CLI resume while launched paused switches button to Relaunch instead of Pause Tweaks.
+        [NSFileManager.defaultManager removeItemAtPath:pause error:nil];
+        DPApplySavedSettings();
+        [overview syncWithQuery:@""];
+        [home refresh];
+        expect(!DPPaused && DPPausedAtLaunch && [overviewPause.title isEqual:@"Relaunch"] && [homePause.title isEqual:@"Relaunch"],
+               @"external resume after paused launch prompts Relaunch");
+        lastHandOff = nil;
+        [overviewPause performClick:nil];
+        expect([lastHandOff isEqual:@[@"apply"]], @"clicking Relaunch after external resume hands off to diapatch apply");
+
+        [NSData.data writeToFile:pause atomically:YES];
+        DPBeginLaunch();
+        for (NSUInteger i = 0; i < DPPatchCount; i++) DPPatches[i]->on = DPEffectiveOn(DPPatches[i]);
+        [overview syncWithQuery:@""];
         int appliedBefore = applied;
         lastHandOff = nil;
         [overviewPause performClick:nil];
@@ -226,6 +302,27 @@ int main(void) {
         DPLeaveSafeMode();
         expect(DPPauseSaved(), @"leaving safe mode leaves the pause alone");
 
+        // DPShortcutRow sets initial clash edgeInsets and stops recording on Backspace.
+        static DPPatch DPClashStub = {
+            .key = @"clashTest", .title = @"Clash Test", .detail = @"", .symbol = @"star.fill", .tint = @"systemBlueColor",
+            .section = @"Test", .shortcut = @"clashTestShortcut", .defaultShortcut = DPStubShortcut,
+        };
+        static DPPatch *withClash[] = { &DPStub, &DPSubOptionStub, &DPRelaunchStub, &DPClashStub };
+        DPPatches = withClash;
+        DPPatchCount = 4;
+        NSStackView *clashColumn = (NSStackView *)DPShortcutRow(&DPStub);
+        expect(clashColumn.edgeInsets.bottom == 8, @"DPShortcutRow applies initial clash bottom edgeInset");
+        DPShortcutButton *clashButton = (DPShortcutButton *)DPFindView(clashColumn, ^BOOL(NSView *v) { return [v isKindOfClass:DPShortcutButton.class]; });
+        NSWindow *shortcutWindow = [[NSWindow alloc] initWithContentRect:NSMakeRect(0, 0, 300, 100) styleMask:NSWindowStyleMaskTitled backing:NSBackingStoreBuffered defer:NO];
+        shortcutWindow.contentView = clashColumn;
+        [shortcutWindow makeFirstResponder:clashButton];
+        [clashButton startRecording];
+        expect(clashButton.monitor != nil, @"shortcut button starts recording");
+        NSEvent *backspace = [NSEvent keyEventWithType:NSEventTypeKeyDown location:NSZeroPoint modifierFlags:0 timestamp:0 windowNumber:shortcutWindow.windowNumber context:nil characters:@"\x7f" charactersIgnoringModifiers:@"\x7f" isARepeat:NO keyCode:kVK_Delete];
+        [clashButton record:backspace];
+        expect(clashButton.monitor == nil && [clashButton.label.stringValue isEqual:@"Add new…"], @"Backspace clears shortcut and stops recording");
+
+        [NSUserDefaults.standardUserDefaults removePersistentDomainForName:DPPauseTestDomain()];
         [NSFileManager.defaultManager removeItemAtPath:temporary error:nil];
     }
     if (!failures) printf("all pause checks passed\n");

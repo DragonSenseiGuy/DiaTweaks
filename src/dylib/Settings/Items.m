@@ -34,24 +34,42 @@ NSArray<NSString *> *DPRelaunchingOnPause(void) {
     return waiting;
 }
 
+static BOOL DPResumingHandoff;
+
+static BOOL DPNeedsRelaunchToResume(void) { return !DPPaused && DPPausedAtLaunch && !DPSafeMode; }
+
 void DPSyncPauseRow(NSTextField *label, NSButton *button) {
+    if (DPNeedsRelaunchToResume()) {
+        label.stringValue = @"Tweaks will resume when Dia relaunches.";
+        button.title = @"Relaunch";
+        return;
+    }
     label.stringValue = DPPaused ? @"Tweaks are paused, so none of them are running. Your settings are kept."
                                  : @"Pause every tweak and keep their settings.";
     button.title = !DPPaused ? @"Pause Tweaks"
         : DPPausedAtLaunch && !DPSafeMode ? @"Resume and Relaunch" : @"Resume Tweaks";
 }
 
+static void DPRelaunchToResume(void) {
+    if (DPResumingHandoff) return;
+    DPResumingHandoff = YES;
+    DPPatch *icon = DPPatchNamed(@"appIcon");
+    BOOL catalog = [NSBundle.mainBundle.infoDictionary[@"CFBundleIconName"] isEqual:@"DiaChosenIcon"];
+    if (icon && DPSavedOn(icon))
+        return DPRunCLI(@[catalog ? @"set-icon" : @"build"], ^(NSString *output) {
+            DPResumingHandoff = NO;
+            DPHandOffAndQuit(@[@"apply"]);
+        });
+    DPResumingHandoff = NO;
+    DPHandOffAndQuit(@[@"apply"]);
+}
+
 void DPSetTweaksPaused(BOOL paused, NSWindow *window) {
-    if (DPPaused == paused) return;
+    if (DPNeedsRelaunchToResume()) return DPRelaunchToResume();
+    if (DPPaused == paused || DPResumingHandoff) return;
     NSArray<NSString *> *waiting = paused ? DPRelaunchingOnPause() : @[];
     DPSetPaused(paused);
-    if (!paused && DPPausedAtLaunch && !DPSafeMode) {
-        DPPatch *icon = DPPatchNamed(@"appIcon");
-        BOOL catalog = [NSBundle.mainBundle.infoDictionary[@"CFBundleIconName"] isEqual:@"DiaChosenIcon"];
-        if (icon && DPSavedOn(icon))
-            return DPRunCLI(@[catalog ? @"set-icon" : @"build"], ^(NSString *output) { DPHandOffAndQuit(@[@"apply"]); });
-        return DPHandOffAndQuit(@[@"apply"]);
-    }
+    if (!paused && DPPausedAtLaunch && !DPSafeMode) return DPRelaunchToResume();
     DPApplySavedSettings();
     if (!waiting.count) return;
     NSAlert *alert = [NSAlert new];

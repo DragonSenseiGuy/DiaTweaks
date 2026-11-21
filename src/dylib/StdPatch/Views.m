@@ -16,7 +16,7 @@ static void DPCollectViews(NSView *view, Class cls, NSMutableArray<NSView *> *vi
 }
 
 NSArray<NSView *> *DPFindViews(const char *className) {
-    Class cls = objc_getClass(className);
+    Class cls = className ? objc_getClass(className) : Nil;
     if (!cls) return @[];
     NSMutableArray<NSView *> *views = [NSMutableArray new];
     for (NSWindow *window in NSApp.windows)
@@ -33,14 +33,14 @@ NSString *DPTabLayout(void) {
 }
 
 NSView *DPSubview(NSView *parent, const char *className) {
-    Class cls = parent ? objc_getClass(className) : Nil;
+    Class cls = parent && className ? objc_getClass(className) : Nil;
     if (!cls) return nil;
     for (NSView *sub in parent.subviews) if ([sub isKindOfClass:cls]) return sub;
     return nil;
 }
 
 BOOL DPIsKind(id object, const char *className) {
-    if (!object) return NO;
+    if (!object || !className) return NO;
     Class cls = objc_getClass(className);
     return cls && [object isKindOfClass:cls];
 }
@@ -96,7 +96,7 @@ BOOL DPMayAdjust(NSView *view) {
 }
 
 void *DPIvar(id object, const char *name) {
-    Ivar ivar = object ? class_getInstanceVariable(object_getClass(object), name) : NULL;
+    Ivar ivar = object && name ? class_getInstanceVariable(object_getClass(object), name) : NULL;
     return ivar ? (uint8_t *)(__bridge void *)object + ivar_getOffset(ivar) : NULL;
 }
 
@@ -143,6 +143,7 @@ void DPSet(id object, const void *key, id value) {
 }
 
 void DPOverride(id object, const void *key, id dia, id ours) {
+    if (!object || !dia || !ours) return;
     NSArray *current = DPGet(object, key);
     if (current && [current[0] isEqual:dia] && [current[1] isEqual:ours]) return;
     DPSet(object, key, @[dia, ours]);

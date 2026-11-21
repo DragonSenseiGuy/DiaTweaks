@@ -137,20 +137,34 @@ static NSView *DPWideRow(NSView *view) {
     DPSetChoice([DPGet(picker, &DPChoicePatchKey) pointerValue] ?: _patch, picker.selectedItem.representedObject);
 }
 
+static void DPSetRowControlsEnabled(NSView *row, BOOL enabled) {
+    DPFindView(row, ^BOOL(NSView *view) {
+        if ([view isKindOfClass:NSTextField.class] && !((NSTextField *)view).editable) return NO;
+        if ([view isKindOfClass:NSControl.class] || [view respondsToSelector:@selector(setEnabled:)]) [(id)view setEnabled:enabled];
+        return NO;
+    });
+}
+
 - (void)sync {
     for (DPPatchSwitch *toggle in _switches) [toggle sync];
-    for (NSPopUpButton *picker in _pickers) picker.enabled = !DPPaused;
-    BOOL controlsEnabled = _patch->on && !DPSafeMode && !DPPaused;
-    for (NSView *row in _rows)
-        DPFindView(row, ^BOOL(NSView *view) {
-            BOOL label = [view isKindOfClass:NSTextField.class] && !((NSTextField *)view).editable;
-            if ([view isKindOfClass:NSControl.class] && !label) ((NSControl *)view).enabled = controlsEnabled;
-            return NO;
-        });
+    for (NSPopUpButton *picker in _pickers) {
+        DPPatch *patch = [DPGet(picker, &DPChoicePatchKey) pointerValue] ?: _patch;
+        picker.enabled = !DPPaused && !DPWhyDisabled(patch);
+        NSString *choice = DPChoice(patch);
+        for (NSMenuItem *item in picker.menu.itemArray)
+            if ([item.representedObject isEqual:choice]) {
+                [picker selectItem:item];
+                break;
+            }
+    }
+    BOOL controlsEnabled = _patch->on && !DPSafeMode && !DPPaused && !DPPausedAtLaunch;
+    for (NSView *row in _rows) DPSetRowControlsEnabled(row, controlsEnabled);
     // Fade in after the group has grown, or the row rides over the one above.
     NSMutableArray<NSView *> *appeared = nil;
     for (NSView *row in _optionChoices) {
-        BOOL shown = ((DPPatch *)[DPGet(row, &DPChoicePatchKey) pointerValue])->on;
+        DPPatch *option = [DPGet(row, &DPChoicePatchKey) pointerValue];
+        DPSetRowControlsEnabled(row, option->on && !DPWhyDisabled(option) && !DPSafeMode && !DPPaused && !DPPausedAtLaunch);
+        BOOL shown = DPPaused ? DPSavedOn(option) : option->on;
         if (row.hidden != shown) continue;
         NSArray<NSView *> *rows = ((NSStackView *)row.superview).arrangedSubviews;
         NSUInteger i = [rows indexOfObject:row];

@@ -23,12 +23,14 @@ static void DPBrowser_setDelegate(id self, SEL _cmd, id delegate) {
     DPCallOriginal(DPBrowser_setDelegate, self, delegate);
     [DPBrowsers addObject:self];
     if (delegate) [DPDelegateByBrowser setObject:delegate forKey:self];
+    else [DPDelegateByBrowser removeObjectForKey:self];
 }
 
 static void DPBrowser_setWindow(id self, SEL _cmd, NSWindow *window) {
     DPCallOriginal(DPBrowser_setWindow, self, window);
     [DPBrowsers addObject:self];
     if (window) [DPWindowByBrowser setObject:window forKey:self];
+    else [DPWindowByBrowser removeObjectForKey:self];
 }
 
 static void DPBrowser_didRestore(id self, SEL _cmd, id browser, id contents, id session) {

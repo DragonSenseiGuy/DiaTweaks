@@ -31,7 +31,7 @@ static void DPSidebar_viewDidLayout(NSViewController *self, SEL _cmd) {
     DPCallOriginal(DPSidebar_viewDidLayout, self);
     NSView *sidebar = self.view, *footer = DPSubview(sidebar, DPDiaSidebarFooter);
     [DPHideHosts addObject:sidebar];
-    if (!footer || !sidebar.isFlipped || !DPMayAdjust(footer)) return;
+    if (!footer || !sidebar.isFlipped) return;
     DPEnforceHides(footer);
     BOOL empty = NO, hidden = YES;
     for (NSView *item in footer.subviews) {
@@ -41,6 +41,7 @@ static void DPSidebar_viewDidLayout(NSViewController *self, SEL _cmd) {
     }
     empty &= hidden;
     NSHashTable<NSView *> *grown = DPGet(footer, &DPGrownKey);
+    if ((!empty && !grown) || !DPMayAdjust(footer)) return;
     if (empty) {
         if (!grown) DPSet(footer, &DPGrownKey, grown = [NSHashTable weakObjectsHashTable]);
         footer.hidden = YES;

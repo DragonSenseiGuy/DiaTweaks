@@ -49,7 +49,7 @@ static void DPHidden_setHidden(NSView *self, SEL _cmd, BOOL hidden) {
 static BOOL DPHidden_isHidden(NSView *self, SEL _cmd) {
     Dl_info caller;
     if (DPSuppressed.count && [DPSuppressed containsObject:self] && !self.window.isVisible && dladdr(__builtin_return_address(0), &caller)
-        && strstr(caller.dli_fname, "/Dia.app/"))
+        && caller.dli_fname && strstr(caller.dli_fname, "/Dia.app/"))
         return NO;
     return DPCallOriginal(DPHidden_isHidden, self);
 }
@@ -79,7 +79,10 @@ void DPEnforceHides(NSView *root) {
 
 void DPApplyHides(DPPatch *patch) {
     if (patch->on) for (NSView *host in DPHideHosts.allObjects) DPEnforceHides(host);
-    else for (NSView *view in DPSuppressed.allObjects) if (!DPHider(view)->on) view.hidden = NO;
+    else for (NSView *view in DPSuppressed.allObjects) {
+        DPPatch *hider = DPHider(view);
+        if (!hider || !hider->on) view.hidden = NO;
+    }
     DPRelayoutViews(DPHideHosts);
 }
 

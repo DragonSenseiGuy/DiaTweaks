@@ -126,6 +126,39 @@ int main(int argc, const char *argv[]) {
         expect(!resumed.paused, @"removing the pause file resumes");
         [resumed end:@"quit"];
 
+        // A crash while paused must not be counted when the next launch resumes unpaused.
+        [NSData.data writeToFile:pause atomically:YES];
+        DPLaunch *pausedCrash = launch();
+        leaveCrashed(pausedCrash);
+        [NSFileManager.defaultManager removeItemAtPath:pause error:nil];
+        DPLaunch *afterPausedCrash = launch();
+        expect(!afterPausedCrash.paused && [state()[@"crashes"] integerValue] == 0 && afterPausedCrash.level == 1,
+               @"a crash while paused is not counted on the next unpaused launch");
+        [afterPausedCrash end:@"quit"];
+
+        // A clean paused launch must neither erase a prior unpaused crash nor step down level 2.
+        DPLaunch *unpausedCrash = launch();
+        leaveCrashed(unpausedCrash);
+        [NSData.data writeToFile:pause atomically:YES];
+        DPLaunch *cleanPaused = launch();
+        [cleanPaused end:@"quit"];
+        [NSFileManager.defaultManager removeItemAtPath:pause error:nil];
+        DPLaunch *afterCleanPaused = launch();
+        expect([state()[@"crashes"] integerValue] == 1, @"a clean paused launch preserves a prior unpaused crash");
+        [afterCleanPaused end:@"quit"];
+
+        NSMutableDictionary *levelTwo = [state() mutableCopy];
+        levelTwo[@"level"] = @2;
+        levelTwo[@"steppedDown"] = @NO;
+        levelTwo[@"launching"] = @NO;
+        [levelTwo writeToFile:[support stringByAppendingPathComponent:@"safe-mode.plist"] atomically:YES];
+        [NSData.data writeToFile:pause atomically:YES];
+        DPLaunch *pausedL2 = launch();
+        expect(pausedL2.level == 2, @"paused launch preserves level 2");
+        [pausedL2 end:@"quit"];
+        expect([state()[@"level"] integerValue] == 2, @"a clean paused launch does not step down level 2");
+        [NSFileManager.defaultManager removeItemAtPath:pause error:nil];
+
         [NSFileManager.defaultManager removeItemAtPath:temporary error:nil];
     }
     if (!failures) printf("all launch guard checks passed\n");

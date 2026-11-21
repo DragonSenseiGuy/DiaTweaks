@@ -43,7 +43,7 @@ static BOOL DPCrashed(NSDictionary *state) {
 }
 
 static void DPSurvived(void) {
-    if (![DPState[@"launching"] boolValue]) return;
+    if (DPPausedAtLaunch || ![DPState[@"launching"] boolValue]) return;
     // A newer relaunch may already own safe-mode.plist.
     if ([[NSDictionary dictionaryWithContentsOfURL:DPStateURL error:nil][@"pid"] integerValue] != getpid()) return;
     DPState[@"launching"] = @NO;
@@ -64,21 +64,20 @@ void DPBeginLaunch(void) {
     NSString *build = DPBuildUUID(info.dli_fbase);
     NSDictionary *saved = [NSDictionary dictionaryWithContentsOfURL:DPStateURL error:nil];
     DPState = [saved[@"build"] isEqual:build] ? [saved mutableCopy] : [NSMutableDictionary dictionaryWithObject:build forKey:@"build"];
-    NSInteger crashes = [DPState[@"crashes"] integerValue];
-    // Crashes while paused neither count toward nor reset safe mode.
-    if (!DPPaused) {
-        if ([DPState[@"launching"] boolValue]) crashes += DPCrashed(DPState);
-        else crashes = 0;
-    }
     DPSafeMode = [DPState[@"level"] integerValue];
-    if (crashes == 2 && DPSafeMode < 2) DPSafeMode++, crashes = 0;
+    DPOnQuit(^{ DPSurvived(); });
+    // Crashes while paused neither count toward nor reset safe mode.
+    if (DPPaused) return;
+    NSInteger crashes = [DPState[@"crashes"] integerValue];
+    if ([DPState[@"launching"] boolValue]) crashes += DPCrashed(DPState);
+    else crashes = 0;
+    if (crashes >= 2 && DPSafeMode < 2) DPSafeMode++, crashes = 0;
     [DPState addEntriesFromDictionary:@{@"level": @(DPSafeMode), @"crashes": @(crashes), @"launching": @YES, @"launched": NSDate.date, @"pid": @(getpid())}];
     [DPState writeToURL:DPStateURL error:nil];
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, DPSurviveSeconds * NSEC_PER_SEC), dispatch_get_main_queue(), ^{ DPSurvived(); });
-    DPOnQuit(^{ DPSurvived(); });
 }
 
 void DPLeaveSafeMode(void) {
-    DPState = [NSMutableDictionary dictionaryWithObject:DPState[@"build"] forKey:@"build"];
+    DPState = [NSMutableDictionary dictionaryWithObject:DPState[@"build"] ?: @"" forKey:@"build"];
     [DPState writeToURL:DPStateURL error:nil];
 }

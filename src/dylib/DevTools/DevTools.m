@@ -36,6 +36,7 @@ static void DPCopyViewTree(void) {
 }
 
 static void DPScriptSet(NSNotification *note) {
+    if (![note.object isKindOfClass:NSString.class]) return;
     NSArray<NSString *> *parts = [note.object componentsSeparatedByString:@"="];
     if (parts.count != 2) return;
     DPPatch *patch = DPPatchNamed(parts[0]);
@@ -54,6 +55,7 @@ static void DPScriptType(NSNotification *note) {
 }
 
 static void DPScriptMethods(NSNotification *note) {
+    if (![note.object isKindOfClass:NSString.class] || ![note.object length]) return;
     NSMutableString *out = [NSMutableString new];
     NSView *live = DPFindViews([note.object UTF8String]).firstObject;
     NSMutableArray *classes = [NSMutableArray arrayWithObjects:note.object, nil];

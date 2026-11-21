@@ -16,15 +16,22 @@ static void DPMergeListFlag(NSMutableArray<NSString *> *args, NSString *flag) {
 
 static NSMutableArray<NSString *> *DPListValues(NSString *list) {
     NSMutableArray<NSString *> *values = [NSMutableArray array];
-    for (NSString *value in [list componentsSeparatedByString:@","])
-        [values addObject:[value stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceCharacterSet]];
+    for (NSString *value in [list componentsSeparatedByString:@","]) {
+        NSString *trimmed = [value stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceCharacterSet];
+        if (trimmed.length) [values addObject:trimmed];
+    }
     return values;
 }
 
 // A relaunch Dia starts itself repeats the flags it ran with, so a flag a tweak is off for has to come out again.
 static void DPDropFlags(NSMutableArray<NSString *> *args) {
     for (NSString *dropped in DPDroppedFlags) {
-        NSString *flag = [dropped substringToIndex:[dropped rangeOfString:@"="].location + 1];
+        NSRange eq = [dropped rangeOfString:@"="];
+        if (eq.location == NSNotFound) {
+            [args removeObject:dropped];
+            continue;
+        }
+        NSString *flag = [dropped substringToIndex:eq.location + 1];
         NSArray<NSString *> *values = DPListValues([dropped substringFromIndex:flag.length]);
         for (NSUInteger i = args.count; i-- > 0;) {
             if (![args[i] hasPrefix:flag]) continue;
@@ -45,7 +52,7 @@ static id DPConfiguration_init(id self, SEL _cmd, int argc, NSArray<NSString *> 
     for (NSString *arg in argv)
         if ([arg hasPrefix:flag]) {
             for (NSString *folder in [[arg substringFromIndex:flag.length] componentsSeparatedByString:@","])
-                if (![folder hasPrefix:ours]) [folders addObject:folder];
+                if (folder.length && ![folder hasPrefix:ours]) [folders addObject:folder];
             [args removeObject:arg];
         }
     [folders addObjectsFromArray:DPExtensionFolders];
