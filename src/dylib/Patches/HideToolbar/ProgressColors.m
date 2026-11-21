@@ -1,8 +1,10 @@
 #import "HideToolbar.h"
 #import <Metal/Metal.h>
 
+extern DPPatch DPPeek;
 static char DPDiaColorsKey;
-static __weak id DPDrawing;
+// TLS so Chromium/Skia background Metal encoders never race on or misattribute the main thread's indicator draw.
+static _Thread_local void *DPDrawing;
 static NSData *DPLastDiaColors;
 
 static NSArray<NSString *> *DPPresetNames(void) { return @[@"Blue", @"Purple", @"Pink", @"Orange", @"Green", @"Graphite", @"Jace"]; }
@@ -70,15 +72,18 @@ void DPProgressColors(NSView *pane, NSString *choice, simd_float3 *primary, simd
 }
 
 static void DPIndicator_drawInMTKView(id self, SEL _cmd, id view) {
-    DPDrawing = self;
+    if (!(DPHideToolbar.on && DPShowLoadingProgress.on) && !DPPeek.on) return DPCallOriginal(DPIndicator_drawInMTKView, self, view);
+    void *prev = DPDrawing;
+    DPDrawing = (__bridge void *)self;
     DPCallOriginal(DPIndicator_drawInMTKView, self, view);
-    DPDrawing = nil;
+    DPDrawing = prev;
 }
 
 static void DPEncoder_setFragmentBytes(id self, SEL _cmd, const void *bytes, NSUInteger length, NSUInteger index) {
     DPCallOriginal(DPEncoder_setFragmentBytes, self, bytes, length, index);
-    id drawing = DPDrawing;
-    if (!drawing || length < 3 * sizeof(float)) return;
+    void *raw = DPDrawing;
+    if (!raw || length < 3 * sizeof(float)) return;
+    id drawing = (__bridge id)raw;
     NSUInteger slots[2];
     if (!DPProgressColorSlots(slots) || (index != slots[0] && index != slots[1])) return;
     NSMutableData *colors = DPGet(drawing, &DPDiaColorsKey) ?: [NSMutableData dataWithLength:2 * sizeof(simd_float3)];

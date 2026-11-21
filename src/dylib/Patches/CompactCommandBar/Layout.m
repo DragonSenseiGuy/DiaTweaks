@@ -65,7 +65,8 @@ static void DPCommandBar_layout(NSView *self, SEL _cmd) {
     for (NSView *view in stack.views)
         if (view != DPGoButton(toolbar)) view.alphaValue = !compact;
     NSView *input = DPCommandBarPart(self, DPDiaCommandBarInput);
-    if (!compact || !input || !suggestions || !self.window) return;
+    if (!compact) return (void)(input.needsLayout = YES);
+    if (!input || !suggestions || !self.window) return;
     CGFloat gap = NSMinY(suggestions.frame) - NSMaxY(input.frame), rowBottom = NSMinY(suggestions.frame) + NSMinY(input.frame) - gap;
     CGFloat cut = MAX(0, NSMaxY([self convertRect:self.bounds toView:nil]) - NSHeight(self.window.frame));
     NSRect frame = toolbar.frame;
@@ -99,12 +100,13 @@ static void DPCommandBarButton_layout(NSView *self, SEL _cmd) {
 
 static void DPCommandBarButton_setAccessibilityLabel(NSView *self, SEL _cmd, NSString *label) {
     DPCallOriginal(DPCommandBarButton_setAccessibilityLabel, self, label);
+    if (!DPCompactCommandBar.on) return;
     NSView *commandBar = self;
     while (commandBar && !DPIsKind(commandBar, DPDiaCommandBar)) commandBar = commandBar.superview;
     NSView *toolbar = DPCommandBarPart(commandBar, DPDiaCommandBarToolbar);
     NSStackView *stack = toolbar.subviews.firstObject;
     if (![stack isKindOfClass:NSStackView.class] || ![stack.views containsObject:self] || self == DPGoButton(toolbar)) return;
-    DPRememberChatLocked(DPChatLocked(self));
+    DPRememberChatLocked(DPChatLocked(toolbar));
     if ((DPCompactToolbar(commandBar) != nil) == (DPGet(stack, &DPCompactedKey) != nil)) return;
     for (NSView *view = commandBar; view; view = view.superview) view.needsLayout = YES;
 }

@@ -117,6 +117,13 @@ static BOOL DPTabIsTop(NSView *tab) {
     [self.peek close:DPPeekClose];
 }
 
+- (void)dealloc { [_watch invalidate]; }
+
+- (void)viewDidMoveToWindow {
+    [super viewDidMoveToWindow];
+    if (!self.window) [self stop];
+}
+
 - (void)stop {
     [self.watch invalidate];
     self.watch = nil;
@@ -152,7 +159,12 @@ void DPPeekShowTabBadge(DPPeekCard *peek, id source) {
     [badge addSubview:eyes];
     [tab addSubview:badge];
     peek.tabBadge = badge;
-    badge.watch = [NSTimer scheduledTimerWithTimeInterval:0.6 target:badge selector:@selector(watch:) userInfo:nil repeats:YES];
+    __weak DPPeekTabBadge *weak = badge;
+    badge.watch = [NSTimer scheduledTimerWithTimeInterval:0.6 repeats:YES block:^(NSTimer *timer) {
+        DPPeekTabBadge *me = weak;
+        if (me) [me watch:timer];
+        else [timer invalidate];
+    }];
 }
 
 void DPPeekHideTabBadge(DPPeekCard *peek) {

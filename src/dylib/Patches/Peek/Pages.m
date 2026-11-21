@@ -170,7 +170,7 @@ void DPPeekCool(void) {
 }
 
 static void DPPeekOpenFrom(NSWindow *window, NSURL *url, NSRect link, id delegate, id source, id warmPage, NSView *warmHost) {
-    if (!window || !url || DPPeekCardIn(window)) {
+    if (!DPPeek.on || !window || !url || DPPeekCardIn(window)) {
         if (warmPage) DPPeekDiscard(warmPage, warmHost);
         return;
     }
@@ -181,7 +181,7 @@ static void DPPeekOpenFrom(NSWindow *window, NSURL *url, NSRect link, id delegat
     else DPPeekLoad(page, url);
     if (!peek) {
         DPPeekDetach(page, warmHost);
-        DPPeekGive(page, delegate, source, url, DPPeekTab);
+        if (!DPPeekGive(page, delegate, source, url, DPPeekTab)) DPPeekDiscard(page, nil);
         return;
     }
     peek.sourceDelegate = delegate;
@@ -199,10 +199,25 @@ void DPPeekOpen(NSWindow *window, NSURL *url, NSPoint origin, id delegate, id so
     DPPeekFindLink(window, source, origin, warmHost, ^(NSRect link) { DPPeekOpenFrom(window, url, link, delegate, source, warmPage, warmHost); });
 }
 
+void DPPeekCloseAll(void) {
+    DPPeekCool();
+    DPPeekHideDragZone();
+    for (DPPeekCard *peek in DPPeekAllCards(nil)) {
+        id page = peek.page;
+        [peek handOver];
+        DPPeekDiscard(page, nil);
+    }
+}
+
 @implementation DPPeekCard (Handoff)
 
 - (void)finish:(DPPeekExit)exit {
     NSObject *page = (NSObject *)self.page;
+    if (!self.window) {
+        [self handOver];
+        DPPeekDiscard(page, nil);
+        return;
+    }
     [self.window makeKeyWindow];
     if (exit != DPPeekClose && DPPeekGive(page, self.sourceDelegate, self.source, [page valueForKey:@"url"], exit)) {
         dispatch_after(dispatch_time(DISPATCH_TIME_NOW, NSEC_PER_SEC), dispatch_get_main_queue(), ^{ if (self.superview) [self handOver]; });
@@ -220,6 +235,11 @@ void DPPeekInstallPages(void) {
     DPHook(DPDiaBrowser, @selector(createWebContents:), (IMP)DPBrowser_create);
     DPHook(DPDiaWebContents, @selector(attachToPaneHostView:), (IMP)DPPage_attach);
     [NSNotificationCenter.defaultCenter addObserverForName:NSWindowWillCloseNotification object:nil queue:nil usingBlock:^(NSNotification *note) {
-        [DPPeekCardIn(note.object) close:DPPeekClose];
+        if (DPPeekWarmView.window == note.object) DPPeekCool();
+        for (DPPeekCard *peek in DPPeekAllCards(note.object)) {
+            id page = peek.page;
+            [peek handOver];
+            DPPeekDiscard(page, nil);
+        }
     }];
 }

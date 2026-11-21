@@ -54,7 +54,10 @@ void DPSetTrim(NSView *container, CGFloat trim) {
 }
 
 void DPApplyCompactCommandBar(DPPatch *patch) {
-    for (NSView *commandBar in DPFindViews(DPDiaCommandBar)) commandBar.needsLayout = YES;
+    for (NSView *commandBar in DPFindViews(DPDiaCommandBar)) {
+        commandBar.needsLayout = YES;
+        DPCommandBarPart(commandBar, DPDiaCommandBarInput).needsLayout = YES;
+    }
 }
 
 static NSString *DPVerifyCompactCommandBar(DPPatch *patch) {

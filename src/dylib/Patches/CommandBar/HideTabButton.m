@@ -49,12 +49,18 @@ static void DPHideFrontTab(NSView *background) {
 }
 
 static void DPRefresh(NSWindow *window) {
-    NSArray<NSView *> *backgrounds = DPFindViews(DPDiaTabBackground);
+    Class cls = objc_getClass(DPDiaTabBackground);
+    if (!cls || !window.contentView) return;
+    NSMutableArray<NSView *> *backgrounds = [NSMutableArray array];
+    DPFindView(window.contentView, ^BOOL(NSView *view) {
+        if ([view isKindOfClass:cls]) [backgrounds addObject:view];
+        return NO;
+    });
     BOOL standingIn = DPStandingIn(window);
     for (NSView *background in backgrounds)
-        if (background.window == window && DPIsNewTabButton(background.superview)) DPSelectButton(background, standingIn);
+        if (DPIsNewTabButton(background.superview)) DPSelectButton(background, standingIn);
     for (NSView *background in backgrounds) {
-        if (background.window != window || !DPIsKind(background.superview, DPDiaTabView)) continue;
+        if (!DPIsKind(background.superview, DPDiaTabView)) continue;
         if (!standingIn) DPGiveBackSelection(background);
         else if (DPDrawnSelected(background)) {
             DPHideFrontTab(background);
@@ -78,8 +84,16 @@ void DPRefreshStandIns(void) {
     for (NSWindow *window in NSApp.windows) DPRefresh(window);
 }
 
+static void DPRestoreBackground(NSView *background) {
+    if (DPGet(background, &DPSavedKey)) DPSelectButton(background, NO);
+    if (DPHoldsSelection(background)) DPGiveBackSelection(background);
+}
+
 static void DPTabBackground_updateLayer(NSView *self, SEL _cmd) {
-    if (!DPHiding()) return DPCallOriginal(DPTabBackground_updateLayer, self);
+    if (!DPHiding()) {
+        DPRestoreBackground(self);
+        return DPCallOriginal(DPTabBackground_updateLayer, self);
+    }
     DPNoteLook(self);
     if (DPSwitchingTo(self)) DPEndSwitch(self.window);
     DPHideFrontTab(self);
@@ -87,7 +101,10 @@ static void DPTabBackground_updateLayer(NSView *self, SEL _cmd) {
 }
 
 static void DPTabBackground_layout(NSView *self, SEL _cmd) {
-    if (!DPHiding()) return DPCallOriginal(DPTabBackground_layout, self);
+    if (!DPHiding()) {
+        DPRestoreBackground(self);
+        return DPCallOriginal(DPTabBackground_layout, self);
+    }
     DPHideFrontTab(self);
     DPCallOriginal(DPTabBackground_layout, self);
     if (DPIsNewTabButton(self.superview)) DPSelectButton(self, DPStandingIn(self.window));

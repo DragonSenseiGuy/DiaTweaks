@@ -122,11 +122,25 @@ void DPForgetWindow(NSWindow *window) {
     if (had) DPRelayoutLists();
 }
 
+void DPCleanHideTab(void) {
+    DPExpectUntil = 0;
+    DPKnown = nil;
+    [DPHidden removeAllObjects];
+    [DPParked removeAllObjects];
+    [DPOwner removeAllObjects];
+    DPReleaseStrips();
+    DPShowHiddenBars();
+    DPRelayoutLists();
+    DPRefreshStandIns();
+}
+
 static void DPApplyHideTab(DPPatch *patch) {
     for (NSView *background in DPFindViews(DPDiaTabBackground)) DPNoteLook(background);
     if (!DPHiding()) {
-        DPReleaseStrips();
-        DPShowHiddenBars();
+        DPDropUnwantedSpares();
+        DPUpdateSpareTimer();
+        DPCleanHideTab();
+        return;
     }
     DPRelayoutLists();
     DPRefreshStandIns();

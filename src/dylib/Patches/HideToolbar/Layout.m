@@ -74,13 +74,24 @@ void DPApplyToolbar(NSView *pane) {
     NSView *bar = DPSubview(pane, DPDiaToolbar);
     if (!bar) return;
 
+    BOOL active = DPHideToolbar.on || DPHideToolbar.progress > 0;
+    DPToolbarHover *hover = [DPToolbarHover forPane:pane];
+    if (!active && !hover.touched) {
+        if (DPLittleDiaIsOver(pane.window)) {
+            if (bar.alphaValue != 0) bar.alphaValue = 0;
+            NSView *bookmarks = DPBookmarksUnder(pane, bar);
+            if (bookmarks && bookmarks.alphaValue != 0) bookmarks.alphaValue = 0;
+        }
+        return;
+    }
+
     NSView *bookmarks = DPBookmarksUnder(pane, bar);
     NSView *bars[2] = {bar, bookmarks};
     NSUInteger barCount = bookmarks ? 2 : 1;
-    DPToolbarHover *hover = [DPToolbarHover attachToPane:pane];
+    hover = [DPToolbarHover attachToPane:pane];
     [hover updateForBar:bar bookmarks:bookmarks];
 
-    CGFloat progress = DPHidden(hover);
+    CGFloat progress = active ? DPHidden(hover) : 0;
     DPApplyToolbarOpacity(hover);
     NSArray<NSView *> *subviews = pane.subviews;
     NSMutableArray<NSView *> *stack = [NSMutableArray arrayWithCapacity:subviews.count];
@@ -94,10 +105,13 @@ void DPApplyToolbar(NSView *pane) {
     BOOL onTop = firstSlot == subviews.count - barCount, atBottom = lastSlot == barCount - 1;
     if (hover.revealed || hover.progress > 0) {
         if (!onTop) for (NSUInteger i = 0; i < barCount; i++) [pane addSubview:bars[i] positioned:NSWindowAbove relativeTo:nil];
-    } else if (progress > 0 && !atBottom) {
-        for (NSUInteger i = barCount; i-- > 0;) [pane addSubview:bars[i] positioned:NSWindowBelow relativeTo:nil];
-    } else if (progress == 0 && firstSlot == 0) {
+        hover.barsLowered = NO;
+    } else if (progress > 0) {
+        if (!atBottom) for (NSUInteger i = barCount; i-- > 0;) [pane addSubview:bars[i] positioned:NSWindowBelow relativeTo:nil];
+        hover.barsLowered = YES;
+    } else if (hover.barsLowered) {
         for (NSUInteger i = 0; i < barCount; i++) [pane addSubview:bars[i] positioned:NSWindowAbove relativeTo:nil];
+        hover.barsLowered = NO;
     }
 
     CGFloat edge = DPBottom(pane, DPLaidOutFrame(bars[barCount - 1])), shift = (edge - DPTop(pane, DPLaidOutFrame(bar))) * progress;
@@ -107,7 +121,11 @@ void DPApplyToolbar(NSView *pane) {
     for (NSUInteger i = 0; i < barCount; i++) {
         NSRect laidOut = DPLaidOutFrame(bars[i]), frame = laidOut;
         frame.origin.y += flipped ? -lift : lift;
-        DPAssignFrame(bars[i], laidOut, frame);
+        if (active) DPAssignFrame(bars[i], laidOut, frame);
+        else {
+            if (!NSEqualRects(bars[i].frame, laidOut)) bars[i].frame = laidOut;
+            DPSet(bars[i], &DPFrameKey, nil);
+        }
     }
     if (stack.count > 1) {
         [stack sortUsingComparator:^NSComparisonResult(NSView *a, NSView *b) {
@@ -118,23 +136,37 @@ void DPApplyToolbar(NSView *pane) {
     CGFloat paneHeight = NSHeight(pane.bounds);
     for (NSView *view in stack) {
         NSRect laidOut = DPLaidOutFrame(view);
-        if (fabs(DPTop(pane, laidOut) - edge) > 0.5) continue;
-        BOOL reachesBottom = fabs(DPBottom(pane, laidOut) - paneHeight) < 0.5;
-        if (!reachesBottom) edge = DPBottom(pane, laidOut);
+        BOOL inColumn = fabs(DPTop(pane, laidOut) - edge) <= 0.5;
+        if (!inColumn && !DPGet(view, &DPFrameKey)) continue;
+        BOOL reachesBottom = inColumn && fabs(DPBottom(pane, laidOut) - paneHeight) < 0.5;
+        if (inColumn && !reachesBottom) edge = DPBottom(pane, laidOut);
         NSRect frame = laidOut;
-        if (reachesBottom) frame.size.height += shift;
-        if (flipped) frame.origin.y -= shift;
-        else if (!reachesBottom) frame.origin.y += shift;
-        DPAssignFrame(view, laidOut, frame);
+        if (inColumn && shift != 0) {
+            if (reachesBottom) frame.size.height += shift;
+            if (flipped) frame.origin.y -= shift;
+            else if (!reachesBottom) frame.origin.y += shift;
+        }
+        if (active) DPAssignFrame(view, laidOut, frame);
+        else {
+            if (!NSEqualRects(view.frame, laidOut)) view.frame = laidOut;
+            DPSet(view, &DPFrameKey, nil);
+        }
         NSRect bounds = view.bounds;
         for (NSView *child in view.subviews) {
-            if (!DPGet(child, &DPFillsKey)) {
-                if (!NSEqualRects(child.frame, (NSRect){NSZeroPoint, laidOut.size})) continue;
-                DPSet(child, &DPFillsKey, @YES);
+            if (active) {
+                if (!DPGet(child, &DPFillsKey)) {
+                    if (!NSEqualRects(child.frame, (NSRect){NSZeroPoint, laidOut.size})) continue;
+                    DPSet(child, &DPFillsKey, @YES);
+                }
+                if (!NSEqualRects(child.frame, bounds)) child.frame = bounds;
+            } else if (DPGet(child, &DPFillsKey)) {
+                if (!NSEqualRects(child.frame, bounds)) child.frame = bounds;
+                DPSet(child, &DPFillsKey, nil);
             }
-            if (!NSEqualRects(child.frame, bounds)) child.frame = bounds;
         }
     }
+    hover.touched = active;
+    if (!active && !DPToolbarHasPermissionRequest(hover)) [hover detach];
 }
 
 void DPRelayoutPanes(void) { DPRelayoutViews(DPPanes); }

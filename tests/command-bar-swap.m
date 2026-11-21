@@ -1,6 +1,7 @@
 #import "Patches/CommandBar/CommandBarSwap.m"
 #import "Patches/CommandBar/HideTabButton.m"
 
+DPPatch DPCommandBar = { .on = YES };
 char DPOverlayKey;
 const uintptr_t DPFirstFill = 4;
 
@@ -11,22 +12,37 @@ const uintptr_t DPFirstFill = 4;
 static NSMutableSet<NSString *> *gHidden;
 static NSMutableArray<DPCommandBarOverlay *> *gCancelled;
 static NSMutableArray<NSEvent *> *gPosted;
+static BOOL gHiding = YES, gHoldsSelection;
+static int gGiveBackCalls;
+static uintptr_t gStyle = 2;
+static uint8_t gShape = 0;
 
-BOOL DPHiding(void) { return YES; }
-BOOL DPHidesTab(NSString *tabID) { return tabID && [gHidden containsObject:tabID]; }
-uintptr_t *DPSelectionStyle(NSView *background) { return NULL; }
-uint8_t *DPTabShape(NSView *background) { return NULL; }
+BOOL DPHiding(void) { return gHiding; }
+BOOL DPHidesTab(NSString *tabID) { return gHiding && tabID && [gHidden containsObject:tabID]; }
+uintptr_t *DPSelectionStyle(NSView *background) { return &gStyle; }
+uint8_t *DPTabShape(NSView *background) { return &gShape; }
 NSView *DPTabShapeView(NSView *background) { return nil; }
-BOOL DPStyleSelected(uintptr_t style) { return NO; }
-BOOL DPDrawnSelected(NSView *background) { return NO; }
+BOOL DPStyleSelected(uintptr_t style) { return style == 0 || style >= DPFirstFill; }
+BOOL DPDrawnSelected(NSView *background) { return DPStyleSelected(gStyle); }
 void DPNoteLook(NSView *background) {}
-NSArray *DPSelectedLook(NSView *button) { return nil; }
+NSArray *DPSelectedLook(NSView *button) { return @[ NSNull.null, @(1) ]; }
 BOOL DPSwitchingTo(NSView *background) { return NO; }
 void DPEndSwitch(NSWindow *window) {}
 void DPUnselectFrontTab(NSView *background, BOOL standingIn) {}
-void DPGiveBackSelection(NSView *background) {}
-BOOL DPHoldsSelection(NSView *background) { return NO; }
+void DPGiveBackSelection(NSView *background) { gGiveBackCalls++; gHoldsSelection = NO; }
+BOOL DPHoldsSelection(NSView *background) { return gHoldsSelection; }
 void DPInstallFrontTab(void) {}
+
+@interface _TtC7TabList14NewTabCellView : NSView
+@end
+@implementation _TtC7TabList14NewTabCellView
+@end
+
+@interface TabUI_TabBackgroundView : NSView
+@end
+@implementation TabUI_TabBackgroundView
+- (void)updateLayer {}
+@end
 
 void DPCancelCommandBar(DPCommandBarOverlay *overlay) {
     if (!overlay) return;
@@ -117,6 +133,44 @@ int main(void) {
         DPDiaCaughtUp(window);
         CHECK(gCancelled.count == 1 && gCancelled.firstObject == third && gPosted.count == 0, "wanted close cancels directly without posting");
         CHECK(DPGet(window, &DPWantKey) == nil, "close path clears want key");
+
+        [gPosted removeAllObjects];
+        [gCancelled removeAllObjects];
+        window.fakeKey = YES;
+        DPHandToDia(window, cmdT, YES);
+        CHECK(DPWaitForDia(window, cmdL, NO), "swap press queued before turning off");
+        DPCommandBar.on = NO;
+        DPDiaCaughtUp(window);
+        CHECK(gPosted.count == 0 && gCancelled.count == 0, "turning CommandBar off prevents queued swap replay");
+        CHECK(DPGet(window, &DPCatchingUpKey) == nil && DPGet(window, &DPWantKey) == nil, "off catch-up clears all state");
+
+        DPCommandBar.on = YES;
+        DPCommandBarOverlay *handed = DPOverlay(window, @"tab-1");
+        DPSet(window, &DPOverlayKey, handed);
+        DPHandOver(handed);
+        CHECK(DPTakeHandOver(window) == handed && DPTakeHandOver(window) == nil, "DPTakeHandOver returns and clears handed-over bar");
+
+        // Regression: HideTabButton restores DPSavedKey & DPHoldsSelection on invisible window during layout/updateLayer when off.
+        Class bgCls = objc_allocateClassPair(TabUI_TabBackgroundView.class, DPDiaTabBackground, 0);
+        objc_registerClassPair(bgCls);
+        DPInstallStandIn();
+        _TtC7TabList14NewTabCellView *newTabBtn = [[_TtC7TabList14NewTabCellView alloc] initWithFrame:NSMakeRect(0, 0, 100, 30)];
+        NSView *bg = [[bgCls alloc] initWithFrame:newTabBtn.bounds];
+        [newTabBtn addSubview:bg];
+        [window.contentView addSubview:newTabBtn];
+        gHiding = YES;
+        gStyle = 2;
+        gShape = 0;
+        DPStandInFor(window, @"tab-1");
+        CHECK(gStyle == 0 && gShape == 1 && DPGet(bg, &DPSavedKey) != nil, "New Tab button selected on non-visible window");
+        gHiding = NO;
+        gHoldsSelection = YES;
+        gGiveBackCalls = 0;
+        [bg layout];
+        CHECK(gStyle == 2 && gShape == 0 && DPGet(bg, &DPSavedKey) == nil && gGiveBackCalls == 1,
+              "turning hiding off restores button selection and front-tab selection once on next layout");
+        [bg layout];
+        CHECK(gGiveBackCalls == 1, "subsequent layouts while off do nothing");
 
         if (failures) return 1;
         puts("PASS: command bar swap stand-in and key-focus guards");

@@ -32,11 +32,17 @@ static NSDictionary<NSString *, NSValue *> *DPFrozen(NSCollectionView *list) {
 }
 
 void DPRelayoutLists(void) {
-    for (NSCollectionView *list in DPFindViews(DPDiaTabListCollection)) {
-        DPFrozen(list);
-        [list.collectionViewLayout invalidateLayout];
-    }
-    for (NSView *strip in DPFindViews(DPDiaTabStripTabs)) strip.needsLayout = YES;
+    Class listCls = objc_getClass(DPDiaTabListCollection), stripCls = objc_getClass(DPDiaTabStripTabs);
+    for (NSWindow *window in NSApp.windows)
+        DPFindView(window.contentView, ^BOOL(NSView *view) {
+            if (listCls && [view isKindOfClass:listCls]) {
+                DPFrozen((NSCollectionView *)view);
+                [((NSCollectionView *)view).collectionViewLayout invalidateLayout];
+            } else if (stripCls && [view isKindOfClass:stripCls]) {
+                view.needsLayout = YES;
+            }
+            return NO;
+        });
 }
 
 static NSCollectionViewLayoutAttributes *DPFrozenAttributes(NSCollectionViewLayout *layout, NSCollectionViewLayoutAttributes *attributes) {
@@ -86,7 +92,7 @@ static NSCollectionViewLayoutAttributes *DPLayout_disappearing(NSCollectionViewL
 static NSSize DPLayout_size(NSCollectionViewLayout *self, SEL _cmd) {
     NSSize size = DPCallOriginal(DPLayout_size, self);
     if (DPFrozen(self.collectionView)) return [DPGet(self.collectionView, &DPFrozenSizeKey) sizeValue];
-    return NSMakeSize(size.width, size.height - DPParkedHeight(self));
+    return NSMakeSize(size.width, MAX(0, size.height - DPParkedHeight(self)));
 }
 
 void DPInstallFrozenLists(void) {

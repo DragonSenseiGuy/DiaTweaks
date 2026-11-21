@@ -1,5 +1,7 @@
 #import "Patches/Peek/Peek.h"
 
+static void DPApplyPeekPinnedLinks(DPPatch *patch) {}
+
 DP_PATCH(DPPeekPinnedLinks) {
     .key = @"peekPinnedLinks",
     .order = 104,
@@ -9,4 +11,5 @@ DP_PATCH(DPPeekPinnedLinks) {
     .tint = @"systemMintColor",
     .requires = @"peek",
     .defaultOn = YES,
+    .apply = DPApplyPeekPinnedLinks,
 };

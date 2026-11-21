@@ -135,6 +135,7 @@ static void DPWebContent_status(id self, SEL _cmd, id webContents, NSString *tex
 }
 
 void DPPeekOpenDragged(NSURL *url, NSPoint origin) {
+    if (!DPPeek.on) return;
     id page = DPPeekHoveredPage;
     if (DPPeekShows(page)) return DPPeekLoad(page, url);
     if (DPPeekCanOpen(page)) DPPeekOpen(NSApp.keyWindow, url, origin, DPPeekHoveredDelegate, page);
@@ -164,6 +165,10 @@ static void DPInstallPeek(void) {
     }];
 }
 
+static void DPApplyPeek(DPPatch *patch) {
+    if (!patch->on) DPPeekCloseAll();
+}
+
 static NSString *DPVerifyPeek(DPPatch *patch) {
     Class delegate = objc_getClass(DPDiaWebContent);
     if (class_getMethodImplementation(delegate, @selector(webContents:decidePolicyForNavigationAction:)) != (IMP)DPWebContent_decidePolicy)
@@ -183,6 +188,7 @@ DP_PATCH(DPPeek) {
     .section = @"Links",
     .classes = DPClasses(DPDiaBrowserContext, DPDiaWebContents, DPDiaWebContentsConfiguration, DPDiaContentPane),
     .install = DPInstallPeek,
+    .apply = DPApplyPeek,
     .verify = DPVerifyPeek,
     .rows = DPPeekSettingsRows,
     .hint = @"Tip: right after Dia starts, open or switch to any tab once to start Peek.",

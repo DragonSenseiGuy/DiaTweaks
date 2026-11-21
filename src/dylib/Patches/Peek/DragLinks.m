@@ -37,8 +37,9 @@ static void DPZoneSpring(CALayer *layer, NSString *keyPath, id to, CFTimeInterva
 
 @implementation DPPeekZone
 
-- (instancetype)initWithFrame:(NSRect)frame {
+- (instancetype)initWithFrame:(NSRect)frame appearance:(NSAppearance *)appearance {
     self = [super initWithFrame:frame];
+    self.appearance = appearance;
     self.layer = [CALayer layer];
     self.wantsLayer = YES;
     [self registerForDraggedTypes:@[ NSPasteboardTypeURL ]];
@@ -176,7 +177,10 @@ static void DPHideZone(void) {
     });
 }
 
+void DPPeekHideDragZone(void) { DPHideZone(); }
+
 static void DPShowZone(NSWindow *window, NSPoint pointer) {
+    if (!window) return;
     DPHideZone();
     CGFloat above = pointer.y + DPZoneGap + DPZoneCard.height / 2, below = pointer.y - DPZoneGap - DPZoneCard.height / 2;
     CGFloat y = above + DPZoneCard.height / 2 < NSMaxY([window convertRectToScreen:window.contentLayoutRect]) ? above : below;
@@ -190,7 +194,7 @@ static void DPShowZone(NSWindow *window, NSPoint pointer) {
     panel.hasShadow = NO;
     panel.releasedWhenClosed = NO;
     panel.appearance = window.effectiveAppearance;
-    DPPeekZone *zone = [[DPPeekZone alloc] initWithFrame:(NSRect){NSZeroPoint, size}];
+    DPPeekZone *zone = [[DPPeekZone alloc] initWithFrame:(NSRect){NSZeroPoint, size} appearance:window.effectiveAppearance];
     zone.link = pointer;
     panel.contentView = zone;
     [window addChildWindow:panel ordered:NSWindowAbove];
@@ -221,6 +225,10 @@ static void DPInstallPeekDragLinks(void) {
     DPHook("WebContentsViewCocoa", @selector(draggingSession:endedAtPoint:operation:), (IMP)DPPage_dragEnded);
 }
 
+static void DPApplyPeekDragLinks(DPPatch *patch) {
+    if (!patch->on) DPHideZone();
+}
+
 DP_PATCH(DPPeekDragLinks) {
     .key = @"peekDragLinks",
     .order = 104,
@@ -230,5 +238,6 @@ DP_PATCH(DPPeekDragLinks) {
     .tint = @"systemMintColor",
     .classes = DPClasses("WebContentsViewCocoa"),
     .install = DPInstallPeekDragLinks,
+    .apply = DPApplyPeekDragLinks,
     .requires = @"peek",
 };

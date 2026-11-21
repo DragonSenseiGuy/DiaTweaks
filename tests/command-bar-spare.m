@@ -364,6 +364,47 @@ int main(void) {
         DPApplySpares(&DPCommandBarSpare);
         CHECK(DPSpareTimer == nil && !DPSpareIn(winA), "turning off invalidates the timer and drops any spare");
 
+        // Regression: DPDropSpare must never close a space's only tab or a navigated tab.
+        DPCommandBarSpare.on = YES;
+        DPFakeTab *onlySpare = DPAddHiddenTab(winA, profA, @"only-spare");
+        [profA.appleScriptTabs removeAllObjects];
+        [profA.appleScriptTabs addObject:onlySpare];
+        DPSet(winA, &DPSpareKey, DPMakeOverlay(winA, onlySpare, pageA));
+        DPDropSpare(winA);
+        CHECK(!onlySpare.closed && !DPSpareIn(winA), "DPDropSpare does not close a profile's only tab");
+
+        DPFakeTab *navSpare = DPAddHiddenTab(winA, profA, @"nav-spare");
+        [profA.appleScriptTabs addObject:pageA];
+        navSpare.URL = @"https://example.com";
+        DPSet(winA, &DPSpareKey, DPMakeOverlay(winA, navSpare, pageA));
+        DPDropSpare(winA);
+        CHECK(!navSpare.closed && !DPSpareIn(winA), "DPDropSpare does not close a navigated tab");
+
+        // Regression: DPForgetSpare (window close) clears spare & noted ID without calling DPCloseTab.
+        DPFakeTab *closingSpare = DPAddHiddenTab(winA, profA, @"closing-spare");
+        DPSet(winA, &DPSpareKey, DPMakeOverlay(winA, closingSpare, pageA));
+        DPNoteSpare(@"closing-spare", YES);
+        DPForgetSpare(winA);
+        CHECK(!closingSpare.closed && !DPSpareIn(winA) && ![gDefaults.store[DPSparesKey] containsObject:@"closing-spare"],
+              "DPForgetSpare clears spare and persisted ID without closing tab");
+
+        // Regression: DPMakeSpare stops the 1 Hz timer when spares turn off without a notification.
+        DPApplySpares(&DPCommandBarSpare);
+        CHECK(DPSpareTimer != nil && DPSpareTimer.valid, "timer active while spares on");
+        DPCommandBar.on = NO;
+        DPMakeSpare();
+        CHECK(DPSpareTimer == nil, "DPMakeSpare invalidates timer when DPCommandBar turns off");
+        DPCommandBar.on = YES;
+
+        // Regression: DPApplyHideTab turning off stops spare timer and clears hidden/parked state.
+        DPApplySpares(&DPCommandBarSpare);
+        DPFakeTab *hidTab = DPAddHiddenTab(winA, profA, @"hid-tab");
+        DPCommandBarHideTab.on = NO;
+        DPApplyHideTab(&DPCommandBarHideTab);
+        CHECK(DPSpareTimer == nil && !DPHidden.count && !DPParked.count && !DPOwner.count,
+              "turning HideTab off stops spare timer and clears hidden/parked tables");
+        (void)hidTab;
+
         if (failures) return 1;
         puts("PASS: command bar spare guards, launch cleanup, and timer lifecycle");
     }

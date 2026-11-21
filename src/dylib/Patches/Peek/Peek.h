@@ -33,6 +33,7 @@ enum { DPIgnoreAction = 0, DPCurrentTab = 1, DPForegroundTab = 2, DPBackgroundTa
 - (void)animateIn;
 - (void)animateOut:(void (^)(void))completion;
 - (void)animateExpand:(void (^)(void))completion;
+- (void)stopMotion;
 @end
 
 @interface DPPeekCard (Handoff)
@@ -40,6 +41,7 @@ enum { DPIgnoreAction = 0, DPCurrentTab = 1, DPForegroundTab = 2, DPBackgroundTa
 @end
 
 DPPeekCard *DPPeekCardIn(NSWindow *window);
+NSArray<DPPeekCard *> *DPPeekAllCards(NSWindow *window);
 DPPeekCard *DPPeekCardForPage(id page);
 DPPeekCard *DPPeekShowCard(NSWindow *window, id<DPPeekPage> page, NSView *warmHost, NSRect screenLink);
 NSView *DPPeekWarmHost(NSWindow *window, id<DPPeekPage> page);
@@ -90,6 +92,8 @@ void DPPeekLoad(id page, NSURL *url);
 void DPPeekOpen(NSWindow *window, NSURL *url, NSPoint origin, id delegate, id source);
 void DPPeekWarm(NSWindow *window, id source, NSURL *url);
 void DPPeekCool(void);
+void DPPeekCloseAll(void);
+void DPPeekHideDragZone(void);
 void DPPeekOpenDragged(NSURL *url, NSPoint origin);
 BOOL DPPeekIsWeb(NSURL *url);
 BOOL DPPeekOverLink(id page, NSURL *url);

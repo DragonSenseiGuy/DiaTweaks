@@ -47,7 +47,9 @@
 
 - (void)refresh {
     BOOL open = self.hovered || self.field;
-    self.layer.backgroundColor = open ? [NSColor.labelColor colorWithAlphaComponent:0.07].CGColor : nil;
+    [self.effectiveAppearance performAsCurrentDrawingAppearance:^{
+        self.layer.backgroundColor = open ? [NSColor.labelColor colorWithAlphaComponent:0.07].CGColor : nil;
+    }];
     if (self.field) return;
     NSURL *url = self.url;
     NSString *title = [(NSObject *)self.page valueForKey:@"title"];

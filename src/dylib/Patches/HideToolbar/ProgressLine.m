@@ -70,12 +70,14 @@ static char DPLineKey;
 }
 
 - (void)viewDidMoveToWindow {
+    [super viewDidMoveToWindow];
     [self.frames invalidate];
     self.frames = nil;
     if (!self.window || !self.glow) return;
     __weak DPProgressLineView *weakSelf = self;
     self.frames = [NSTimer timerWithTimeInterval:1.0 / 60 repeats:YES block:^(NSTimer *timer) {
         DPProgressLineView *me = weakSelf;
+        if (!me) return [timer invalidate];
         me.shown += (me.fraction - me.shown) * 0.15;
         [me draw];
     }];

@@ -92,8 +92,15 @@ static NSRect DPPeekCardRect(NSRect area) { return NSInsetRect(area, NSWidth(are
     else [self finish:exit];
 }
 
+- (void)dealloc {
+    if (_monitor) [NSEvent removeMonitor:_monitor];
+    if (_paneObserver) [NSNotificationCenter.defaultCenter removeObserver:_paneObserver];
+    [self stopMotion];
+}
+
 - (void)handOver {
     NSWindow *window = self.window;
+    [self stopMotion];
     [self stopWatching];
     [self removeFromSuperview];
     [window resetCursorRects];
@@ -109,6 +116,13 @@ DPPeekCard *DPPeekCardIn(NSWindow *window) {
     for (DPPeekCard *peek in DPPeekCards)
         if (peek.window == window && !peek.closing) return peek;
     return nil;
+}
+
+NSArray<DPPeekCard *> *DPPeekAllCards(NSWindow *window) {
+    NSMutableArray<DPPeekCard *> *cards = [NSMutableArray array];
+    for (DPPeekCard *peek in DPPeekCards.allObjects)
+        if (!window || peek.window == window) [cards addObject:peek];
+    return cards;
 }
 
 DPPeekCard *DPPeekCardForPage(id page) {

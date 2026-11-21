@@ -40,6 +40,8 @@ void DPTabLayoutMouseUp(DPCommandBarOverlay *overlay);
 
 void DPHandOver(DPCommandBarOverlay *overlay);
 void DPFinishHandOver(NSWindow *window);
+DPCommandBarOverlay *DPTakeHandOver(NSWindow *window);
+void DPClearCatchUp(NSWindow *window);
 NSEvent *DPHandToDia(NSWindow *window, NSEvent *event, BOOL newTab);
 BOOL DPWaitForDia(NSWindow *window, NSEvent *event, BOOL newTab);
 void DPDiaCaughtUp(NSWindow *window);
@@ -49,6 +51,9 @@ BOOL DPParkSpare(DPCommandBarOverlay *overlay);
 void DPParkIfSpare(DPCommandBarOverlay *overlay);
 BOOL DPShowSpare(NSWindow *window);
 void DPDropSpare(NSWindow *window);
+void DPForgetSpare(NSWindow *window);
+void DPDropUnwantedSpares(void);
+void DPUpdateSpareTimer(void);
 DPCommandBarOverlay *DPSpareIn(NSWindow *window);
 void DPCloseLeftSpares(NSArray<NSString *> *tabIDs, BOOL last);
 void DPNoteSpare(NSString *tabID, BOOL parked);

@@ -131,6 +131,9 @@ build/command-bar-swap: tests/command-bar-swap.m src/dylib/Patches/CommandBar/Co
 build/command-bar-spare: tests/command-bar-spare.m src/dylib/Patches/CommandBar/CommandBarSpare.m src/dylib/Patches/CommandBar/CommandBarSpareMaker.m src/dylib/Patches/CommandBar/HideTab.m src/dylib/Patches/CommandBar/HideTabButton.m src/dylib/Patches/CommandBar/Tabs.m src/dylib/Patches/CommandBar/CommandBarOverlay.h src/dylib/Patches/CommandBar/HideTab.h src/dylib/Patches/CommandBar/Tabs.h src/dylib/StdPatch/Hook.m src/dylib/StdPatch/Views.m $(wildcard src/dylib/StdPatch/*.h) | build
 	clang $(CFLAGS) -Isrc/dylib -framework AppKit -framework QuartzCore -o $@ tests/command-bar-spare.m src/dylib/Patches/CommandBar/Tabs.m src/dylib/StdPatch/Hook.m src/dylib/StdPatch/Views.m
 
+build/command-bar-lifecycle: tests/command-bar-lifecycle.m src/dylib/Patches/CommandBar/CommandBar.m src/dylib/Patches/CommandBar/CommandBarOverlay.h src/dylib/Patches/CommandBar/HideTab.h src/dylib/Patches/CommandBar/Tabs.h src/dylib/Patches/CommandBar/AutoPip.h src/dylib/Patches/CompactCommandBar/CompactCommandBar.h src/dylib/StdPatch/Hook.m src/dylib/StdPatch/Views.m $(wildcard src/dylib/StdPatch/*.h) | build
+	clang $(CFLAGS) -Isrc/dylib -framework AppKit -framework QuartzCore -o $@ tests/command-bar-lifecycle.m src/dylib/StdPatch/Hook.m src/dylib/StdPatch/Views.m
+
 build/tab-titles: tests/tab-titles.m src/dylib/Patches/TabTitles/Title.m src/dylib/Patches/TabTitles/Title.h | build
 	clang $(CFLAGS) -Isrc/dylib -framework Foundation -o $@ tests/tab-titles.m src/dylib/Patches/TabTitles/Title.m
 
@@ -155,7 +158,19 @@ build/passkeys-origin: tests/passkeys-origin.m src/diapatch/Passkeys.m src/diapa
 build/app-icon-signing: tests/app-icon-signing.m src/diapatch/AppIcon.m src/diapatch/IconCatalog.m src/diapatch/AppIcon.h src/diapatch/IconCatalog.h | build
 	clang $(CFLAGS) -fsanitize=address,undefined -fno-sanitize-recover=all -Isrc -framework Foundation -framework CoreGraphics -framework Security -o $@ tests/app-icon-signing.m src/diapatch/AppIcon.m src/diapatch/IconCatalog.m
 
-check: build/diapatch build/diapatch-tests build/group-tabs build/mouse-back-forward build/vertical-tab-glow build/split-client-hello build/peek-cursor build/peek-link build/safe-mode build/pause build/hook-table build/updates-runtime build/runtime-guards build/tidy-tabs build/drag-offset build/small-tab-shape build/toolbar-permission build/launch-flags build/little-dia-stack build/little-dia-profile build/little-dia-over build/little-dia-focus build/tracking build/hide-toolbar-settle build/command-bar-swap build/command-bar-spare build/tab-titles build/show-address-field build/hide-chat-button build/open-sidebar-instantly build/native-messaging build/diapatch-passkeys build/passkeys-origin build/app-icon-signing build/little-dia-route build/chat-card build/patches.json
+PEEK_LIFE := $(addprefix src/dylib/Patches/Peek/,Peek.h Glow.m Tab.m Motion.m Card.m Pages.m Zoom.m DragLinks.m)
+build/peek-lifecycle: tests/peek-lifecycle.m $(PEEK_LIFE) src/dylib/StdPatch/Hook.m src/dylib/StdPatch/Views.m $(wildcard src/dylib/StdPatch/*.h) | build
+	clang $(CFLAGS) -Isrc/dylib -framework AppKit -framework QuartzCore -o $@ tests/peek-lifecycle.m src/dylib/StdPatch/Hook.m src/dylib/StdPatch/Views.m
+
+HIDE_TOOLBAR_OFF := $(addprefix $(HIDE_TOOLBAR_DIR)/,HideToolbar.h HideToolbar.m Layout.m Hover.m Permission.m PlainTab.m ProgressLine.m ProgressColors.m LoadingProgress.m)
+build/hide-toolbar-off: tests/hide-toolbar-off.m $(HIDE_TOOLBAR_OFF) src/dylib/StdPatch/Hook.m src/dylib/StdPatch/Views.m $(wildcard src/dylib/StdPatch/*.h) | build
+	clang $(CFLAGS) -Isrc/dylib -framework AppKit -framework QuartzCore -framework Metal -o $@ tests/hide-toolbar-off.m src/dylib/StdPatch/Hook.m src/dylib/StdPatch/Views.m
+
+WINDOW_PATCHES := src/dylib/Patches/WindowCorners/WindowCorners.m src/dylib/Patches/WindowMaterial/WindowMaterial.m src/dylib/Patches/PrivateWindowTheme/PrivateWindowTheme.m src/dylib/Patches/HideTrafficLights/HideTrafficLights.m src/dylib/Patches/CompactCommandBar/CompactCommandBar.m src/dylib/Patches/CompactCommandBar/Layout.m src/dylib/Patches/CompactCommandBar/NewTab.m src/dylib/Patches/CommandBar/HideTabParked.m src/dylib/Patches/CommandBar/HideTabLayout.m
+build/window-patches: tests/window-patches.m $(WINDOW_PATCHES) src/dylib/Patches/DragWindowFromPage/DragWindowFromPage.m src/dylib/StdPatch/Hook.m src/dylib/StdPatch/Views.m $(wildcard src/dylib/StdPatch/*.h src/dylib/Patches/CompactCommandBar/*.h src/dylib/Patches/CommandBar/HideTab.h src/dylib/Patches/EdgeToEdge/EdgeToEdge.h) | build
+	clang $(CFLAGS) -Isrc/dylib -framework AppKit -framework QuartzCore -o $@ tests/window-patches.m $(WINDOW_PATCHES) src/dylib/StdPatch/Hook.m src/dylib/StdPatch/Views.m
+
+check: build/diapatch build/diapatch-tests build/group-tabs build/mouse-back-forward build/vertical-tab-glow build/split-client-hello build/peek-cursor build/peek-link build/safe-mode build/pause build/hook-table build/updates-runtime build/runtime-guards build/tidy-tabs build/drag-offset build/small-tab-shape build/toolbar-permission build/launch-flags build/little-dia-stack build/little-dia-profile build/little-dia-over build/little-dia-focus build/tracking build/hide-toolbar-settle build/command-bar-swap build/command-bar-spare build/tab-titles build/show-address-field build/hide-chat-button build/open-sidebar-instantly build/native-messaging build/diapatch-passkeys build/passkeys-origin build/app-icon-signing build/little-dia-route build/chat-card build/peek-lifecycle build/hide-toolbar-off build/command-bar-lifecycle build/window-patches build/patches.json
 	tests/tweaks-update
 	build/diapatch-tests
 	build/group-tabs
@@ -165,6 +180,7 @@ check: build/diapatch build/diapatch-tests build/group-tabs build/mouse-back-for
 	build/split-client-hello
 	build/peek-cursor
 	build/peek-link
+	build/peek-lifecycle
 	build/safe-mode
 	build/pause
 	build/hook-table
@@ -173,6 +189,7 @@ check: build/diapatch build/diapatch-tests build/group-tabs build/mouse-back-for
 	build/drag-offset
 	build/small-tab-shape
 	build/toolbar-permission
+	build/hide-toolbar-off
 	build/launch-flags
 	build/little-dia-stack
 	build/little-dia-profile
@@ -184,6 +201,7 @@ check: build/diapatch build/diapatch-tests build/group-tabs build/mouse-back-for
 	build/hide-toolbar-settle
 	build/command-bar-swap
 	build/command-bar-spare
+	build/command-bar-lifecycle
 	build/tab-titles
 	build/show-address-field
 	build/hide-chat-button
@@ -192,6 +210,7 @@ check: build/diapatch build/diapatch-tests build/group-tabs build/mouse-back-for
 	build/diapatch-passkeys
 	build/passkeys-origin
 	build/app-icon-signing
+	build/window-patches
 	tests/sidebar-grain
 	scripts/check-patches
 

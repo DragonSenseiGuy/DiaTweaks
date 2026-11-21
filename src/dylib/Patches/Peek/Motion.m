@@ -159,22 +159,39 @@ static char DPGrowthKey;
     [growth.link addToRunLoop:NSRunLoop.mainRunLoop forMode:NSRunLoopCommonModes];
 }
 
+- (void)stop {
+    [self.link invalidate];
+    self.link = nil;
+    self.done = nil;
+}
+
 - (void)step {
     DPPeekCard *peek = self.peek;
+    if (!peek || !peek.window || !peek.superview) {
+        [self stop];
+        if (peek) DPSet(peek, &DPGrowthKey, nil);
+        return;
+    }
     CFTimeInterval t = CACurrentMediaTime() - self.start;
-    BOOL settled = !peek || t >= self.duration;
+    BOOL settled = t >= self.duration;
     peek.grown = settled ? 1 : 1 - DPPeekRemaining(t, self.response);
     peek.needsLayout = YES;
     [peek layoutSubtreeIfNeeded];
     if (!settled) return;
-    [self.link invalidate];
-    if (self.done) self.done();
-    self.done = nil;
-    if (peek) DPSet(peek, &DPGrowthKey, nil);
+    void (^done)(void) = self.done;
+    [self stop];
+    DPSet(peek, &DPGrowthKey, nil);
+    if (done) done();
 }
 @end
 
 @implementation DPPeekCard (Motion)
+
+- (void)stopMotion {
+    DPPeekGrowth *growth = DPGet(self, &DPGrowthKey);
+    [growth stop];
+    if (growth) DPSet(self, &DPGrowthKey, nil);
+}
 
 - (void)animateIn {
     self.controls.alphaValue = self.card.alphaValue = self.dim.alphaValue = 0;

@@ -7,11 +7,13 @@ BOOL DPTrimsPanel(NSView *panel) {
 }
 
 static void DPAssistantPanel_setFrameSize(NSView *self, SEL _cmd, NSSize size) {
-    if (!DPCompactCommandBar.on && !DPTurnOffAI.on && !DPGet(self, &DPFullSizeKey) && !DPTrim(self))
+    BOOL active = DPCompactCommandBar.on || DPTurnOffAI.on;
+    if (!active && !DPGet(self, &DPFullSizeKey) && !DPTrim(self))
         return DPCallOriginal(DPAssistantPanel_setFrameSize, self, size);
     NSValue *full = DPDiaValue(self, &DPFullSizeKey, [NSValue valueWithSize:size]);
-    NSSize compact = DPTrimsPanel(self) ? DPCompactSize(self, full.sizeValue) : full.sizeValue;
-    DPOverride(self, &DPFullSizeKey, full, [NSValue valueWithSize:compact]);
+    NSSize compact = active && DPTrimsPanel(self) ? DPCompactSize(self, full.sizeValue) : full.sizeValue;
+    if (active) DPOverride(self, &DPFullSizeKey, full, [NSValue valueWithSize:compact]);
+    else DPSet(self, &DPFullSizeKey, nil);
     DPSetTrim(self, full.sizeValue.height - compact.height);
     DPCallOriginal(DPAssistantPanel_setFrameSize, self, compact);
 }

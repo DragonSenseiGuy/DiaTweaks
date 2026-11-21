@@ -16,6 +16,9 @@ static void DPTestHoverHandler(bool hovered, void *context __attribute__((swift_
 }
 @end
 @implementation _TtC5ARCUI16ViewHoverTracker
+- (void)mouseEntered:(NSEvent *)event {}
+- (void)mouseMoved:(NSEvent *)event {}
+- (void)mouseExited:(NSEvent *)event {}
 @end
 
 @interface DPFakeDelayedTracker : NSObject {
@@ -162,6 +165,39 @@ int main(void) {
         check("flipped pane visible bar matches pointer over subview of field", DPPointerOver(field));
 
         check("hover callback ran", gCallbackCalls > 0);
+
+        // Regression: invisible/minimized window restores hover state on apply-off and layout-off.
+        DPTestWindow *hiddenWin = [[DPTestWindow alloc] initWithContentRect:NSMakeRect(0, 0, 400, 100)
+                                                                  styleMask:NSWindowStyleMaskBorderless
+                                                                    backing:NSBackingStoreBuffered
+                                                                      defer:NO];
+        hiddenWin.fakeKey = NO;
+        hiddenWin.fakeMouse = NSMakePoint(0, 0);
+        _TtC13NavigationBar16AssistantBarView *hiddenField = [[_TtC13NavigationBar16AssistantBarView alloc] initWithFrame:NSMakeRect(10, 10, 300, 32)];
+        _TtC5ARCUI16ViewHoverTracker *hiddenTracker = [_TtC5ARCUI16ViewHoverTracker new];
+        hiddenTracker->view = hiddenField;
+        DPFakeDelayedTracker *hiddenDelayed = [DPFakeDelayedTracker new];
+        hiddenDelayed->onUpdate[0] = (void *)DPTestHoverHandler;
+        hiddenField->hoverTracker = hiddenDelayed;
+        [hiddenField addTrackingArea:[[NSTrackingArea alloc] initWithRect:NSZeroRect
+                                                                  options:NSTrackingMouseEnteredAndExited | NSTrackingActiveInKeyWindow | NSTrackingInVisibleRect
+                                                                    owner:hiddenTracker
+                                                                 userInfo:nil]];
+        [hiddenWin.contentView addSubview:hiddenField];
+        DPInstallShowAddressField();
+        DPShowAddressField.on = YES;
+        [hiddenField layout];
+        check("layout forces hover on when enabled", hiddenDelayed->isHoverActive && DPGet(hiddenField, &DPForcedKey) != nil);
+        DPShowAddressField.on = NO;
+        [hiddenField layout];
+        check("layout restores hover once when disabled and clears state",
+              !hiddenDelayed->isHoverActive && !hiddenTracker->isHovered && DPGet(hiddenField, &DPForcedKey) == nil);
+
+        // Regression: missing ivars never crash.
+        NSView *plainView = [[NSView alloc] initWithFrame:NSMakeRect(0, 0, 100, 30)];
+        check("missing hoverTracker ivar does not crash", !DPShowsHover(plainView));
+        DPSetHover(plainView, YES);
+        check("missing view ivar on tracker does not crash", !DPKeepsHover([NSObject new]));
     }
     if (failures) return 1;
     puts("PASS: showAddressField hover checks");

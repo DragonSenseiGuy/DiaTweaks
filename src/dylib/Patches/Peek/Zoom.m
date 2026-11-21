@@ -39,12 +39,12 @@ BOOL DPPeekZoomShortcut(DPPeekCard *peek, NSEvent *event) {
 }
 
 static void DPWindow_zoom(NSWindowController *self, SEL _cmd, id sender) {
-    DPPeekCard *peek = DPPeekCardIn(self.window);
+    DPPeekCard *peek = DPPeek.on ? DPPeekCardIn(self.window) : nil;
     if (!peek || !DPPeekZoom(peek, _cmd)) DPCallOriginal(DPWindow_zoom, self, sender);
 }
 
 static BOOL DPWindow_validate(NSWindowController *self, SEL _cmd, NSMenuItem *item) {
-    DPPeekCard *peek = DPPeekIsZoom(item.action) ? DPPeekCardIn(self.window) : nil;
+    DPPeekCard *peek = DPPeek.on && DPPeekIsZoom(item.action) ? DPPeekCardIn(self.window) : nil;
     float now, next;
     if (!peek || !DPPeekZoomFrom(peek.page, item.action, &now, &next)) return DPCallOriginal(DPWindow_validate, self, item);
     return fabsf(next - now) > 0.001;

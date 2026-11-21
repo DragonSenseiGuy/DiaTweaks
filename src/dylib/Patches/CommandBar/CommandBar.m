@@ -232,6 +232,11 @@ void DPShowShade(DPCommandBarOverlay *overlay) {
 
 @implementation DPCommandBarOverlay
 
+- (void)dealloc {
+    [_watch invalidate];
+    if (_keyMonitor) [NSEvent removeMonitor:_keyMonitor];
+}
+
 - (BOOL)isFlipped { return YES; }
 
 - (NSRect)frameForPanelSize:(NSSize)size {
@@ -297,7 +302,13 @@ static void DPHideBars(NSView *page, BOOL hidden) {
 }
 
 void DPShowHiddenBars(void) {
-    for (NSView *page in DPFindViews(DPDiaNewTabPage)) DPHideBars(page, NO);
+    Class pageCls = objc_getClass(DPDiaNewTabPage);
+    if (!pageCls) return;
+    for (NSWindow *window in NSApp.windows)
+        DPFindView(window.contentView, ^BOOL(NSView *page) {
+            if ([page isKindOfClass:pageCls]) DPHideBars(page, NO);
+            return NO;
+        });
 }
 
 static void DPHidePage(NSView *page, BOOL hidden) {
@@ -329,10 +340,13 @@ NSView *DPBlankPage(NSWindow *window) {
 
 id DPDismiss(DPCommandBarOverlay *overlay, BOOL closing) {
     [overlay.watch invalidate];
+    overlay.watch = nil;
     DPShowTabRow(DPTabID(overlay.openedTab), closing);
     if (overlay.keyMonitor) [NSEvent removeMonitor:overlay.keyMonitor];
     overlay.keyMonitor = nil;
     [overlay.shade removeFromSuperview];
+    [overlay.windowBlur removeFromSuperview];
+    overlay.shade = overlay.windowBlur = nil;
     if (!overlay.host) return nil;
     if (overlay.openedTab) DPStandInForTab(overlay.host, DPTabID(overlay.openedTab));
     if (DPGet(overlay.host, &DPOverlayKey) == overlay) DPSet(overlay.host, &DPOverlayKey, nil);
@@ -686,11 +700,16 @@ static BOOL DPCloseStoodIn(NSWindow *window) {
     if (!(NSEvent.pressedMouseButtons & 1)) return DPCancelCommandBar(overlay), YES;
     __weak DPCommandBarOverlay *weak = overlay;
     __block id monitor = [NSEvent addLocalMonitorForEventsMatchingMask:NSEventMaskLeftMouseUp handler:^NSEvent *(NSEvent *event) {
-        [NSEvent removeMonitor:monitor];
+        if (monitor) [NSEvent removeMonitor:monitor];
         monitor = nil;
         if (weak.host) DPCancelCommandBar(weak);
         return event;
     }];
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 3 * NSEC_PER_SEC), dispatch_get_main_queue(), ^{
+        if (!monitor) return;
+        [NSEvent removeMonitor:monitor];
+        monitor = nil;
+    });
     return YES;
 }
 
@@ -722,7 +741,7 @@ static BOOL DPToolbarShowing(NSWindow *window);
 
 static NSEvent *DPCommandBarKey(NSEvent *event) {
     NSWindow *window = event.window;
-    if (!DPCommandBar.on || !window) return event;
+    if (!DPCommandBar.on || !DPIsKind(window, DPDiaWindow) || window.attachedSheet) return event;
     NSEventModifierFlags mods = event.modifierFlags;
     BOOL hasShortcutMod = (mods & DPTriggerMods) != 0;
     if (hasShortcutMod && DPIsShortcut(event, @"Close Tab")) DPSet(window, &DPClosedAtKey, @(event.timestamp));
@@ -780,9 +799,10 @@ static void DPShowWhenBuilt(DPCommandBarOverlay *overlay) {
     __weak DPCommandBarOverlay *weak = overlay;
     NSTimer *check = [NSTimer timerWithTimeInterval:1.0 / 120 repeats:YES block:^(NSTimer *timer) {
         DPCommandBarOverlay *overlay = weak;
+        if (!overlay.host || !DPCommandBar.on) return [timer invalidate];
         NSView *toolbar = DPFindView(overlay.panel, ^BOOL(NSView *view) { return DPIsKind(view, DPDiaCommandBarToolbar); });
         CFTimeInterval now = CACurrentMediaTime();
-        if (overlay && !(toolbar.alphaValue == 1 && now - overlay.sizedAt > 0.02) && now - opened < 0.5) return;
+        if (!(toolbar.alphaValue == 1 && now - overlay.sizedAt > 0.02) && now - opened < 0.5) return;
         [timer invalidate];
         DPRemoveAnimations(overlay.panel.layer);
         overlay.alphaValue = overlay.shade.alphaValue = 1;
@@ -893,25 +913,39 @@ static void DPApplyCommandBar(DPPatch *patch) {
             for (NSString *blank in (NSSet *)DPGet(window, &DPBlankKey)) DPHideBlank(blank, NO, window);
             DPSet(window, &DPBlankKey, nil);
             DPDropSpare(window);
+            DPClearCatchUp(window);
+            DPFinishHandOver(window);
         }
         DPCommandBarOverlay *overlay = DPGet(window, &DPOverlayKey);
         if (!overlay) continue;
         if (on) {
             DPShowShade(overlay);
+            overlay.needsLayout = YES;
             continue;
         }
         BOOL nowhereToGo = DPNowhereToGo(overlay);
         id tab = DPDismissCommandBar(overlay);
+        DPNoteSpare(DPTabID(tab), NO);
         if (tab && !nowhereToGo) DPCloseTab(tab);
     }
-    for (NSView *page in DPFindViews(DPDiaNewTabPage)) {
-        BOOL blank = DPGet(page, &DPBlankKey) != nil;
-        if (on && !blank) DPPresentCommandBar(page, NO);
-        if (!on && blank) {
-            DPSet(page, &DPBlankKey, nil);
-            DPHidePage(page, NO);
-        }
+    if (!on) {
+        DPCleanHideTab();
+        DPUpdateSpareTimer();
+        Class pageCls = objc_getClass(DPDiaNewTabPage);
+        if (pageCls)
+            for (NSWindow *window in NSApp.windows)
+                DPFindView(window.contentView, ^BOOL(NSView *page) {
+                    if ([page isKindOfClass:pageCls] && DPGet(page, &DPBlankKey)) {
+                        DPSet(page, &DPBlankKey, nil);
+                        DPHidePage(page, NO);
+                    }
+                    return NO;
+                });
+        return;
     }
+    if (patch != &DPCommandBar) return;
+    for (NSView *page in DPFindViews(DPDiaNewTabPage))
+        if (!DPGet(page, &DPBlankKey) && !DPGet(page, &DPOverlayKey) && !DPGet(page, &DPOwnBarKey)) DPPresentCommandBar(page, NO);
 }
 
 static NSString *DPVerifyCommandBar(DPPatch *patch) {
@@ -941,6 +975,15 @@ static NSString *DPVerifyCommandBar(DPPatch *patch) {
 
 static void DPInstallCommandBar(void) {
     [NSEvent addLocalMonitorForEventsMatchingMask:NSEventMaskKeyDown handler:^NSEvent *(NSEvent *event) { return DPCommandBarKey(event); }];
+    [NSNotificationCenter.defaultCenter addObserverForName:NSWindowWillCloseNotification object:nil queue:nil usingBlock:^(NSNotification *note) {
+        NSWindow *window = note.object;
+        DPForgetSpare(window);
+        DPClearCatchUp(window);
+        DPCommandBarOverlay *old = DPTakeHandOver(window);
+        if (old) DPNoteSpare(DPTabID(DPDismiss(old, NO)), NO);
+        DPCommandBarOverlay *overlay = DPGet(window, &DPOverlayKey);
+        if (overlay) DPNoteSpare(DPTabID(DPDismiss(overlay, NO)), NO);
+    }];
     DPInstallAutoPipHold();
     DPHook(DPDiaPopover, @selector(viewDidMoveToWindow), (IMP)DPPopover_viewDidMoveToWindow);
     DPHook(DPDiaPopover, @selector(hitTest:), (IMP)DPPopover_hitTest);

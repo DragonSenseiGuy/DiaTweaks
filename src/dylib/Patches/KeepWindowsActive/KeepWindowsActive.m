@@ -29,7 +29,7 @@ static BOOL DPWindow_hasKeyAppearance(NSWindow *self, SEL _cmd) {
 }
 
 static void DPRefreshKeyState(NSView *view) {
-    [view _windowChangedKeyState];
+    if ([view respondsToSelector:@selector(_windowChangedKeyState)]) [view _windowChangedKeyState];
     view.needsDisplay = YES;
     for (NSView *subview in view.subviews) DPRefreshKeyState(subview);
 }
@@ -37,7 +37,7 @@ static void DPRefreshKeyState(NSView *view) {
 static void DPApplyKeepWindowsActive(DPPatch *patch) {
     for (NSWindow *window in NSApp.windows) {
         if (!DPIsBrowserWindow(window)) continue;
-        [window _setShadowParameters];
+        if ([window respondsToSelector:@selector(_setShadowParameters)]) [window _setShadowParameters];
         DPRefreshKeyState(window.contentView.superview);
     }
 }

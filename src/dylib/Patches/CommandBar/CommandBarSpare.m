@@ -56,7 +56,24 @@ void DPDropSpare(NSWindow *window) {
     DPNoteSpare(tabID, NO);
     DPWantSpare();
     DPDismiss(spare, YES);
-    DPCloseTab(DPScriptTabInAnyProfile(DPScriptWindow(window), tabID));
+    id scriptWindow = DPScriptWindow(window);
+    if (!scriptWindow || !tabID || ![scriptWindow respondsToSelector:@selector(appleScriptProfiles)]) return;
+    for (id profile in [scriptWindow valueForKey:@"appleScriptProfiles"]) {
+        id tab = DPScriptTabIn(profile, tabID);
+        if (!tab) continue;
+        NSString *url = [[tab valueForKey:@"URL"] description];
+        if (!url.length && [[profile valueForKey:@"appleScriptTabs"] count] > 1) DPCloseTab(tab);
+        return;
+    }
+}
+
+void DPForgetSpare(NSWindow *window) {
+    DPCommandBarOverlay *spare = DPGet(window, &DPSpareKey);
+    if (!spare) return;
+    DPSet(window, &DPSpareKey, nil);
+    DPNoteSpare(DPTabID(spare.openedTab), NO);
+    DPWantSpare();
+    DPDismiss(spare, NO);
 }
 
 BOOL DPParkSpare(DPCommandBarOverlay *overlay) {

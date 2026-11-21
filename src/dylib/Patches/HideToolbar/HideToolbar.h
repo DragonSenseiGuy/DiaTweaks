@@ -10,11 +10,13 @@ extern NSHashTable<NSView *> *DPPanes;
 @property (nonatomic, strong) NSTrackingArea *tracking;
 @property (nonatomic, strong) NSTimer *animation, *hideTimer, *inPlaceAnimation;
 @property (nonatomic, strong) NSHashTable<NSPopover *> *permissionPopovers;
-@property (nonatomic) BOOL revealed, inPlace;
+@property (nonatomic) BOOL revealed, inPlace, touched, barsLowered;
 @property (nonatomic) CGFloat progress, inPlaceProgress;
 + (DPToolbarHover *)forPane:(NSView *)pane;
 + (DPToolbarHover *)attachToPane:(NSView *)pane;
 - (void)updateForBar:(NSView *)bar bookmarks:(NSView *)bookmarks;
+- (void)stopInPlace;
+- (void)detach;
 @end
 
 NSRect DPLaidOutFrame(NSView *view);

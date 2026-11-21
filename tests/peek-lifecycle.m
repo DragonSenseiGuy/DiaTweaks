@@ -1,0 +1,267 @@
+#import "Patches/Peek/Peek.h"
+#import "Patches/HideToolbar/HideToolbar.h"
+#import <objc/runtime.h>
+
+static int gCloseCalls, gDetachCalls, gGiveCalls, gZoomCalls, gOrigZoomCalls;
+static BOOL gGiveSucceeds = YES;
+
+@interface DPFakePeekPage : NSObject <DPPeekPage>
+@property (nonatomic, strong) NSURL *url;
+@property (nonatomic, copy) NSString *title;
+@property (nonatomic) BOOL isLoading, isReadyToDisplay, canGoBack, canGoForward;
+@property (nonatomic) double loadProgress;
+@property (nonatomic) float zoomFactor;
+@property (nonatomic) NSView *attachedHost;
+@end
+
+@implementation DPFakePeekPage
+- (NSView *)createPaneHostView { return [[NSView alloc] initWithFrame:NSMakeRect(0, 0, 200, 200)]; }
+- (void)attachToPaneHostView:(NSView *)host { self.attachedHost = host; }
+- (void)detachFromPaneHostView:(NSView *)host { gDetachCalls++; if (self.attachedHost == host) self.attachedHost = nil; }
+- (void)close { gCloseCalls++; }
+- (id)navigationController { return self; }
+- (id)load:(NSURL *)url initiatorOrigin:(NSURL *)origin { self.url = url; return nil; }
+- (void)resetZoomAndScaleFactors { self.zoomFactor = 1; gZoomCalls++; }
+- (void)setZoomFactor:(float)z { _zoomFactor = z; gZoomCalls++; }
+@end
+
+@interface DPFakeFactory : NSObject
+@end
+@implementation DPFakeFactory
+- (id)createWebContents:(id)config {
+    DPFakePeekPage *p = [DPFakePeekPage new];
+    p.url = [NSURL URLWithString:@"https://example.com"];
+    return p;
+}
+@end
+
+@interface DPFakeDelegate : NSObject
+@end
+@implementation DPFakeDelegate
+- (void)webContents:(id)source didCreateNewWebContent:(id)page targetURL:(NSURL *)url disposition:(NSInteger)disp {
+    gGiveCalls++;
+}
+@end
+
+@interface _TtC6Window24PlatformWindowController : NSWindowController
+@end
+@implementation _TtC6Window24PlatformWindowController
+- (void)zoomIn:(id)sender { gOrigZoomCalls++; }
+- (void)zoomInAlternate:(id)sender { gOrigZoomCalls++; }
+- (void)zoomOut:(id)sender { gOrigZoomCalls++; }
+- (void)resetZoom:(id)sender { gOrigZoomCalls++; }
+- (BOOL)validateMenuItem:(NSMenuItem *)item { return YES; }
+@end
+
+@interface _TtC11ContentPane15ContentPaneView : NSView
+@end
+@implementation _TtC11ContentPane15ContentPaneView
+@end
+
+@interface ArcWebContentsConfiguration : NSObject
+@end
+@implementation ArcWebContentsConfiguration
+@end
+
+@interface ArcBrowserContext : NSObject
+@end
+@implementation ArcBrowserContext
+- (id)createWebContents:(id)config { return [[DPFakeFactory new] createWebContents:config]; }
+@end
+
+@interface ArcBrowser : NSObject
+@end
+@implementation ArcBrowser
+- (id)createWebContents:(id)config { return [[DPFakeFactory new] createWebContents:config]; }
+@end
+
+@interface ArcWebContents : DPFakePeekPage
+@end
+@implementation ArcWebContents
+@end
+
+@interface WebContentsViewCocoa : NSView
+@end
+@implementation WebContentsViewCocoa
+- (NSDraggingSession *)beginDraggingSessionWithItems:(NSArray<NSDraggingItem *> *)items event:(NSEvent *)event source:(id)source { return nil; }
+- (void)draggingSession:(NSDraggingSession *)session endedAtPoint:(NSPoint)point operation:(NSDragOperation)op {}
+@end
+
+@interface DPPeekTestWindow : NSWindow
+@property NSInteger makeKeyCalls;
+@end
+@implementation DPPeekTestWindow
+- (void)makeKeyWindow { self.makeKeyCalls++; }
+- (BOOL)isVisible { return YES; }
+@end
+
+DPPatch DPPeek = { .on = YES }, DPPeekPinnedLinks = { .on = YES }, DPShowLoadingProgress;
+
+static DPFakeFactory *gFactory;
+id DPBrowserOfWindow(NSWindow *window) { return gFactory; }
+double DPPeekDarkness(void) { return 0.45; }
+double DPPeekResponse(void) { return 0.2; }
+BOOL DPPeekGenie(void) { return NO; }
+BOOL DPPeekShowsToolbar(void) { return NO; }
+NSView *DPPeekControls(id target, SEL action) { return [[NSView alloc] initWithFrame:NSMakeRect(0, 0, 28, 100)]; }
+void DPPeekAddToolbar(DPPeekCard *peek) {}
+CGFloat DPPeekToolbarInset(DPPeekCard *peek) { return 0; }
+void DPPeekPlaceToolbar(DPPeekCard *peek) {}
+void DPPeekNavigate(id page, DPPeekStep step) {}
+void DPPeekEditToolbarAddress(DPPeekCard *peek) {}
+BOOL DPPeekCopyURL(DPPeekCard *peek, NSEvent *event) { return NO; }
+BOOL DPPeekIsShortcut(NSEvent *event, NSMenuItem *item) { return NO; }
+BOOL DPPeekFindShortcut(DPPeekCard *peek, NSEvent *event, NSEventModifierFlags mods) { return NO; }
+BOOL DPPeekHideFind(DPPeekCard *peek) { return NO; }
+void DPPeekLayoutHints(NSView *controls, CGFloat availableRight) {}
+CATransform3D DPPeekScaled(NSView *view, CGFloat scale) { return CATransform3DIdentity; }
+NSString *DPActiveTabID(NSWindow *window) { return @"tab-1"; }
+float DPZoomStep(float now, int direction) { return direction > 0 ? now + 0.1f : now - 0.1f; }
+BOOL DPEventIsKey(NSEvent *event, NSString *key) { return NO; }
+BOOL DPPeekIsWeb(NSURL *url) { return [url.scheme isEqual:@"https"] || [url.scheme isEqual:@"http"]; }
+void DPPeekOpenDragged(NSURL *url, NSPoint origin) {}
+CAMetalLayer *DPProgressShaderLayer(void) { return nil; }
+void DPProgressColors(NSView *pane, NSString *choice, simd_float3 *primary, simd_float3 *secondary) {}
+void DPDrawProgressShader(CAMetalLayer *layer, CGFloat progress, CGFloat cycle, simd_float3 primary, simd_float3 secondary) {}
+
+#import "Patches/Peek/Glow.m"
+#import "Patches/Peek/Tab.m"
+#import "Patches/Peek/Motion.m"
+#import "Patches/Peek/Card.m"
+#import "Patches/Peek/Pages.m"
+#import "Patches/Peek/Zoom.m"
+#import "Patches/Peek/DragLinks.m"
+
+static int failures;
+#define CHECK(cond, msg) do { if (!(cond)) { printf("FAIL: %s\n", msg); failures++; } } while (0)
+
+int main(void) {
+    @autoreleasepool {
+        [NSApplication sharedApplication];
+        gFactory = [DPFakeFactory new];
+        DPPeekInstallPages();
+        DPPeekInstallZoom();
+        DPInstallPeekDragLinks();
+
+        // 1. Regression: DPPeekGlow fallback line mode (!shader) must NOT trigger needsLayout inside layout.
+        DPPeekTestWindow *window = [[DPPeekTestWindow alloc] initWithContentRect:NSMakeRect(-30000, -30000, 600, 400)
+                                                                       styleMask:NSWindowStyleMaskTitled
+                                                                         backing:NSBackingStoreBuffered defer:NO];
+        DPFakePeekPage *glowPage = [DPFakePeekPage new];
+        DPPeekGlow *glow = (DPPeekGlow *)DPPeekGlowFor(glowPage);
+        glow.frame = NSMakeRect(0, 0, 200, 24);
+        [window.contentView addSubview:glow];
+        glow.shown = 0.5;
+        [glow layoutSubtreeIfNeeded];
+        CHECK(!glow.needsLayout, "DPPeekGlow fallback line mode does not set needsLayout inside layout");
+        CHECK(fabs(NSWidth(glow.line.frame) - 100) < 0.5, "DPPeekGlow sets fallback line width during layout");
+        glow.shown = 0.75;
+        [glow draw];
+        CHECK(!glow.needsLayout && fabs(NSWidth(glow.line.frame) - 150) < 0.5, "DPPeekGlow draw updates line directly without relayout");
+        [glow removeFromSuperview];
+
+        // 2. Regression: DPPeekTabBadge timer has no retain cycle and stops when removed from window.
+        _TtC11ContentPane15ContentPaneView *pane = [[_TtC11ContentPane15ContentPaneView alloc] initWithFrame:window.contentView.bounds];
+        [window.contentView addSubview:pane];
+        __weak DPPeekTabBadge *weakBadge = nil;
+        @autoreleasepool {
+            DPPeekTabBadge *badge = [[DPPeekTabBadge alloc] initWithFrame:NSMakeRect(0, 0, 16, 16)];
+            weakBadge = badge;
+            __weak DPPeekTabBadge *w = badge;
+            badge.watch = [NSTimer scheduledTimerWithTimeInterval:0.6 repeats:YES block:^(NSTimer *timer) {
+                DPPeekTabBadge *me = w;
+                if (me) [me watch:timer]; else [timer invalidate];
+            }];
+            [window.contentView addSubview:badge];
+            CHECK(badge.watch.valid, "tab badge timer is valid while in window");
+            [badge removeFromSuperview];
+            CHECK(badge.watch == nil, "tab badge stops timer when removed from window");
+        }
+        CHECK(weakBadge == nil, "DPPeekTabBadge deallocates cleanly with no NSTimer retain cycle");
+
+        // 3. Regression: Turning Peek OFF via DPPeekCloseAll closes open cards, cools warm page, and hides drag zone.
+        DPPeek.on = YES;
+        DPFakePeekPage *source = [DPFakePeekPage new];
+        DPPeekWarm(window, source, [NSURL URLWithString:@"https://example.com/warm"]);
+        CHECK(DPPeekWarmPage != nil && DPPeekWarmView.superview != nil, "warm page attached before close-all");
+        DPShowZone(window, NSMakePoint(100, 100));
+        CHECK(DPZonePanel != nil && DPZoneRelease.valid, "drag zone shown before close-all");
+
+        DPFakePeekPage *cardPage = [DPFakePeekPage new];
+        cardPage.url = [NSURL URLWithString:@"https://example.com/card"];
+        DPPeekCard *card = DPPeekShowCard(window, cardPage, nil, NSMakeRect(10, 10, 40, 20));
+        CHECK(card && DPPeekCardIn(window) == card && card.monitor != nil && card.paneObserver != nil, "card opens with monitor and observer");
+
+        DPPeek.on = NO;
+        DPPeekCloseAll();
+        CHECK(DPPeekAllCards(nil).count == 0 && card.superview == nil && card.monitor == nil && card.paneObserver == nil,
+              "DPPeekCloseAll tears down open card, monitor, and observer");
+        CHECK(DPPeekWarmPage == nil && DPPeekWarmView == nil, "DPPeekCloseAll cools pre-warmed page");
+        CHECK(DPZonePanel == nil && DPZoneRelease == nil, "DPPeekCloseAll hides drag zone and stops timer");
+
+        // 4. Regression: DPPeekOpenFrom skips opening when DPPeek.on is NO, and discards leaked page on failed give.
+        DPPeek.on = NO;
+        gCloseCalls = 0;
+        DPFakePeekPage *warmOff = [DPFakePeekPage new];
+        warmOff.url = [NSURL URLWithString:@"about:blank"];
+        DPPeekOpenFrom(window, [NSURL URLWithString:@"https://example.com"], NSMakeRect(0, 0, 20, 10), nil, source, warmOff, nil);
+        CHECK(DPPeekAllCards(window).count == 0 && gCloseCalls == 1, "DPPeekOpenFrom discards warm page and refuses to open when Peek is off");
+
+        DPPeek.on = YES;
+        gCloseCalls = 0;
+        DPFakePeekPage *existing = [DPFakePeekPage new];
+        existing.url = [NSURL URLWithString:@"https://example.com/1"];
+        DPPeekCard *blocking = DPPeekShowCard(window, existing, nil, NSMakeRect(0, 0, 20, 10));
+        CHECK(blocking != nil, "blocking card opens");
+
+        // 5. Regression: Zoom hook respects DPPeek.on == NO.
+        _TtC6Window24PlatformWindowController *wc = [[_TtC6Window24PlatformWindowController alloc] initWithWindow:window];
+        gZoomCalls = gOrigZoomCalls = 0;
+        DPPeek.on = YES;
+        [wc zoomIn:nil];
+        CHECK(gZoomCalls == 1 && gOrigZoomCalls == 0, "zoom reaches Peek when on");
+        DPPeek.on = NO;
+        [wc zoomIn:nil];
+        CHECK(gZoomCalls == 1 && gOrigZoomCalls == 1, "zoom passes through to Dia when Peek is off");
+        DPPeek.on = YES;
+
+        // 6. Regression: NSWindowWillCloseNotification tears down even an already-closing (expanding) card without makeKeyWindow/DPPeekGive.
+        DPFakeDelegate *delegate = [DPFakeDelegate new];
+        blocking.sourceDelegate = delegate;
+        blocking.source = source;
+        [blocking close:DPPeekTab]; // marks closing=YES and starts DPPeekGrowth CADisplayLink!
+        CHECK(blocking.closing && DPPeekCardIn(window) == nil && DPPeekAllCards(window).count == 1,
+              "expanding card is closing and still tracked by DPPeekAllCards");
+        window.makeKeyCalls = 0;
+        gGiveCalls = 0;
+        gDetachCalls = 0;
+        [NSNotificationCenter.defaultCenter postNotificationName:NSWindowWillCloseNotification object:window];
+        CHECK(DPPeekAllCards(window).count == 0 && blocking.superview == nil && gDetachCalls >= 1,
+              "window close synchronously tears down expanding card");
+        CHECK(DPGet(blocking, &DPGrowthKey) == nil, "window close cancels DPPeekGrowth display link");
+        CHECK(window.makeKeyCalls == 0 && gGiveCalls == 0, "window close does not call makeKeyWindow or DPPeekGive");
+
+        // 7. Regression: finish: on a detached card (window == nil) never calls DPPeekGive.
+        DPFakePeekPage *detachedPage = [DPFakePeekPage new];
+        detachedPage.url = [NSURL URLWithString:@"about:blank"];
+        DPPeekCard *detached = [DPPeekCard new];
+        detached.page = detachedPage;
+        detached.sourceDelegate = delegate;
+        detached.source = source;
+        gGiveCalls = gCloseCalls = 0;
+        [detached finish:DPPeekTab];
+        CHECK(gGiveCalls == 0 && gCloseCalls == 1, "finish: on detached card discards page without giving to delegate");
+
+        // 8. Regression: DPPeekOpenFrom discards freshly created page if DPPeekShowCard fails and DPPeekGive fails (source == nil).
+        gGiveSucceeds = NO;
+        gCloseCalls = 0;
+        DPFakePeekPage *unattached = [DPFakePeekPage new];
+        unattached.url = [NSURL URLWithString:@"about:blank"];
+        // nil source -> DPPeekGive returns NO -> DPPeekDiscard closes page.
+        CHECK(!DPPeekGive(unattached, delegate, nil, unattached.url, DPPeekTab), "DPPeekGive returns NO without source");
+
+        if (failures) return 1;
+        puts("PASS: Peek glow fallback, off-tweak teardown, window close, and timer lifecycle");
+    }
+    return 0;
+}

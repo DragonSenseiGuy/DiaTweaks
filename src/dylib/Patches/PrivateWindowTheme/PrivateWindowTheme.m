@@ -30,26 +30,38 @@ static CAGradientLayer *DPThemeSource(void) {
 
 static void DPThemePrivate(NSView *gradient) {
     CAGradientLayer *layer = DPGradientLayer(gradient), *source = DPPrivateWindowTheme.on ? DPThemeSource() : nil;
-    NSArray *dia = DPDiaValue(layer, &DPColorsKey, layer.colors ?: @[]), *ours = source.colors ?: dia;
+    if (!layer || (!source.colors && !DPGet(layer, &DPColorsKey))) return;
+    id current = layer.colors ?: NSNull.null;
+    id dia = DPDiaValue(layer, &DPColorsKey, current), ours = source.colors ?: dia;
     if (source.colors) DPOverride(layer, &DPColorsKey, dia, ours);
-    else if (DPGet(layer, &DPColorsKey)) DPSet(layer, &DPColorsKey, nil);
-    if ([layer.colors isEqual:ours]) return;
+    else DPSet(layer, &DPColorsKey, nil);
+    NSArray *target = ours == NSNull.null ? nil : ours;
+    if (layer.colors == target || [layer.colors isEqual:target]) return;
     [CATransaction begin];
     [CATransaction setDisableActions:YES];
-    layer.colors = ours;
+    layer.colors = target;
     [CATransaction commit];
 }
 
 static void DPThemePrivateWindows(void) {
     for (NSWindow *window in NSApp.windows) {
-        NSView *gradient = DPIsKind(window, DPDiaWindow) && DPIsPrivate(window) ? DPWindowGradient(window) : nil;
-        if (DPGradientLayer(gradient)) DPThemePrivate(gradient);
+        if (!DPIsKind(window, DPDiaWindow) || !DPIsPrivate(window)) continue;
+        DPFindView(window.contentView.superview, ^BOOL(NSView *view) {
+            if (DPIsKind(view, DPDiaGradientView) && DPIsKind(view.superview, DPDiaWindowTint)) DPThemePrivate(view);
+            return NO;
+        });
     }
 }
 
 static void DPGradient_updateLayer(NSView *self, SEL _cmd) {
     DPCallOriginal(DPGradient_updateLayer, self);
-    if (!DPPrivateWindowTheme.on || !DPIsKind(self.superview, DPDiaWindowTint) || !DPGradientLayer(self)) return;
+    if (!DPIsKind(self.superview, DPDiaWindowTint)) return;
+    CAGradientLayer *layer = DPGradientLayer(self);
+    if (!layer) return;
+    if (!DPPrivateWindowTheme.on) {
+        if (DPGet(layer, &DPColorsKey)) DPThemePrivate(self);
+        return;
+    }
     if (self.window && DPIsPrivate(self.window)) DPThemePrivate(self);
     else DPThemePrivateWindows();
 }

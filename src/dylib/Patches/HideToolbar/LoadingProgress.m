@@ -29,8 +29,10 @@ static BOOL DPToolbarOutOfSight(NSView *pane) {
            hover.progress == 0 && hover.inPlaceProgress == 0;
 }
 
+static BOOL DPLoadingProgressOn(void) { return DPHideToolbar.on && DPShowLoadingProgress.on; }
+
 static void DPRefreshProgress(void) {
-    BOOL on = DPShowLoadingProgress.on;
+    BOOL on = DPLoadingProgressOn();
     id contents = on ? DPVisibleLoadingContents() : nil;
     CGFloat progress = contents ? [DPGet(contents, &DPProgressKey) doubleValue] : 1;
     BOOL loading = NO;
@@ -56,19 +58,22 @@ static void DPContents_setIsLoading(id self, SEL _cmd, BOOL loading) {
     DPCallOriginal(DPContents_setIsLoading, self, loading);
     if (loading) [DPLoadingContents addObject:self];
     else [DPLoadingContents removeObject:self];
-    if (DPShowLoadingProgress.on) DPRefreshProgress();
+    if (DPLoadingProgressOn()) DPRefreshProgress();
 }
 
 static void DPContents_setLoadProgress(id self, SEL _cmd, double progress) {
     DPCallOriginal(DPContents_setLoadProgress, self, progress);
     DPSet(self, &DPProgressKey, @(progress));
-    if (DPShowLoadingProgress.on) DPRefreshProgress();
+    if (DPLoadingProgressOn()) DPRefreshProgress();
 }
 
 static void DPInstallLoadingProgress(void) {
     DPLoadingContents = [NSHashTable weakObjectsHashTable];
     DPHook(DPDiaWebContents, @selector(setIsLoading:), (IMP)DPContents_setIsLoading);
     DPHook(DPDiaWebContents, @selector(setLoadProgress:), (IMP)DPContents_setLoadProgress);
+    [NSNotificationCenter.defaultCenter addObserverForName:DPPatchesDidChangeNotification object:nil queue:NSOperationQueue.mainQueue usingBlock:^(NSNotification *_) {
+        DPRefreshProgress();
+    }];
     DPInstallProgressColors();
 }
 

@@ -9,6 +9,12 @@ void DPFinishHandOver(NSWindow *window) {
     DPCancelCommandBar(old);
 }
 
+DPCommandBarOverlay *DPTakeHandOver(NSWindow *window) {
+    DPCommandBarOverlay *old = DPGet(window, &DPHandingOverKey);
+    if (old) DPSet(window, &DPHandingOverKey, nil);
+    return old;
+}
+
 void DPHandOver(DPCommandBarOverlay *overlay) {
     NSWindow *window = overlay.host;
     DPFinishHandOver(window);
@@ -55,15 +61,20 @@ BOOL DPWaitForDia(NSWindow *window, NSEvent *event, BOOL newTab) {
     return YES;
 }
 
+void DPClearCatchUp(NSWindow *window) {
+    if (!window) return;
+    char *keys[] = {&DPCatchingUpKey, &DPWantKey, &DPPressedKey, &DPNewTabPressKey, &DPAddressPressKey};
+    for (size_t i = 0; i < sizeof(keys) / sizeof(*keys); i++) DPSet(window, keys[i], nil);
+}
+
 void DPDiaCaughtUp(NSWindow *window) {
     if (!window || !DPGet(window, &DPCatchingUpKey)) return;
     BOOL pressed = DPGet(window, &DPPressedKey) != nil;
     DPBar want = [DPGet(window, &DPWantKey) integerValue], have = DPBarIn(window);
     NSEvent *press = DPGet(window, want == DPNewTabBar ? &DPNewTabPressKey : &DPAddressPressKey);
-    char *keys[] = {&DPCatchingUpKey, &DPWantKey, &DPPressedKey, &DPNewTabPressKey, &DPAddressPressKey};
-    for (size_t i = 0; i < sizeof(keys) / sizeof(*keys); i++) DPSet(window, keys[i], nil);
+    DPClearCatchUp(window);
     // Replay only if another press arrived while waiting, so a bar Dia never shows cannot loop.
-    if (!pressed || want == have) return;
+    if (!DPCommandBar.on || !pressed || want == have) return;
     if (want == DPNoBar) return DPCancelCommandBar(DPGet(window, &DPOverlayKey));
     if (!press || !window.isKeyWindow) return;
     [NSApp postEvent:[NSEvent keyEventWithType:NSEventTypeKeyDown location:NSZeroPoint modifierFlags:press.modifierFlags timestamp:NSProcessInfo.processInfo.systemUptime

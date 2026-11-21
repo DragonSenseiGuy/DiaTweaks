@@ -12,7 +12,7 @@ static NSTimer *DPSpareTimer;
 void DPWantSpare(void) { DPWanted = YES; }
 void DPNotMakingSpare(void) { DPSpareUntil = 0; }
 
-static void DPDropUnwantedSpares(void) {
+void DPDropUnwantedSpares(void) {
     for (NSWindow *window in NSApp.windows)
         if (DPSpareIn(window) && (!DPSparesOn() || DPHasStrip(window))) DPDropSpare(window);
 }
@@ -20,8 +20,9 @@ static void DPDropUnwantedSpares(void) {
 // Create a hidden spare only when frontmost, idle, and not full screen (switching tabs exits full screen).
 static void DPMakeSpare(void) {
     DPDropUnwantedSpares();
+    if (!DPSparesOn()) return DPUpdateSpareTimer();
     NSWindow *window = NSApp.keyWindow;
-    if (DPTesting || !DPSparesOn() || !NSApp.isActive || NSApp.modalWindow || !window || window.attachedSheet) return;
+    if (DPTesting || !NSApp.isActive || NSApp.modalWindow || !window || window.attachedSheet) return;
     if (CGEventSourceSecondsSinceLastEventType(kCGEventSourceStateCombinedSessionState, kCGAnyInputEventType) < 2 || NSEvent.pressedMouseButtons) return;
     if (window.styleMask & NSWindowStyleMaskFullScreen) return;
     static CFTimeInterval lookedAt;
@@ -77,7 +78,7 @@ void DPParkIfSpare(DPCommandBarOverlay *overlay) {
 
 BOOL DPSparesOn(void) { return DPHiding() && DPCommandBarSpare.on && !DPNewTabNextToCurrent.on; }
 
-static void DPUpdateSpareTimer(void) {
+void DPUpdateSpareTimer(void) {
     if (DPSparesOn()) {
         if (!DPSpareTimer) DPSpareTimer = [NSTimer scheduledTimerWithTimeInterval:1 repeats:YES block:^(NSTimer *timer) { DPMakeSpare(); }];
     } else {
