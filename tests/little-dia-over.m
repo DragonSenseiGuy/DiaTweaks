@@ -1,6 +1,5 @@
 #import "Patches/LittleDia/Route.m"
 
-// Stand-ins for what Route.m asks of the rest of Little Dia, and for Dia's content pane.
 DPPatch DPLittleDia, DPLittleDiaFollowRules, DPLittleDiaRemember;
 NSSize DPLittleDiaSize(void) { return NSZeroSize; }
 NSRect DPLittleDiaSavedFrame(void) { return NSZeroRect; }
@@ -23,7 +22,7 @@ BOOL DPTabsAtTop(NSWindow *window) { return gTabsAtTop; }
 
 static int failures;
 
-// The window is far off screen, so its whole frame counts. Rects are given from the window's bottom left corner.
+// Window is far off screen so its whole frame counts; rects are window-relative.
 static void frame(NSString *what, BOOL tabsAtTop, NSSize size, NSRect pane, NSRect want) {
     NSWindow *window = [[NSWindow alloc] initWithContentRect:(NSRect){{-30000, -30000}, size} styleMask:NSWindowStyleMaskBorderless backing:NSBackingStoreBuffered defer:NO];
     window.alphaValue = 0;
@@ -47,16 +46,12 @@ int main(void) {
     @autoreleasepool {
         [NSApplication sharedApplication];
         NSSize size = NSMakeSize(1200, 800);
-        // Sidebar: 12 pt in from the window's top and bottom, whatever sits between the window and the page.
         frame(@"sidebar", NO, size, NSMakeRect(190, 0, 1010, 800), NSMakeRect(291, 12, 808, 776));
         frame(@"sidebar, padded page", NO, size, NSMakeRect(196, 6, 998, 788), NSMakeRect(296, 12, 798, 776));
-        // Tabs at the top: 12 pt in from the page's top, which is 40 pt below the window's.
         frame(@"top", YES, size, NSMakeRect(0, 0, 1200, 760), NSMakeRect(120, 12, 960, 736));
         frame(@"top, tabs hidden", YES, size, NSMakeRect(0, 0, 1200, 800), NSMakeRect(120, 12, 960, 776));
-        // Too short for the popup: the floor holds and it stays centred.
         frame(@"short", NO, NSMakeSize(1200, 300), NSMakeRect(190, 0, 1010, 300), NSMakeRect(291, -30, 808, 360));
         frame(@"short, tabs at the top", YES, NSMakeSize(1200, 300), NSMakeRect(0, 0, 1200, 260), NSMakeRect(120, -50, 960, 360));
-        // A remembered frame stays only while one screen holds all of it.
         remembered(@"on the first screen", NSMakeRect(100, 20, 1180, 860), YES);
         remembered(@"on the second screen", NSMakeRect(1500, -50, 1180, 860), YES);
         remembered(@"filling a screen", NSMakeRect(0, 0, 1440, 900), YES);

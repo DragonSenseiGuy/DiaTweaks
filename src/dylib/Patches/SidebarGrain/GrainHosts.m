@@ -53,6 +53,7 @@ static void DPUpdateGrainHost(NSView *host, BOOL reloadSettings) {
 }
 
 static void DPUpdateGrainHosts(BOOL reloadSettings) {
+    if (!DPSidebarGrain.on) DPCloseGrainPopover();
     for (NSView *host in DPGrainHosts) DPUpdateGrainHost(host, reloadSettings);
 }
 

@@ -20,7 +20,6 @@ static BOOL DPIsTabList(id obj) {
     return name && (strstr(name, "TabListController") || strstr(name, "TabStripController"));
 }
 
-// Keys such as delegate can lead to the rest of the app.
 static BOOL DPMayHoldTabs(id obj) {
     const char *name = object_getClassName(obj);
     return name && (strstr(name, "Tab") || strstr(name, "Window") || strstr(name, "Sidebar") || strstr(name, "Strip"));
@@ -46,15 +45,14 @@ static void DPWalk(id obj, NSMutableArray *found, NSMutableSet *seen, NSInteger 
 }
 
 static void DPAddUnique(NSMutableDictionary *lists, NSString *key, id value) {
-    NSMutableArray *list = lists[key] ?: [NSMutableArray array];
+    NSMutableArray *list = lists[key] ?: (lists[key] = [NSMutableArray array]);
     if (![list containsObject:value]) [list addObject:value];
-    lists[key] = list;
 }
 
 static void DPReadObject(id obj, NSString *key, NSSet<NSNumber *> *tracked,
                          NSMutableDictionary<NSString *, NSMutableArray<NSNumber *> *> *sessions,
                          NSMutableDictionary<NSString *, NSMutableArray<NSString *> *> *urls) {
-    if (!obj || obj == NSNull.null || !key.length) return;
+    if (!obj || !key.length) return;
     long long sid = DPLongID(DPSwiftValue(obj, @"tabSessionID"));
     if (sid <= 0) sid = DPLongID(DPSwiftValue(obj, @"sessionId"));
     if (sid > 0 && [tracked containsObject:@(sid)]) DPAddUnique(sessions, key, @(sid));
@@ -66,9 +64,8 @@ static void DPReadContent(id content, NSString *key, NSSet<NSNumber *> *tracked,
                           NSMutableDictionary<NSString *, NSMutableArray<NSNumber *> *> *sessions,
                           NSMutableDictionary<NSString *, NSMutableArray<NSString *> *> *urls) {
     id model = DPSwiftValue(content, @"viewModel");
-    for (id obj in @[ content ?: NSNull.null, DPSwiftValue(content, @"delegate") ?: NSNull.null, DPSwiftValue(content, @"webContent") ?: NSNull.null,
-                      model ?: NSNull.null, DPSwiftValue(model, @"delegate") ?: NSNull.null ])
-        DPReadObject(obj, key, tracked, sessions, urls);
+    id objs[] = { content, DPSwiftValue(content, @"delegate"), DPSwiftValue(content, @"webContent"), model, DPSwiftValue(model, @"delegate") };
+    for (NSUInteger i = 0; i < 5; i++) DPReadObject(objs[i], key, tracked, sessions, urls);
 }
 
 static void DPReadTab(id tab, NSSet<NSNumber *> *tracked, NSMutableDictionary<NSString *, NSMutableArray<NSNumber *> *> *sessions,
@@ -121,9 +118,8 @@ NSSet<NSNumber *> *DPSelectedSessions(id browser) {
         if (sid <= 0) continue;
         [tracked addObject:@(sid)];
         if (!url.length) continue;
-        NSMutableArray *list = byURL[url] ?: [NSMutableArray array];
+        NSMutableArray *list = byURL[url] ?: (byURL[url] = [NSMutableArray array]);
         [list addObject:@(sid)];
-        byURL[url] = list;
     }
     NSMutableDictionary *sessions = [NSMutableDictionary dictionary], *urls = [NSMutableDictionary dictionary];
     for (id controller in controllers) DPEachValue(DPSwiftValue(controller, @"tabControllers"), ^(id tab) { DPReadTab(tab, tracked, sessions, urls); });

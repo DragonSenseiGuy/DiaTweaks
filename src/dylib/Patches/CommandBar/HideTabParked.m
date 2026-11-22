@@ -2,10 +2,13 @@
 
 static char DPParkedRowsKey;
 
-// A list that isn't held still, such as one made as the tab layout changes, closes up around every hidden tab's row.
 BOOL DPIsLeftOutRow(NSCollectionView *list, NSIndexPath *path) { return DPHidesTab(DPTabIn(DPRowName(list, path))); }
 
 CGFloat DPClosedUp(NSCollectionViewLayout *layout, NSRect frame) {
+    if (!DPHiding()) {
+        if (DPGet(layout, &DPParkedRowsKey)) DPSet(layout, &DPParkedRowsKey, nil);
+        return 0;
+    }
     CGFloat up = 0;
     for (NSValue *row in DPGet(layout, &DPParkedRowsKey))
         if (NSMinY(row.rectValue) < NSMinY(frame)) up += NSHeight(row.rectValue);
@@ -16,6 +19,10 @@ CGFloat DPParkedHeight(NSCollectionViewLayout *layout) { return DPClosedUp(layou
 
 NSCollectionViewLayoutAttributes *DPClosedAttributes(NSCollectionViewLayout *layout, NSCollectionViewLayoutAttributes *attributes) {
     if (!attributes || !DPGet(layout, &DPParkedRowsKey)) return attributes;
+    if (!DPHiding()) {
+        DPSet(layout, &DPParkedRowsKey, nil);
+        return attributes;
+    }
     attributes = [attributes copy];
     NSRect frame = attributes.frame;
     if (attributes.representedElementCategory == NSCollectionElementCategoryItem && DPIsLeftOutRow(layout.collectionView, attributes.indexPath)) {

@@ -5,7 +5,7 @@ BOOL DPIsLittleDiaWindow(NSWindow *window) { return NO; }
 
 static int failures;
 
-// Windows are named for their app: A and B are other apps', D is Dia's. "A1 A2 D1" reads front to back.
+// Window prefixes: D = Dia, A/B = other apps; lists read front to back.
 static NSWindow *invisibleWindow(void) {
     NSWindow *window = [[NSWindow alloc] initWithContentRect:NSMakeRect(-30000, -30000, 1, 1) styleMask:NSWindowStyleMaskBorderless backing:NSBackingStoreBuffered defer:NO];
     window.alphaValue = 0;
@@ -21,11 +21,8 @@ static NSString *order(NSDictionary<NSString *, NSWindow *> *windows) {
     return [names componentsJoinedByString:@" "];
 }
 
-// Dia comes forward for a link with all its windows, Little Dia's first. Whatever else Dia opened in that moment stays in front of the rest.
-static void restores(NSString *before, NSString *opened) {
-    NSMutableDictionary<NSString *, NSWindow *> *windows = [NSMutableDictionary dictionary];
-    NSMutableArray<NSDictionary *> *stack = [NSMutableArray array];
-    NSMutableArray<NSString *> *dia = [NSMutableArray array], *names = [[before componentsSeparatedByString:@" "] mutableCopy];
+static void makeStack(NSString *before, NSMutableDictionary<NSString *, NSWindow *> *windows, NSMutableArray<NSDictionary *> *stack, NSMutableArray<NSString *> *dia) {
+    NSArray<NSString *> *names = [before componentsSeparatedByString:@" "];
     for (NSString *name in names) {
         windows[name] = invisibleWindow();
         BOOL mine = [name hasPrefix:@"D"];
@@ -33,6 +30,13 @@ static void restores(NSString *before, NSString *opened) {
         if (mine) [dia addObject:name];
     }
     for (NSString *name in names.reverseObjectEnumerator) [windows[name] orderFront:nil];
+}
+
+static void restores(NSString *before, NSString *opened) {
+    NSMutableDictionary<NSString *, NSWindow *> *windows = [NSMutableDictionary dictionary];
+    NSMutableArray<NSDictionary *> *stack = [NSMutableArray array];
+    NSMutableArray<NSString *> *dia = [NSMutableArray array];
+    makeStack(before, windows, stack, dia);
     NSArray<NSString *> *fresh = opened.length ? [opened componentsSeparatedByString:@" "] : @[];
     NSWindow *little = windows[@"L"] = invisibleWindow();
     for (NSString *name in fresh) windows[name] = invisibleWindow();
@@ -45,16 +49,10 @@ static void restores(NSString *before, NSString *opened) {
     for (NSWindow *window in windows.allValues) [window orderOut:nil];
 }
 
-// The key Little Dia window (D0) closing brings Dia's next window forward, then the app it returns to brings its front window: the rest of Dia's go back.
 static void closes(NSString *before) {
     NSMutableDictionary<NSString *, NSWindow *> *windows = [NSMutableDictionary dictionary];
     NSMutableArray<NSDictionary *> *stack = [NSMutableArray array];
-    NSArray<NSString *> *names = [before componentsSeparatedByString:@" "];
-    for (NSString *name in names) {
-        windows[name] = invisibleWindow();
-        [stack addObject:@{@"number" : @(windows[name].windowNumber), @"pid" : @(getpid() + ![name hasPrefix:@"D"])}];
-    }
-    for (NSString *name in names.reverseObjectEnumerator) [windows[name] orderFront:nil];
+    makeStack(before, windows, stack, nil);
     [windows[@"D1"] orderFront:nil];
     [windows[@"A1"] orderFront:nil];
     DPOrderBehind(windows[@"D0"], stack);

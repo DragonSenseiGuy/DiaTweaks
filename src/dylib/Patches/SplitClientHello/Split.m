@@ -2,9 +2,6 @@
 #include <stdbool.h>
 #include <string.h>
 
-// A ClientHello is sent before any keys exist, so its record can be cut in two on the way out, and the handshake
-// hashes messages, not records, so the server ends up with the same one.
-
 typedef struct { const uint8_t *at, *end; } DPReader;
 
 static bool DPSkip(DPReader *r, size_t count) {
@@ -19,13 +16,11 @@ static bool DPRead(DPReader *r, size_t bytes, size_t *value) {
     return true;
 }
 
-// Skips a length-prefixed field.
 static bool DPSkipField(DPReader *r, size_t lengthBytes) {
     size_t length;
     return DPRead(r, lengthBytes, &length) && DPSkip(r, length);
 }
 
-// The host name in a ClientHello's body, from its server_name extension.
 static const uint8_t *DPServerName(DPReader body, size_t *nameLength) {
     size_t extensionsLength;
     if (!DPSkip(&body, 2 + 32) || !DPSkipField(&body, 1) || !DPSkipField(&body, 2) || !DPSkipField(&body, 1)
@@ -39,8 +34,9 @@ static const uint8_t *DPServerName(DPReader body, size_t *nameLength) {
         DPReader extension = { extensions.at, extensions.at + length };
         extensions.at += length;
         if (type != 0) continue;
-        if (!DPRead(&extension, 2, &listLength) || !DPRead(&extension, 1, &nameType) || nameType != 0
-            || !DPRead(&extension, 2, nameLength) || (size_t)(extension.end - extension.at) < *nameLength)
+        if (!DPRead(&extension, 2, &listLength) || (size_t)(extension.end - extension.at) < listLength
+            || !DPRead(&extension, 1, &nameType) || nameType != 0
+            || !DPRead(&extension, 2, nameLength) || listLength < 3 || listLength - 3 < *nameLength)
             return NULL;
         return extension.at;
     }
@@ -48,7 +44,7 @@ static const uint8_t *DPServerName(DPReader body, size_t *nameLength) {
 }
 
 size_t DPSplitHello(const uint8_t *data, size_t length, uint8_t *out, uint32_t random) {
-    // After a HelloRetryRequest, BoringSSL sends a ChangeCipherSpec record ahead of the second ClientHello.
+    // Skip an optional leading ChangeCipherSpec (0x14) record sent after HelloRetryRequest.
     size_t record = length >= 5 && data[0] == 0x14 && data[1] == 0x03 ? 5 + (size_t)(data[3] << 8 | data[4]) : 0;
     if (length < record + 9 || data[record] != 0x16 || data[record + 1] != 0x03 || data[record + 5] != 0x01) return 0;
     size_t payload = record + 5, recordLength = (size_t)(data[record + 3] << 8 | data[record + 4]);

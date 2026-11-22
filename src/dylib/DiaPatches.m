@@ -6,18 +6,22 @@
 #import "DevTools/DevTools.h"
 
 __attribute__((constructor)) static void DPInit(void) {
-    // Checking the process keeps a DIAPATCH_MANIFEST left in a shell from making Dia quit at launch.
-    NSString *manifest = NSProcessInfo.processInfo.environment[@"DIAPATCH_MANIFEST"];
-    if (manifest && [NSProcessInfo.processInfo.processName isEqualToString:@"diapatch"]) _exit(DPWriteManifest(manifest) ? 0 : 1);
+    // Only honor DIAPATCH_MANIFEST inside diapatch so a stray env var won't exit Dia.
+    const char *manifest = getenv("DIAPATCH_MANIFEST");
+    if (manifest && [NSProcessInfo.processInfo.processName isEqualToString:@"diapatch"]) _exit(DPWriteManifest(@(manifest)) ? 0 : 1);
     DPBeginLaunch();
     if (DPSafeMode == 2) return;
     DPLoadPatches();
-    if (!DPSafeMode) DPInstallPatches();
+    DPWatchSavedSettings();
+    if (!DPSafeMode && !DPPaused) DPInstallPatches();
+    else if (DPPaused && !DPSafeMode) DPDropStaleLaunchFlags();
     DPInstallSettings();
     DPInstallUpdates();
     DPInstallDevTools();
 
-    NSString *report = NSProcessInfo.processInfo.environment[@"DIAPATCH_TEST"];
+    const char *report = getenv("DIAPATCH_TEST");
+    if (!report) return;
+    NSString *path = @(report);
     unsetenv("DIAPATCH_TEST");  // A relaunched Dia would inherit it and test again.
-    if (report) DPRunTests(report);
+    DPRunTests(path);
 }

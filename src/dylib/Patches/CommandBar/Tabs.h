@@ -3,11 +3,12 @@
 id DPScriptWindow(NSWindow *window);
 id DPScriptTab(NSWindow *window, NSString *tabID);
 id DPScriptTabIn(id scriptWindow, NSString *tabID);
+id DPScriptTabInAnyProfile(id scriptWindow, NSString *tabID);
 NSString *DPTabID(id tab);
 NSString *DPActiveTabID(NSWindow *window);
 NSString *DPActiveTabIDIn(id scriptWindow);
 void DPFocusTab(id tab);
 void DPCloseTab(id tab);
-// Dia doesn't say who closes a page: DPCloseTab marks its own close, DPMarkOwnClose one made another way, and the closing page takes the mark.
+// Marks our own closes so the closing-page hook ignores them.
 void DPMarkOwnClose(void);
 BOOL DPTakeOwnClose(void);

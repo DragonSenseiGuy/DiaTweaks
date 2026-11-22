@@ -1,6 +1,5 @@
 #import "Patches/CompactTabRows/CompactTabRows.h"
 
-// Stand-ins for Dia's sidebar list: its own drag methods accept every drag and place nothing.
 @interface _TtC7TabList11TabListView : NSView
 @end
 @implementation _TtC7TabList11TabListView
@@ -31,12 +30,13 @@ NSString *DPChoice(DPPatch *patch) { return patch->defaultChoice; }
 
 #import "Patches/CompactTabRows/CompactTabRows.m"
 
-static NSView *DPListIn(NSView *tabList, NSArray<NSArray<NSValue *> *> *moves) {
+static id<NSDraggingDestination> DPList(NSArray<NSArray<NSValue *> *> *moves) {
+    NSView *tabList = [[NSClassFromString(@(DPDiaTabList)) alloc] initWithFrame:NSMakeRect(0, 0, 200, 600)];
     NSCollectionView *list = [[NSClassFromString(@(DPDiaTabListCollection)) alloc] initWithFrame:NSMakeRect(0, 0, 200, 600)];
     list.collectionViewLayout = [NSCollectionViewFlowLayout new];
     DPSet(list.collectionViewLayout, &DPMovesKey, moves);
     [tabList addSubview:list];
-    return tabList;
+    return (id<NSDraggingDestination>)tabList;
 }
 
 int main(void) {
@@ -47,10 +47,8 @@ int main(void) {
         DPHook(DPDiaTabList, @selector(prepareForDragOperation:), (IMP)DPTabList_prepare);
         DPHook(DPDiaTabList, @selector(performDragOperation:), (IMP)DPTabList_perform);
 
-        // A row 37 pt tall that Dia lays out 51 pt tall: a pointer in it is handed on as a point 14 pt further along.
         NSArray *moves = @[ @[ [NSValue valueWithRect:NSMakeRect(0, 100, 200, 37)], [NSValue valueWithRect:NSMakeRect(0, 100, 200, 51)] ] ];
-        NSView *compacted = DPListIn([[NSClassFromString(@(DPDiaTabList)) alloc] initWithFrame:NSMakeRect(0, 0, 200, 600)], moves);
-        NSView *plain = DPListIn([[NSClassFromString(@(DPDiaTabList)) alloc] initWithFrame:NSMakeRect(0, 0, 200, 600)], nil);
+        id<NSDraggingDestination> compacted = DPList(moves), plain = DPList(nil);
 
         NSWindow *dragging = [[ArcDraggingWindow alloc] initWithContentRect:NSMakeRect(0, 0, 200, 100) styleMask:NSWindowStyleMaskBorderless
                                                                     backing:NSBackingStoreBuffered defer:YES];
@@ -61,21 +59,25 @@ int main(void) {
         id<NSDraggingInfo> info = (id<NSDraggingInfo>)drag;
         NSPoint home = tab.frame.origin;
 
-        [(id<NSDraggingDestination>)compacted draggingUpdated:info];
+        DPCompactTabRows.on = NO;
+        [compacted draggingUpdated:info];
+        NSCAssert(NSEqualPoints(tab.frame.origin, home), @"disabled patch leaves dragged tab untouched even with stale moves");
+
+        DPCompactTabRows.on = YES;
+        [compacted draggingUpdated:info];
         NSCAssert(NSMinY(tab.frame) != home.y, @"over compacted rows the tab is put back under the pointer");
         tab.frame = NSMakeRect(home.x, home.y, 100, 30);
 
-        NSCAssert([(id<NSDraggingDestination>)compacted prepareForDragOperation:info] && [(id<NSDraggingDestination>)compacted performDragOperation:info], @"drops go through");
-        [(id<NSDraggingDestination>)plain draggingEntered:info];
+        NSCAssert([compacted prepareForDragOperation:info] && [compacted performDragOperation:info], @"drops go through");
+        [plain draggingEntered:info];
         NSCAssert(NSEqualPoints(tab.frame.origin, home), @"a drop's offset isn't applied to the next drag");
 
-        [(id<NSDraggingDestination>)compacted draggingUpdated:info];
+        [compacted draggingUpdated:info];
         tab.frame = NSMakeRect(home.x, home.y, 100, 30);
-        [(id<NSDraggingDestination>)compacted prepareForDragOperation:info];
-        [(id<NSDraggingDestination>)plain draggingUpdated:info];
+        [compacted prepareForDragOperation:info];
+        [plain draggingUpdated:info];
         NSCAssert(NSEqualPoints(tab.frame.origin, home), @"nor one a drop left after its first step");
 
-        // A smaller row (30 pt, laid out by Dia at 41): a point halfway down it is halfway down Dia's row, and a point below it keeps its distance from the row's end.
         NSArray *small = @[ @[ [NSValue valueWithRect:NSMakeRect(0, 100, 200, 30)], [NSValue valueWithRect:NSMakeRect(0, 100, 200, 41)] ] ];
         NSCAssert(fabs(DPTabListDiaY(small, 115) - 120.5) < 0.01, @"inside a smaller row");
         NSCAssert(fabs(DPTabListDiaY(small, 140) - 151) < 0.01, @"below a smaller row");

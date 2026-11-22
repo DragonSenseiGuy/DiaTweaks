@@ -1,6 +1,6 @@
 #import "HideToolbar.h"
 
-static char DPFillKey, DPAppearanceKey;
+static char DPFillKey, DPAppearanceKey, DPPlainAppliedKey;
 static NSHashTable<NSView *> *DPTabFills;
 
 static BOOL DPIsTabFill(NSView *view) {
@@ -43,7 +43,8 @@ static void DPFill_updateLayer(NSView *self, SEL _cmd) {
     NSColor *dia = [NSColor colorWithCGColor:self.layer.backgroundColor];
     DPSet(self, &DPFillKey, dia);
     CGFloat plain = DPPlainSelectedTab.on && DPHideToolbar.on ? 1 - DPToolbarShowing(self.window) : 0;
-    DPPlainAppearance(self, plain > 0.5);
+    if (plain > 0.5 || DPGet(self, &DPPlainAppliedKey)) DPPlainAppearance(self, plain > 0.5);
+    DPSet(self, &DPPlainAppliedKey, plain > 0 ? @YES : nil);
     if (plain <= 0) return;
     NSView *strip = self;
     while (strip && !DPIsKind(strip, DPDiaTabStrip)) strip = strip.superview;
@@ -54,8 +55,9 @@ static void DPFill_updateLayer(NSView *self, SEL _cmd) {
 }
 
 void DPRepaintTabs(NSWindow *window) {
+    BOOL active = DPPlainSelectedTab.on && DPHideToolbar.on;
     for (NSView *fill in DPTabFills)
-        if (fill.window == window) fill.needsDisplay = YES;
+        if (fill.window == window && (active || DPGet(fill, &DPPlainAppliedKey))) fill.needsDisplay = YES;
 }
 
 static void DPInstallPlainSelectedTab(void) {
@@ -64,6 +66,7 @@ static void DPInstallPlainSelectedTab(void) {
 }
 
 static void DPApplyPlainSelectedTab(DPPatch *patch) {
+    for (NSView *fill in DPTabFills) fill.needsDisplay = YES;
     for (NSView *fill in DPFindViews(DPDiaColorView))
         if (DPIsTabFill(fill)) fill.needsDisplay = YES;
 }

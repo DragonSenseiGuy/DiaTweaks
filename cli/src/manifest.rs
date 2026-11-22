@@ -20,6 +20,8 @@ pub struct Patch {
     pub default_on: bool,
     pub requires: Option<String>,
     pub disabled_by: Option<String>,
+    #[serde(default)]
+    pub relaunch: bool,
 }
 
 impl Manifest {
@@ -31,7 +33,7 @@ impl Manifest {
                 path.display()
             ),
             Err(err) => {
-                return Err(err).with_context(|| format!("Couldn't read {}", path.display()))
+                return Err(err).with_context(|| format!("Couldn't read {}", path.display()));
             }
         };
         let manifest: Self = serde_json::from_slice(&data).map_err(|err| {
@@ -63,6 +65,21 @@ impl Manifest {
                 );
             }
         }
+        for index in 0..manifest.patches.len() {
+            let mut seen = vec![false; manifest.patches.len()];
+            let mut cursor = index;
+            while let Some(required) = manifest.requirement(cursor) {
+                if seen[required] || required == index {
+                    bail!(
+                        "{} has a requirement cycle at {}. Run install.sh again.",
+                        path.display(),
+                        manifest.patches[index].key
+                    );
+                }
+                seen[cursor] = true;
+                cursor = required;
+            }
+        }
         Ok(manifest)
     }
 
@@ -86,9 +103,11 @@ impl Manifest {
 
     pub fn hidden_by(&self, index: usize, state: &[bool]) -> Option<usize> {
         let disabler = self.disabler(index).filter(|&disabler| state[disabler])?;
-        let option_on = (0..self.patches.len())
-            .any(|option| state[option] && self.requirement(option) == Some(disabler));
-        (!option_on).then_some(disabler)
+        let disabler_key = self.patches[disabler].key.as_str();
+        let has_option_on = self.patches.iter().enumerate().any(|(option, patch)| {
+            state[option] && patch.requires.as_deref() == Some(disabler_key)
+        });
+        (!has_option_on).then_some(disabler)
     }
 
     pub fn title(&self, index: usize) -> &str {
@@ -151,4 +170,55 @@ fn is_close(wanted: &str, candidate: &str) -> bool {
     let candidate = normalize(candidate);
     (wanted.len() >= 3 && candidate.contains(wanted))
         || strsim::normalized_damerau_levenshtein(wanted, &candidate) >= 0.7
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn rejects_requirement_cycles() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("patches.json");
+        fs::write(
+            &path,
+            r#"{
+                "version": 1,
+                "patches": [
+                    {"key": "a", "title": "A", "detail": "A", "defaultOn": false, "requires": "b", "disabledBy": null},
+                    {"key": "b", "title": "B", "detail": "B", "defaultOn": false, "requires": "a", "disabledBy": null}
+                ]
+            }"#,
+        )
+        .unwrap();
+        assert!(Manifest::load(&path).is_err());
+    }
+
+    #[test]
+    fn resolves_by_key_and_title_and_suggests() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("patches.json");
+        fs::write(
+            &path,
+            r#"{
+                "version": 1,
+                "patches": [
+                    {"key": "hideToolbar", "title": "Hide Toolbar", "detail": "H", "defaultOn": false, "requires": null, "disabledBy": null},
+                    {"key": "showAddressField", "title": "Show Address Field", "detail": "S", "defaultOn": false, "requires": null, "disabledBy": "hideToolbar"}
+                ]
+            }"#,
+        )
+        .unwrap();
+        let manifest = Manifest::load(&path).unwrap();
+        assert_eq!(
+            manifest
+                .resolve(&["hide-toolbar".into(), "Show Address Field".into()])
+                .unwrap(),
+            vec![0, 1]
+        );
+        let err = manifest.resolve(&["hidetoolba".into()]).unwrap_err().to_string();
+        assert!(err.contains("hideToolbar"));
+        assert_eq!(manifest.hidden_by(1, &[true, false]), Some(0));
+        assert_eq!(manifest.hidden_by(1, &[false, true]), None);
+    }
 }

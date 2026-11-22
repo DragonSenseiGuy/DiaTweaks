@@ -6,7 +6,7 @@ static void DPSpring(NSView *view, BOOL down) {
     CALayer *layer = view.layer;
     if (!layer) return;
     CATransform3D to = CATransform3DIdentity;
-    if (down) {  // About the middle, wherever the layer's anchor is.
+    if (down) {
         CGFloat x = NSWidth(view.bounds) * (0.5 - layer.anchorPoint.x), y = NSHeight(view.bounds) * (0.5 - layer.anchorPoint.y);
         to = CATransform3DTranslate(CATransform3DScale(CATransform3DMakeTranslation(x, y, 0), 0.992, 0.992, 1), -x, -y, 0);
     }
@@ -17,13 +17,11 @@ static void DPSpring(NSView *view, BOOL down) {
     spring.fromValue = [NSValue valueWithCATransform3D:((CALayer *)layer.presentationLayer ?: layer).transform];
     spring.toValue = [NSValue valueWithCATransform3D:to];
     spring.duration = spring.settlingDuration;
-    spring.fillMode = down ? kCAFillModeForwards : kCAFillModeRemoved;  // Pressed holds until let go; once let go, the layer is Dia's again.
+    spring.fillMode = down ? kCAFillModeForwards : kCAFillModeRemoved;  // Hold pressed state until release, then yield transform back to Dia.
     spring.removedOnCompletion = !down;
     [layer addAnimation:spring forKey:@"tabPress"];
 }
 
-// The press shows at once, before the click's work, such as making a tab, holds Dia up, and stays in long enough to be
-// seen however quick the click. It's let go during the click if Dia tracks it, otherwise later.
 static void DPPress(NSView *button, void (^click)(void)) {
     if (!DPCommandBar.on || !DPCommandBarHideTab.on) return click();
     DPSpring(button, YES);
@@ -57,8 +55,7 @@ static void DPNewTabButton_pressed(NSView *self, SEL _cmd, NSEvent *event) {
     DPPress(self, ^{ DPCallOriginal(DPNewTabButton_pressed, self, event); });
 }
 
-// Over Open New Tabs in Command Bar's own hook, which often handles the click without passing it on, so it's hooked once
-// every patch is in.
+// Defer hooking until after CommandBar's mouseDown: hook installs so this wraps it.
 void DPInstallPress(void) {
     dispatch_async(dispatch_get_main_queue(), ^{ DPHook(DPDiaNewTabButton, @selector(mouseDown:), (IMP)DPNewTabButton_pressed); });
 }

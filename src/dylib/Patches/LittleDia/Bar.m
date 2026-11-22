@@ -8,7 +8,7 @@
 @property (nonatomic) NSButton *profiles;
 @property (nonatomic) NSView *address;
 @property (nonatomic) NSView *divider;
-@property (nonatomic, copy) NSString *profile;  // The one the Open button was last named for.
+@property (nonatomic, copy) NSString *profile;
 @property (nonatomic) NSTimer *timer;
 @end
 
@@ -43,8 +43,8 @@ static NSColor *DPPageColor(id page) {
 static char DPColorKey;
 
 void DPMatchPage(NSView *row, id page) {
-    NSColor *color = DPPageColor(page);
-    if ([DPGet(row, &DPColorKey) isEqual:color] || (!color && !DPGet(row, &DPColorKey))) return;
+    NSColor *color = DPPageColor(page), *current = DPGet(row, &DPColorKey);
+    if ([current isEqual:color] || (!color && !current)) return;
     DPSet(row, &DPColorKey, color);
     row.wantsLayer = YES;
     row.layer.backgroundColor = color.CGColor;
@@ -231,7 +231,6 @@ static void DPUpdateButtons(DPLittleBar *bar) {
     bar.leading[3].enabled = page != nil;
 }
 
-// The tab goes to the profile the window is in, so with several profiles the button says which. YES if its width changed.
 static BOOL DPNameOpenButton(DPLittleBar *bar) {
     NSString *profile = DPLittleDiaProfileName(bar.title.window);
     if (!profile.length || [profile isEqual:bar.profile]) return NO;
@@ -298,7 +297,7 @@ static void DPPlaceBar(DPLittleBar *bar) {
         button.needsLayout = YES;
     }
     // Dia's address stays, unseen, so its frame keeps telling this layout where the address belongs.
-    title.alphaValue = 0;
+    if (title.alphaValue != 0) title.alphaValue = 0;
     if (bar.address.superview != row) [row addSubview:bar.address positioned:NSWindowAbove relativeTo:title];
     bar.address.frame = NSMakeRect(NSMinX(title.frame), round(mid - DPAddressHeight / 2), NSWidth(title.frame), DPAddressHeight);
     CGFloat hairline = 1 / MAX(1, row.window.backingScaleFactor);
@@ -333,12 +332,12 @@ static void DPRemoveBar(NSView *title) {
 static char DPDiaOriginKey, DPDiaSizeKey;
 
 static BOOL DPInPopupBar(NSView *view) {
+    Class barClass = objc_getClass(DPDiaPopupBar);
+    if (!barClass) return NO;
     for (NSView *each = view.superview; each; each = each.superview)
-        if (DPIsKind(each, DPDiaPopupBar)) return YES;
+        if ([each isKindOfClass:barClass]) return YES;
     return NO;
 }
-
-static BOOL DPShowsBar(NSView *title) { return DPLittleDia.on && DPInPopupBar(title) && DPIsLittleDiaWindow(title.window); }
 
 static NSRect DPTitleFrame(NSView *title, DPLittleBar *bar) {
     NSRect bounds = title.superview.bounds;
@@ -358,7 +357,7 @@ static DPLittleBar *DPBarFor(NSView *title) {
 static void DPTitle_setFrameOrigin(NSView *self, SEL _cmd, NSPoint origin) {
     if (!DPInPopupBar(self)) return DPCallOriginal(DPTitle_setFrameOrigin, self, origin);
     DPSet(self, &DPDiaOriginKey, [NSValue valueWithPoint:origin]);
-    if (!DPShowsBar(self)) {
+    if (!DPLittleDia.on || !DPIsLittleDiaWindow(self.window)) {
         DPRemoveBar(self);
         return DPCallOriginal(DPTitle_setFrameOrigin, self, origin);
     }
@@ -371,7 +370,7 @@ static void DPTitle_setFrameSize(NSView *self, SEL _cmd, NSSize size) {
     if (!DPInPopupBar(self)) return DPCallOriginal(DPTitle_setFrameSize, self, size);
     DPSet(self, &DPDiaSizeKey, [NSValue valueWithSize:size]);
     if (!DPGet(self, &DPDiaOriginKey)) DPSet(self, &DPDiaOriginKey, [NSValue valueWithPoint:self.frame.origin]);
-    if (!DPShowsBar(self)) {
+    if (!DPLittleDia.on || !DPIsLittleDiaWindow(self.window)) {
         DPRemoveBar(self);
         return DPCallOriginal(DPTitle_setFrameSize, self, size);
     }
@@ -381,8 +380,10 @@ static void DPTitle_setFrameSize(NSView *self, SEL _cmd, NSSize size) {
 }
 
 void DPRelayoutLittleDiaBars(void) {
+    Class titleClass = objc_getClass(DPDiaPopupTitle);
+    if (!titleClass) return;
     for (NSView *bar in DPFindViews(DPDiaPopupBar)) {
-        NSView *title = DPFindView(bar, ^BOOL(NSView *view) { return DPIsKind(view, DPDiaPopupTitle); });
+        NSView *title = DPFindView(bar, ^BOOL(NSView *view) { return [view isKindOfClass:titleClass]; });
         if (!title) continue;
         NSValue *origin = DPGet(title, &DPDiaOriginKey), *size = DPGet(title, &DPDiaSizeKey);
         [title setFrameOrigin:origin ? origin.pointValue : title.frame.origin];

@@ -12,6 +12,11 @@ extern DPPatch DPKeepWindowsActive;
 - (void)testNotice:(NSNotification *)note { self.notices++; }
 @end
 
+static CGContextRef DPTestBitmap(NSMutableData *data, CGColorSpaceRef space) {
+    return CGBitmapContextCreate(data.mutableBytes, 200, 200, 8, 800, space,
+        kCGImageAlphaPremultipliedLast | kCGBitmapByteOrder32Big);
+}
+
 double DPTestTextureContrast(NSAppearance *appearance, NSString *texture, double amount, double softness, double scale) {
     DPTestTexture = texture;
     DPSidebarGrainView *view = [[DPSidebarGrainView alloc] initWithFrame:NSMakeRect(0, 0, 100, 100)];
@@ -19,8 +24,7 @@ double DPTestTextureContrast(NSAppearance *appearance, NSString *texture, double
     [view setGrainAmount:amount softness:softness scale:scale];
     CGColorSpaceRef space = CGColorSpaceCreateWithName(kCGColorSpaceSRGB);
     NSMutableData *overlay = [NSMutableData dataWithLength:200 * 200 * 4];
-    CGContextRef context = CGBitmapContextCreate(overlay.mutableBytes, 200, 200, 8, 800, space,
-        kCGImageAlphaPremultipliedLast | kCGBitmapByteOrder32Big);
+    CGContextRef context = DPTestBitmap(overlay, space);
     [appearance performAsCurrentDrawingAppearance:^{
         [NSGraphicsContext saveGraphicsState];
         NSGraphicsContext.currentContext = [NSGraphicsContext graphicsContextWithCGContext:context flipped:NO];
@@ -31,24 +35,21 @@ double DPTestTextureContrast(NSAppearance *appearance, NSString *texture, double
     CGImageRef image = CGBitmapContextCreateImage(context);
     CGContextRelease(context);
     NSMutableData *composite = [NSMutableData dataWithLength:200 * 200 * 4];
-    context = CGBitmapContextCreate(composite.mutableBytes, 200, 200, 8, 800, space,
-        kCGImageAlphaPremultipliedLast | kCGBitmapByteOrder32Big);
+    context = DPTestBitmap(composite, space);
     BOOL dark = [[appearance bestMatchFromAppearancesWithNames:@[NSAppearanceNameAqua, NSAppearanceNameDarkAqua]] isEqual:NSAppearanceNameDarkAqua];
-    CGContextSetRGBFillColor(context, dark ? .10 : .64, dark ? .16 : .76, dark ? .19 : .82, 1);
-    CGContextFillRect(context, CGRectMake(0, 0, 200, 200));
+    const double base[] = {dark ? .10 : .64, dark ? .16 : .76, dark ? .19 : .82};
+    BOOL fine = [texture isEqual:@"fine"];
     BOOL screen = [view.layer.compositingFilter isEqual:@"screenBlendMode"];
-    CGContextSetBlendMode(context, [texture isEqual:@"fine"] ? kCGBlendModeNormal : screen ? kCGBlendModeScreen : kCGBlendModeMultiply);
+    CGContextSetRGBFillColor(context, base[0], base[1], base[2], 1);
+    CGContextFillRect(context, CGRectMake(0, 0, 200, 200));
+    CGContextSetBlendMode(context, fine ? kCGBlendModeNormal : screen ? kCGBlendModeScreen : kCGBlendModeMultiply);
     CGContextDrawImage(context, CGRectMake(0, 0, 200, 200), image);
     CGImageRelease(image); CGContextRelease(context); CGColorSpaceRelease(space);
     const uint8_t *pixels = composite.bytes;
     const uint8_t *source = overlay.bytes;
-    const double base[] = {dark ? .10 : .64, dark ? .16 : .76, dark ? .19 : .82};
-    BOOL fine = [texture isEqual:@"fine"];
     double sum = 0, square = 0;
     for (NSUInteger i = 0; i < 40000; i++) {
-        // Measure before final 8-bit rounding: a dark, almost flat result can
-        // straddle a byte boundary and otherwise look noisier numerically.
-        // The contrast is of the brightness, as the eye sees it, not of one colour channel.
+        // Measure pre-8-bit-rounded luminance so dark flat blends don't amplify byte-boundary noise.
         double alpha = source[4*i+3] / 255.0, brightness = 0;
         for (NSUInteger c = 0; c < 3; c++) {
             double red = source[4*i+c] / 255.0;

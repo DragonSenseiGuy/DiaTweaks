@@ -30,7 +30,7 @@ static void DPRemoveDiaPaneItems(NSToolbar *toolbar) {
 @property (nonatomic) NSWindowCollectionBehavior behavior;
 @property (nonatomic) NSSize minSize, maxSize;
 @property (nonatomic) CGFloat fixedHeight, dividerHeight;
-@property (nonatomic) BOOL backWasEnabled, watchingHeight;
+@property (nonatomic) BOOL backWasEnabled, backBorrowed, zoomWasEnabled, watchingHeight;
 @end
 
 static CGFloat const DPDividerMinHeight = 17;
@@ -65,9 +65,10 @@ static __weak DPPaneView *DPShownPane;
 }
 
 - (void)fitDivider {
+    NSInteger divider = self.table.numberOfRows - DPOurRowCount + DPDividerRow;
+    if (divider < 0) return;
     CGFloat before = self.dividerHeight;
     if ([self fittedDividerHeight] == before) return;
-    NSInteger divider = self.table.numberOfRows - DPOurRowCount + DPDividerRow;
     [NSAnimationContext runAnimationGroup:^(NSAnimationContext *context) {
         context.duration = 0;
         [self.table noteHeightOfRowsWithIndexesChanged:[NSIndexSet indexSetWithIndex:divider]];
@@ -114,8 +115,10 @@ static __weak DPPaneView *DPShownPane;
     }
 
     for (NSToolbarItem *item in toolbar.items)
-        if ([item.itemIdentifier isEqualToString:@"PreferencesPaneTitle"])
+        if ([item.itemIdentifier isEqualToString:@"PreferencesPaneTitle"]) {
             self.title = (NSTextField *)DPFindView(item.view, ^BOOL(NSView *v) { return [v isKindOfClass:NSTextField.class]; });
+            break;
+        }
     self.originalTitle = self.title.stringValue;
     self.title.stringValue = self.shownTitle = pane.title;
 }
@@ -143,8 +146,10 @@ static __weak DPPaneView *DPShownPane;
 }
 
 - (void)borrowBack:(BOOL)borrow {
+    if (borrow == self.backBorrowed) return;
     NSToolbarItem *back = [self backItem];
     if (borrow) self.backWasEnabled = back.enabled;
+    self.backBorrowed = borrow;
     back.enabled = borrow || self.backWasEnabled;
 }
 
@@ -156,13 +161,14 @@ static __weak DPPaneView *DPShownPane;
 
 - (void)allowResizing:(BOOL)allow {
     NSWindow *window = self.table.window;
-    if (allow == (self.fixedHeight > 0)) return;
+    if (!window || allow == (self.fixedHeight > 0)) return;
     if (allow) {
         self.mask = window.styleMask;
         self.behavior = window.collectionBehavior;
         self.minSize = window.contentMinSize;
         self.maxSize = window.contentMaxSize;
         self.fixedHeight = window.frame.size.height;
+        self.zoomWasEnabled = [window standardWindowButton:NSWindowZoomButton].enabled;
         CGFloat width = window.contentLayoutRect.size.width;
         window.styleMask |= NSWindowStyleMaskResizable;
         window.collectionBehavior = (window.collectionBehavior & ~NSWindowCollectionBehaviorFullScreenPrimary) | NSWindowCollectionBehaviorFullScreenNone;
@@ -176,6 +182,7 @@ static __weak DPPaneView *DPShownPane;
     window.collectionBehavior = self.behavior;
     window.contentMinSize = self.minSize;
     window.contentMaxSize = self.maxSize;
+    [window standardWindowButton:NSWindowZoomButton].enabled = self.zoomWasEnabled;
     [window setFrame:NSMakeRect(frame.origin.x, NSMaxY(frame) - self.fixedHeight, frame.size.width, self.fixedHeight) display:YES];
     self.fixedHeight = 0;
 }

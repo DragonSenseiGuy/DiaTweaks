@@ -78,8 +78,9 @@
     } else if (self.hovered) {
         NSString *path = [url.path isEqual:@"/"] ? @"" : url.path ?: @"";
         rest = url.query.length ? [NSString stringWithFormat:@"%@?%@", path, url.query] : path;
-    } else if (self.pageTitle.length && ![self.pageTitle isEqual:url.absoluteString]) {
-        rest = [@" / " stringByAppendingString:self.pageTitle];
+    } else {
+        NSString *pageTitle = self.pageTitle;
+        if (pageTitle.length && ![pageTitle isEqual:url.absoluteString]) rest = [@" / " stringByAppendingString:pageTitle];
     }
     if (self.notice) {
         host = self.notice;
@@ -90,7 +91,8 @@
     [text appendAttributedString:[[NSAttributedString alloc] initWithString:rest attributes:@{NSFontAttributeName : font, NSForegroundColorAttributeName : NSColor.secondaryLabelColor}]];
     if (![self.label.attributedStringValue isEqual:text]) self.label.attributedStringValue = text;
     CGFloat height = ceil(self.label.intrinsicContentSize.height);
-    self.label.frame = NSMakeRect(10, round((NSHeight(self.bounds) - height) / 2), MAX(0, NSWidth(self.bounds) - 20), height);
+    NSRect frame = NSMakeRect(10, round((NSHeight(self.bounds) - height) / 2), MAX(0, NSWidth(self.bounds) - 20), height);
+    if (!NSEqualRects(self.label.frame, frame)) self.label.frame = frame;
 }
 
 - (void)setFrameSize:(NSSize)size {
@@ -105,7 +107,8 @@
     }
     self.notice = nil;
     [self refresh];
-    NSString *shown = [self.url.absoluteString isEqual:@"about:blank"] ? @"" : self.url.absoluteString;
+    NSString *urlString = self.url.absoluteString;
+    NSString *shown = [urlString isEqual:@"about:blank"] ? @"" : urlString;
     NSTextField *field = [NSTextField textFieldWithString:shown ?: self.label.stringValue];
     field.bezeled = NO;
     field.drawsBackground = NO;
@@ -133,7 +136,8 @@
     [self.field removeFromSuperview];
     self.field = nil;
     self.label.hidden = NO;
-    NSView *page = DPFindView(self.window.contentView, ^BOOL(NSView *view) { return DPIsKind(view, "WebContentsHostView") && !view.isHiddenOrHasHiddenAncestor; });
+    Class hostClass = objc_getClass("WebContentsHostView");
+    NSView *page = hostClass ? DPFindView(self.window.contentView, ^BOOL(NSView *view) { return [view isKindOfClass:hostClass] && !view.isHiddenOrHasHiddenAncestor; }) : nil;
     [self.window makeFirstResponder:DPFindView(page, ^BOOL(NSView *view) { return view.acceptsFirstResponder; })];
     self.ending = NO;
     [self refresh];

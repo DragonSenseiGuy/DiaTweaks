@@ -36,10 +36,12 @@ static void DPCopyViewTree(void) {
 }
 
 static void DPScriptSet(NSNotification *note) {
+    if (![note.object isKindOfClass:NSString.class]) return;
     NSArray<NSString *> *parts = [note.object componentsSeparatedByString:@"="];
-    DPPatch *patch = parts.count == 2 ? DPPatchNamed(parts[0]) : NULL;
+    if (parts.count != 2) return;
+    DPPatch *patch = DPPatchNamed(parts[0]);
     if (patch) DPSetPatch(patch, parts[1].boolValue, YES);
-    for (NSUInteger i = 0; parts.count == 2 && i < DPPatchCount; i++)
+    for (NSUInteger i = 0; i < DPPatchCount; i++)
         if ([DPPatches[i]->choice isEqualToString:parts[0]]) DPSetChoice(DPPatches[i], parts[1]);
 }
 
@@ -53,6 +55,7 @@ static void DPScriptType(NSNotification *note) {
 }
 
 static void DPScriptMethods(NSNotification *note) {
+    if (![note.object isKindOfClass:NSString.class] || ![note.object length]) return;
     NSMutableString *out = [NSMutableString new];
     NSView *live = DPFindViews([note.object UTF8String]).firstObject;
     NSMutableArray *classes = [NSMutableArray arrayWithObjects:note.object, nil];
@@ -85,16 +88,12 @@ static void DPListen(NSString *name, void (*handler)(NSNotification *)) {
                                                            usingBlock:^(NSNotification *note) { handler(note); }];
 }
 
-static void DPListenForScripts(void) {
+void DPInstallDevTools(void) {
+    if (![[[NSUserDefaults alloc] initWithSuiteName:@"com.diapatches"] boolForKey:@"devTools"]) return;
     DPListen(@"com.diapatches.dev.set", DPScriptSet);
     DPListen(@"com.diapatches.dev.type", DPScriptType);
     DPListen(@"com.diapatches.dev.methods", DPScriptMethods);
     DPListen(@"com.diapatches.dev.dump", DPScriptDump);
-}
-
-void DPInstallDevTools(void) {
-    if (![[[NSUserDefaults alloc] initWithSuiteName:@"com.diapatches"] boolForKey:@"devTools"]) return;
-    DPListenForScripts();
     DPTraceLayoutLoops();
     DPOnLaunch(^{
         DPAddMenuItem(@"Help", @"DiaPatches: Copy View Tree", ^{ DPCopyViewTree(); });

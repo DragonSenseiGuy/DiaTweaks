@@ -1,18 +1,13 @@
 #import "Patches/CommandBar/HideTab.h"
 
-// The selection code writes Swift fields by their address, so it runs only on the layout it was made for, read from
-// Dia's own type records: a tab background's selectionStyle is a SelectionStyle? whose one payload is a
-// SelectedTabBackgroundStyle whose one payload is an NSColor, which makes an opaque fill the color's address, the translucent
-// one 0 and every other case a small number; its shape view's shape is a two case enum, one byte.
-
-enum { DPClassType = 16, DPEnumType = 18 };  // A Swift type descriptor's kind.
+// Verify Swift type descriptors match the exact SelectionStyle?/SelectedTabShape layout assumed by direct field writes.
+enum { DPClassType = 16, DPEnumType = 18 };
 
 static const uint8_t *DPRelative(const uint8_t *at) {
     int32_t offset = *(const int32_t *)at;
     return offset ? at + offset : NULL;
 }
 
-// The mangled name of the type a field is declared with, or of a case's payload.
 static const uint8_t *DPFieldType(const uint8_t *type, const char *field) {
     const uint8_t *fields = type ? DPRelative(type + 16) : NULL;
     uint16_t size = fields ? *(const uint16_t *)(fields + 10) : 0;
@@ -25,7 +20,7 @@ static const uint8_t *DPFieldType(const uint8_t *type, const char *field) {
     return NULL;
 }
 
-// The type a mangled name refers to by its descriptor, if nothing but `suffix` follows.
+// Swift symbolic reference: 0x01 = direct relative descriptor, 0x02 = indirect pointer to descriptor.
 static const uint8_t *DPTypeNamed(const uint8_t *name, const char *suffix) {
     if (!name || (name[0] != 1 && name[0] != 2) || strcmp((const char *)name + 5, suffix)) return NULL;
     const uint8_t *type = DPRelative(name + 1);

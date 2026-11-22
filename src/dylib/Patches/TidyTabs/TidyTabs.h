@@ -37,6 +37,7 @@ void DPInstallTidySeparator(void);
 
 void DPInstallTidyLayout(void);
 void DPRelayoutTidyLists(void);
+NSArray<NSView *> *DPTidyTrackedLists(void);
 NSScrollView *DPTidyListScroll(NSView *list);
 NSRect DPTidyHoverZone(NSView *list);
 

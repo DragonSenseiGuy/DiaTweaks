@@ -18,7 +18,8 @@ static void DPPage_setVisibility(id self, SEL _cmd, NSInteger visibility) {
 }
 
 static id DPFrontPage(void) {
-    NSWindow *window = NSApp.keyWindow;
+    NSWindow *window = NSApp.keyWindow ?: NSApp.mainWindow;
+    if (!window) return nil;
     NSView *hit = [window.contentView.superview hitTest:window.mouseLocationOutsideOfEventStream];
     id focused = nil, under = nil, only = nil;
     NSUInteger count = 0;

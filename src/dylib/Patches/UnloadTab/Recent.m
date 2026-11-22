@@ -1,16 +1,7 @@
 #import "Patches/UnloadTab/Recent.h"
+#import "Patches/UnloadTab/Pages.h"
 
 static NSMapTable<NSWindow *, NSMutableArray<NSString *> *> *DPRecent;
-
-static void DPNoteFront(NSWindow *window) {
-    NSString *active = window && DPUnloadTab.on ? DPActiveTabID(window) : nil;
-    if (!active) return;
-    NSMutableArray *recent = [DPRecent objectForKey:window];
-    if (!recent) [DPRecent setObject:(recent = [NSMutableArray array]) forKey:window];
-    [recent removeObject:active];
-    [recent addObject:active];
-    if (recent.count > 20) [recent removeObjectAtIndex:0];
-}
 
 id DPTabBefore(NSWindow *window) {
     NSString *active = DPActiveTabID(window);
@@ -32,7 +23,17 @@ void DPForgetFrontTab(NSWindow *window) {
 
 static void DPContentPane_viewDidMoveToWindow(NSView *self, SEL _cmd) {
     DPCallOriginal(DPContentPane_viewDidMoveToWindow, self);
-    DPNoteFront(self.window);
+    if (!DPUnloadTab.on) return;
+    NSWindow *window = self.window;
+    if (!window) return;
+    DPRecordVisiblePanePages();
+    NSString *active = DPActiveTabID(window);
+    if (!active) return;
+    NSMutableArray *recent = [DPRecent objectForKey:window];
+    if (!recent) [DPRecent setObject:(recent = [NSMutableArray array]) forKey:window];
+    [recent removeObject:active];
+    [recent addObject:active];
+    if (recent.count > 20) [recent removeObjectAtIndex:0];
 }
 
 void DPWatchFrontTabs(void) {

@@ -102,15 +102,19 @@ static BOOL discard(NSString *path) {
 }
 
 static int run(NSArray<NSString *> *argv, NSString **output) {
+    if (output) *output = nil;
     NSTask *task = [NSTask new];
     task.executableURL = [NSURL fileURLWithPath:argv[0]];
     task.arguments = [argv subarrayWithRange:NSMakeRange(1, argv.count - 1)];
     NSPipe *pipe = NSPipe.pipe;
+    task.standardInput = NSFileHandle.fileHandleWithNullDevice;
     task.standardOutput = task.standardError = pipe;
     if (![task launchAndReturnError:NULL]) return -1;
     NSData *data = [pipe.fileHandleForReading readDataToEndOfFile];
     [task waitUntilExit];
-    if (output) *output = [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding];
+    if (output)
+        *output = [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding]
+            ?: [[NSString alloc] initWithData:data encoding:NSISOLatin1StringEncoding] ?: @"";
     return task.terminationStatus;
 }
 
@@ -137,7 +141,10 @@ static BOOL clone(NSString *from, NSString *to) {
 
 static int place(NSString *from, NSString *to) {
     const char *source = from.fileSystemRepresentation, *target = to.fileSystemRepresentation;
-    return (exists(to) ? renamex_np(source, target, RENAME_SWAP) : rename(source, target)) == 0 ? 0 : errno;
+    struct stat sourceInfo, targetInfo;
+    if (lstat(source, &sourceInfo) != 0) return errno;
+    BOOL swap = lstat(target, &targetInfo) == 0 && (S_ISDIR(sourceInfo.st_mode) || S_ISDIR(targetInfo.st_mode));
+    return (swap ? renamex_np(source, target, RENAME_SWAP) : rename(source, target)) == 0 ? 0 : errno;
 }
 
 static BOOL moveBundle(NSString *from, NSString *to) {
@@ -184,13 +191,23 @@ static BOOL verifyOfficial(NSString *app) {
 static BOOL appRunning(void) {
     char root[PATH_MAX], path[PROC_PIDPATHINFO_MAXSIZE];
     if (!realpath(gApp.fileSystemRepresentation, root)) return NO;
-    strlcat(root, "/", sizeof root);
-    int capacity = proc_listallpids(NULL, 0) + 64;
-    pid_t pids[capacity];
+    size_t rootLen = strlcat(root, "/", sizeof root);
+    if (rootLen >= sizeof root) return NO;
+    int listed = proc_listallpids(NULL, 0);
+    int capacity = (listed > 0 ? listed : 0) + 64;
+    pid_t *pids = calloc((size_t)capacity, sizeof *pids);
+    if (!pids) return NO;
     int count = proc_listallpids(pids, capacity * (int)sizeof *pids);
-    for (int i = 0; i < count; i++)
-        if (proc_pidpath(pids[i], path, sizeof path) > 0 && strncmp(path, root, strlen(root)) == 0) return YES;
-    return NO;
+    if (count > capacity) count = capacity;
+    BOOL running = NO;
+    for (int i = 0; i < count; i++) {
+        if (proc_pidpath(pids[i], path, sizeof path) > 0 && strncmp(path, root, rootLen) == 0) {
+            running = YES;
+            break;
+        }
+    }
+    free(pids);
+    return running;
 }
 
 static void waitForQuit(pid_t pid) {
@@ -199,41 +216,95 @@ static void waitForQuit(pid_t pid) {
 }
 
 static BOOL addLoadCommand(NSString *path, NSString *dylib) {
-    NSData *data = [NSData dataWithContentsOfFile:path options:NSDataReadingMappedAlways error:NULL];
-    const uint8_t *bytes = data.bytes;
-    const struct mach_header_64 *header = data.bytes;
-    if (data.length < sizeof *header || header->magic != MH_MAGIC_64 || header->cputype != CPU_TYPE_ARM64)
-        return fail(@"%@ is not a thin arm64 executable", path);
-    uint64_t end = sizeof *header + header->sizeofcmds, firstSection = data.length;
-    for (uint64_t offset = sizeof *header, i = 0; i < header->ncmds; i++, offset += ((const struct load_command *)(bytes + offset))->cmdsize) {
-        const struct segment_command_64 *segment = (const void *)(bytes + offset);
-        if (end > data.length || offset + sizeof(struct load_command) > end || segment->cmdsize < sizeof(struct load_command)
-            || offset + segment->cmdsize > end
-            || (segment->cmd == LC_SEGMENT_64 && sizeof *segment + segment->nsects * sizeof(struct section_64) > segment->cmdsize))
-            return fail(@"%@ has malformed load commands", path);
-        if (segment->cmd != LC_SEGMENT_64 || strncmp(segment->segname, SEG_TEXT, sizeof segment->segname)) continue;
-        const struct section_64 *sections = (const void *)(segment + 1);
-        for (uint32_t s = 0; s < segment->nsects; s++)
-            if (sections[s].size) firstSection = MIN(firstSection, sections[s].offset);
-    }
+    struct stat st;
+    if (lstat(path.fileSystemRepresentation, &st) != 0 || !S_ISREG(st.st_mode))
+        return fail(@"%@ is not a regular file", path);
     const char *name = dylib.fileSystemRepresentation;
-    uint32_t size = (uint32_t)(sizeof(struct dylib_command) + strlen(name) + 8) & ~7u;
+    size_t nameLen = strlen(name);
+    uint32_t size = (uint32_t)(sizeof(struct dylib_command) + nameLen + 8) & ~7u;
+    uint64_t end = 0;
+    uint32_t counts[2] = { 0, 0 };
+    BOOL alreadyLoaded = NO, valid = NO;
+    @autoreleasepool {
+        NSData *data = [NSData dataWithContentsOfFile:path options:NSDataReadingMappedIfSafe error:NULL];
+        const uint8_t *bytes = data.bytes;
+        const struct mach_header_64 *header = data.bytes;
+        if (data.length < sizeof *header || header->magic != MH_MAGIC_64 || header->cputype != CPU_TYPE_ARM64)
+            return fail(@"%@ is not a thin arm64 executable", path);
+        end = sizeof *header + (uint64_t)header->sizeofcmds;
+        uint64_t firstSection = data.length;
+        if (end > data.length) return fail(@"%@ has malformed load commands", path);
+        for (uint64_t offset = sizeof *header, i = 0; i < header->ncmds; i++) {
+            if (offset + sizeof(struct load_command) > end) return fail(@"%@ has malformed load commands", path);
+            const struct load_command *lc = (const void *)(bytes + offset);
+            if (lc->cmdsize < sizeof(struct load_command) || (lc->cmdsize & 7) != 0 || offset + lc->cmdsize > end)
+                return fail(@"%@ has malformed load commands", path);
+            if (lc->cmd == LC_LOAD_WEAK_DYLIB || lc->cmd == LC_LOAD_DYLIB) {
+                if (lc->cmdsize < sizeof(struct dylib_command)) return fail(@"%@ has malformed load commands", path);
+                const struct dylib_command *dc = (const void *)lc;
+                uint32_t nameOff = dc->dylib.name.offset;
+                if (nameOff < sizeof(struct dylib_command) || nameOff >= lc->cmdsize) return fail(@"%@ has malformed load commands", path);
+                const char *existing = (const char *)lc + nameOff;
+                size_t maxLen = lc->cmdsize - nameOff, existingLen = strnlen(existing, maxLen);
+                if (existingLen == maxLen) return fail(@"%@ has malformed load commands", path);
+                if (lc->cmd == LC_LOAD_WEAK_DYLIB && existingLen == nameLen && memcmp(existing, name, nameLen) == 0) alreadyLoaded = YES;
+            } else if (lc->cmd == LC_SEGMENT_64) {
+                if (lc->cmdsize < sizeof(struct segment_command_64)) return fail(@"%@ has malformed load commands", path);
+                const struct segment_command_64 *segment = (const void *)lc;
+                if (sizeof *segment + (uint64_t)segment->nsects * sizeof(struct section_64) > segment->cmdsize)
+                    return fail(@"%@ has malformed load commands", path);
+                if (!strncmp(segment->segname, SEG_TEXT, sizeof segment->segname)) {
+                    const struct section_64 *sections = (const void *)(segment + 1);
+                    for (uint32_t s = 0; s < segment->nsects; s++) {
+                        uint32_t type = sections[s].flags & SECTION_TYPE;
+                        if (sections[s].size && type != S_ZEROFILL && type != S_GB_ZEROFILL)
+                            firstSection = MIN(firstSection, sections[s].offset);
+                    }
+                }
+            }
+            offset += lc->cmdsize;
+        }
+        if (alreadyLoaded) return YES;
+        BOOL room = header->ncmds < UINT32_MAX && header->sizeofcmds <= UINT32_MAX - size && end + size <= firstSection;
+        for (uint64_t i = end; room && i < end + size; i++) room = !bytes[i];
+        if (!room) return fail(@"%@ has no room for another load command", path);
+        counts[0] = header->ncmds + 1;
+        counts[1] = header->sizeofcmds + size;
+        valid = YES;
+    }
+    if (!valid) return NO;
     NSMutableData *command = [NSMutableData dataWithLength:size];
     *(struct dylib_command *)command.mutableBytes = (struct dylib_command){
         .cmd = LC_LOAD_WEAK_DYLIB, .cmdsize = size,
         .dylib = { .name.offset = sizeof(struct dylib_command), .timestamp = 2, .current_version = 0x10000,
                    .compatibility_version = 0x10000 },
     };
-    strcpy((char *)command.mutableBytes + sizeof(struct dylib_command), name);
-    BOOL room = end + size <= firstSection;
-    for (uint64_t i = end; room && i < end + size; i++) room = !bytes[i];
-    if (!room) return fail(@"%@ has no room for another load command", path);
-    uint32_t counts[2] = { header->ncmds + 1, header->sizeofcmds + size };
-    int fd = open(path.fileSystemRepresentation, O_WRONLY | O_CLOEXEC);
-    BOOL written = fd >= 0 && pwrite(fd, command.bytes, size, (off_t)end) == size
-        && pwrite(fd, counts, sizeof counts, offsetof(struct mach_header_64, ncmds)) == sizeof counts;
-    if (fd >= 0 && close(fd) != 0) written = NO;
-    return written || fail(@"cannot write %@: %s", path, strerror(errno));
+    memcpy((char *)command.mutableBytes + sizeof(struct dylib_command), name, nameLen + 1);
+    // Patch a sibling copy and rename into place so a mapped Mach-O is never mutated in place.
+    NSString *tmp = [path stringByAppendingString:@".tmp"];
+    const char *src = path.fileSystemRepresentation, *dst = tmp.fileSystemRepresentation;
+    unlink(dst);
+    BOOL copied = clonefile(src, dst, 0) == 0
+        || ((errno == EXDEV || errno == ENOTSUP) && [NSFileManager.defaultManager copyItemAtPath:path toPath:tmp error:NULL]);
+    if (!copied) return fail(@"cannot copy %@: %s", path, strerror(errno));
+    int fd = open(dst, O_WRONLY | O_CLOEXEC), savedErr = 0;
+    BOOL written = NO;
+    if (fd >= 0) {
+        ssize_t n1 = pwrite(fd, command.bytes, size, (off_t)end);
+        ssize_t n2 = n1 == (ssize_t)size ? pwrite(fd, counts, sizeof counts, offsetof(struct mach_header_64, ncmds)) : -1;
+        if (n1 != (ssize_t)size) savedErr = n1 < 0 ? errno : EIO;
+        else if (n2 != (ssize_t)sizeof counts) savedErr = n2 < 0 ? errno : EIO;
+        else written = YES;
+        if (close(fd) != 0 && written) savedErr = errno, written = NO;
+    } else {
+        savedErr = errno;
+    }
+    if (written && rename(dst, src) != 0) savedErr = errno, written = NO;
+    if (!written) {
+        unlink(dst);
+        return fail(@"cannot write %@: %s", path, strerror(savedErr));
+    }
+    return YES;
 }
 
 static BOOL configureInfo(NSString *app) {
@@ -249,10 +320,13 @@ static BOOL configureInfo(NSString *app) {
 static NSString *localIdentity(NSString *keychain) {
     NSString *list;
     run(@[ @"/usr/bin/security", @"find-identity", @"-p", @"codesigning", keychain ], &list);
-    NSRegularExpression *pattern = [NSRegularExpression regularExpressionWithPattern:@"([0-9A-F]{40}) \"DiaPatches Local Signing\""
-                                                                             options:0
-                                                                               error:NULL];
-    NSTextCheckingResult *match = list ? [pattern firstMatchInString:list options:0 range:NSMakeRange(0, list.length)] : nil;
+    if (!list.length) return nil;
+    static NSRegularExpression *pattern;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        pattern = [NSRegularExpression regularExpressionWithPattern:@"([0-9A-F]{40}) \"DiaPatches Local Signing\"" options:0 error:NULL];
+    });
+    NSTextCheckingResult *match = [pattern firstMatchInString:list options:0 range:NSMakeRange(0, list.length)];
     return match ? [list substringWithRange:[match rangeAtIndex:1]] : nil;
 }
 
@@ -321,7 +395,6 @@ static BOOL switchIcon(void) {
     return !problem || fail(@"%@", problem);
 }
 
-// A Dia that can't switch icons still works: report the failure, don't fail the build.
 static BOOL noteIcon(NSString *outcome) {
     if ([outcome hasPrefix:@"kept "]) say(@"warning: %@", outcome);
     else if (outcome) note(@"%@", outcome);
@@ -337,7 +410,7 @@ static BOOL build(NSString *source) {
     BOOL ok = removeTree(work) && makeDir(gStaged.stringByDeletingLastPathComponent) && clone(source, work)
         && addLoadCommand([contents stringByAppendingPathComponent:[@"MacOS" stringByAppendingPathComponent:executable]], dylib)
         && configureInfo(work) && removeTree([contents stringByAppendingPathComponent:@"embedded.provisionprofile"])
-        && noteIcon(DPPrepareIcons(work, gApp, gHome)) && noteIcon(DPPrepareBriefLanguage(work)) && sign(work) && moveBundle(work, gStaged) && (DPForgetApp(gStaged), YES)
+        && noteIcon(DPPrepareIcons(work, gApp, gHome)) && noteIcon(DPPrepareBriefLanguage(work, gHome)) && sign(work) && moveBundle(work, gStaged) && (DPForgetApp(gStaged), YES)
         && ([stagedID() writeToFile:gReady atomically:YES encoding:NSUTF8StringEncoding error:NULL] || fail(@"cannot write %@", gReady));
     if (!ok) removeTree(work);
     return ok;
@@ -351,7 +424,35 @@ static BOOL build(NSString *source) {
 @implementation Release
 @end
 
-static BOOL newer(NSString *a, NSString *b) { return [a compare:b ?: @"" options:NSNumericSearch] == NSOrderedDescending; }
+static BOOL parseUint64(NSString *part, uint64_t *value) {
+    if (!part.length) return NO;
+    const char *s = part.UTF8String;
+    for (const char *p = s; *p; p++) if (*p < '0' || *p > '9') return NO;
+    errno = 0;
+    char *end = NULL;
+    unsigned long long parsed = strtoull(s, &end, 10);
+    if (errno || !end || *end) return NO;
+    *value = (uint64_t)parsed;
+    return YES;
+}
+
+static BOOL newer(NSString *a, NSString *b) {
+    if (!a.length) return NO;
+    if (!b.length) return YES;
+    NSArray<NSString *> *pa = [a componentsSeparatedByString:@"."], *pb = [b componentsSeparatedByString:@"."];
+    NSUInteger count = MAX(pa.count, pb.count);
+    for (NSUInteger i = 0; i < count; i++) {
+        NSString *sa = i < pa.count ? pa[i] : @"0", *sb = i < pb.count ? pb[i] : @"0";
+        uint64_t va = 0, vb = 0;
+        if (parseUint64(sa, &va) && parseUint64(sb, &vb)) {
+            if (va != vb) return va > vb;
+        } else {
+            NSComparisonResult cmp = [sa compare:sb options:NSNumericSearch];
+            if (cmp != NSOrderedSame) return cmp == NSOrderedDescending;
+        }
+    }
+    return NO;
+}
 
 static NSString *sparkle(NSXMLElement *item, NSXMLElement *enclosure, NSString *name) {
     NSString *value = [enclosure attributeForLocalName:name URI:kSparkle].stringValue
@@ -387,7 +488,6 @@ static Release *offer(NSArray<Release *> *releases) {
     return best;
 }
 
-// The dylib saves the feed Dia's updater used; Early Birds has its own.
 static NSString *diaFeed(void) {
     NSString *saved = CFBridgingRelease(CFPreferencesCopyAppValue(CFSTR("diaFeed"), CFSTR("com.diapatches")));
     return env("DIAPATCH_FEED") ?: ([saved isKindOfClass:NSString.class] ? saved : nil) ?: infoOf(gPristine)[@"SUFeedURL"] ?: kFeed;
@@ -397,11 +497,12 @@ static Release *latest(int seconds, NSString **channel, NSString **problem) {
     NSString *url = diaFeed(), *output;
     NSError *error;
     *channel = [url containsString:@"/release-candidate/"] ? @"Early Birds" : nil;
-    NSXMLDocument *feed = fetch(url, seconds, nil, &output) == 0 ? [[NSXMLDocument alloc] initWithXMLString:output options:0 error:&error] : nil;
+    NSXMLDocument *feed = fetch(url, seconds, nil, &output) == 0 && output.length
+        ? [[NSXMLDocument alloc] initWithXMLString:output options:0 error:&error] : nil;
     Release *release = offer(releasesIn(feed));
     if (!release)
         *problem = [NSString stringWithFormat:@"no update from %@: %@", url,
-                                              feed ? @"nothing for this Mac" : error.localizedDescription ?: output];
+                                              feed ? @"nothing for this Mac" : error.localizedDescription ?: trimmed(output) ?: @"empty response"];
     return release;
 }
 
@@ -422,7 +523,7 @@ static NSString *sha256(NSString *file) {
     if (!data) return nil;
     unsigned char digest[CC_SHA256_DIGEST_LENGTH];
     CC_SHA256(data.bytes, (CC_LONG)data.length, digest);
-    NSMutableString *hex = [NSMutableString string];
+    NSMutableString *hex = [NSMutableString stringWithCapacity:CC_SHA256_DIGEST_LENGTH * 2];
     for (int i = 0; i < CC_SHA256_DIGEST_LENGTH; i++) [hex appendFormat:@"%02x", digest[i]];
     return [@"sha256:" stringByAppendingString:hex];
 }
@@ -430,33 +531,41 @@ static NSString *sha256(NSString *file) {
 static NSDictionary *latestTweaks(int seconds, NSString **problem) {
     NSString *url = env("DIAPATCH_RELEASES") ?: kReleases, *output;
     if (fetch(url, seconds, nil, &output) != 0) {
-        *problem = [NSString stringWithFormat:@"cannot reach %@: %@", url, trimmed(output)];
+        *problem = [NSString stringWithFormat:@"cannot reach %@: %@", url, trimmed(output) ?: @"unknown error"];
         return nil;
     }
-    NSDictionary *release = [NSJSONSerialization JSONObjectWithData:[output dataUsingEncoding:NSUTF8StringEncoding] options:0 error:NULL];
+    NSData *jsonData = [output dataUsingEncoding:NSUTF8StringEncoding];
+    NSDictionary *release = jsonData ? [NSJSONSerialization JSONObjectWithData:jsonData options:0 error:NULL] : nil;
+    NSArray *assets = [release isKindOfClass:NSDictionary.class] && [release[@"assets"] isKindOfClass:NSArray.class] ? release[@"assets"] : nil;
     NSDictionary *asset;
-    for (NSDictionary *candidate in [release isKindOfClass:NSDictionary.class] ? release[@"assets"] : nil)
-        if ([candidate[@"name"] isEqual:kReleaseAsset]) asset = candidate;
-    NSString *digest = asset[@"digest"];
-    if (![digest isKindOfClass:NSString.class] || ![digest hasPrefix:@"sha256:"] || ![release[@"tag_name"] isKindOfClass:NSString.class]) {
+    for (id candidate in assets)
+        if ([candidate isKindOfClass:NSDictionary.class] && [candidate[@"name"] isEqual:kReleaseAsset]) asset = candidate;
+    NSString *digest = asset[@"digest"], *downloadURL = asset[@"browser_download_url"], *tag = release[@"tag_name"];
+    if (![digest isKindOfClass:NSString.class] || ![digest hasPrefix:@"sha256:"] || ![tag isKindOfClass:NSString.class]
+        || ![downloadURL isKindOfClass:NSString.class] || !downloadURL.length) {
         *problem = [NSString stringWithFormat:@"no %@ in the latest DiaTweaks release", kReleaseAsset];
         return nil;
     }
-    return @{ @"tag" : release[@"tag_name"], @"digest" : digest, @"size" : asset[@"size"] ?: @0,
-              @"releaseNotes" : release[@"html_url"] ?: @"", @"url" : asset[@"browser_download_url"] };
+    NSNumber *size = [asset[@"size"] isKindOfClass:NSNumber.class] ? asset[@"size"] : @0;
+    NSString *notes = [release[@"html_url"] isKindOfClass:NSString.class] ? release[@"html_url"] : @"";
+    return @{ @"tag" : tag, @"digest" : digest, @"size" : size, @"releaseNotes" : notes, @"url" : downloadURL };
 }
 
 static NSString *sourceCommit(void) {
+    if (installedRelease()[@"tag"]) return nil;
 #ifdef DIATWEAKS_COMMIT
     NSString *commit = env("DIAPATCH_COMMIT") ?: @DIATWEAKS_COMMIT;
 #else
     NSString *commit = env("DIAPATCH_COMMIT");
 #endif
-    NSPredicate *hex = [NSPredicate predicateWithFormat:@"SELF MATCHES %@", @"[0-9a-f]{7,40}"];
-    return !installedRelease()[@"tag"] && [hex evaluateWithObject:commit] ? commit : nil;
+    if (commit.length < 7 || commit.length > 40) return nil;
+    for (NSUInteger i = 0; i < commit.length; i++) {
+        unichar c = [commit characterAtIndex:i];
+        if (!((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f'))) return nil;
+    }
+    return commit;
 }
 
-// Any failure (unknown commit, no network) must leave the release on offer.
 static NSString *sourceNotOlder(NSDictionary *latest) {
     NSString *commit = sourceCommit();
     if (!commit || ![latest[@"tag"] isKindOfClass:NSString.class]) return nil;
@@ -465,12 +574,12 @@ static NSString *sourceNotOlder(NSDictionary *latest) {
     // Without per_page the answer lists every commit and file between the two.
     NSString *url = [NSString stringWithFormat:@"%@/%@...%@%@", base, tag, commit, [base hasPrefix:@"https:"] ? @"?per_page=1" : @""];
     if (fetch(url, 10, nil, &output) != 0) return nil;
-    NSDictionary *compared = [NSJSONSerialization JSONObjectWithData:[output dataUsingEncoding:NSUTF8StringEncoding] options:0 error:NULL];
+    NSData *jsonData = [output dataUsingEncoding:NSUTF8StringEncoding];
+    NSDictionary *compared = jsonData ? [NSJSONSerialization JSONObjectWithData:jsonData options:0 error:NULL] : nil;
     NSString *status = [compared isKindOfClass:NSDictionary.class] ? compared[@"status"] : nil;
     return [@[ @"ahead", @"identical" ] containsObject:status] ? [commit substringToIndex:7] : nil;
 }
 
-// An older updater skips files it doesn't know (v1.1.0 dropped app-icons), so a missing file re-offers the release.
 static BOOL tweaksInstalled(NSDictionary *latest) {
     if (![installedRelease()[@"digest"] isEqual:latest[@"digest"]]) return NO;
     for (NSString *path in tweaksTargets().allValues)
@@ -502,14 +611,14 @@ static BOOL stageTweaks(void) {
     note(@"downloading DiaTweaks %@ from %@", latest[@"tag"], latest[@"url"]);
     if (fetch(latest[@"url"], 600, zip, &output) != 0) {
         removeTree(work);
-        return fail(@"cannot download DiaTweaks %@: %@", latest[@"tag"], output);
+        return fail(@"cannot download DiaTweaks %@: %@", latest[@"tag"], trimmed(output) ?: @"unknown error");
     }
     BOOL ok = ([sha256(zip) isEqual:latest[@"digest"]] || fail(@"the DiaTweaks %@ download doesn't match its digest", latest[@"tag"]))
         && removeTree(building) && makeDir(building) && check(@[ @"/usr/bin/ditto", @"-x", @"-k", zip, building ]) && unquarantine(building);
     for (NSString *name in tweaksTargets())
         ok = ok && (exists([building stringByAppendingPathComponent:name]) || fail(@"DiaTweaks %@ has no %@, so it can't replace this install", latest[@"tag"], name));
     ok = ok && [@{ @"digest" : latest[@"digest"], @"tag" : latest[@"tag"] } writeToFile:[building stringByAppendingPathComponent:@"release.plist"] atomically:YES]
-        && removeTree(gStagedTweaks) && moveBundle(building, gStagedTweaks);
+        && moveBundle(building, gStagedTweaks);
     removeTree(work);
     removeTree(building);
     return ok && say(@"DiaTweaks %@ is ready to install", latest[@"tag"]);
@@ -530,26 +639,39 @@ static void removeRelay(void) {
     removeTree(DPCopyFolder);
 }
 
+static NSNumber *inodeOf(NSString *path) {
+    struct stat info;
+    return lstat(path.fileSystemRepresentation, &info) == 0 ? @(info.st_ino) : nil;
+}
+
 static BOOL applyTweaks(void) {
-    // The staged release may since have been replaced or overtaken.
     NSString *problem;
     NSDictionary *latest = stagedRelease() ? latestTweaks(15, &problem) : nil;
     if (latest && tweaksInstalled(latest)) removeTree(gStagedTweaks);
-    else if (tweaksAvailable(latest)) stageTweaks();  // a failure still leaves the staged release to install
+    else if (tweaksAvailable(latest)) stageTweaks();
     NSString *tag = stagedRelease()[@"tag"];
     if (!tag) return removeTree(gStagedTweaks);
     NSDictionary<NSString *, NSString *> *targets = tweaksTargets();
     removeRelay();
     BOOL ok = makeDir(inHome(@"bin")) && unquarantine(gStagedTweaks);
-    // The marker tells a resumed apply (files already moved out) from a release that never had them.
+    // Records each staged item's inode so a resumed apply never swaps an old swapped-out item back.
     NSString *started = [gStagedTweaks stringByAppendingPathComponent:@".applying"];
     BOOL resumed = exists(started);
-    for (NSString *name in targets)
-        ok = ok && (resumed || exists([gStagedTweaks stringByAppendingPathComponent:name]) || fail(@"DiaTweaks %@ has no %@, so it can't replace this install", tag, name));
-    ok = ok && (resumed || [NSData.data writeToFile:started atomically:YES] || fail(@"cannot write %@", started));
+    NSDictionary *manifest = resumed ? [NSDictionary dictionaryWithContentsOfFile:started] : nil;
+    NSMutableDictionary<NSString *, NSNumber *> *inodes = [NSMutableDictionary dictionary];
+    for (NSString *name in targets) {
+        NSNumber *inode = inodeOf([gStagedTweaks stringByAppendingPathComponent:name]);
+        if (inode) inodes[name] = inode;
+        ok = ok && (resumed || inode || fail(@"DiaTweaks %@ has no %@, so it can't replace this install", tag, name));
+    }
+    ok = ok && (resumed || [inodes writeToFile:started atomically:YES] || fail(@"cannot write %@", started));
     for (NSString *name in targets) {
         NSString *from = [gStagedTweaks stringByAppendingPathComponent:name];
-        ok = ok && (!exists(from) || moveBundle(from, targets[name]));
+        NSNumber *actual = inodeOf(from);
+        if (!actual) continue;
+        NSNumber *expected = [manifest isKindOfClass:NSDictionary.class] ? manifest[name] : nil;
+        if (expected && ![actual isEqual:expected]) ok = ok && discard(from);
+        else ok = ok && moveBundle(from, targets[name]);
     }
     ok = ok && moveBundle([gStagedTweaks stringByAppendingPathComponent:@"release.plist"], inHome(@"release.plist"));
     return ok && removeTree(gStagedTweaks) && say(@"installed DiaTweaks %@", tag);
@@ -575,7 +697,6 @@ static BOOL apply(void) {
     if (!exists(gStaged)) return YES;
     if (!stagedReady()) return unstage() && fail(@"deleted %@: a stopped run left it there; run `diapatch build` to stage Dia again", gStaged);
     if (appRunning()) return fail(@"Dia is running; quit it, then run `diapatch apply`");
-    // An official Dia that isn't the pristine copy was put there by hand: the staged build is older.
     if (claimsOfficial(gApp) && ![buildOf(gApp) isEqual:buildOf(gPristine)])
         return unstage() && say(@"kept the official Dia %@ at %@; run `diapatch install` to patch it", versionOf(gApp), gApp);
     NSString *signature = signatureOf(gApp);
@@ -601,7 +722,7 @@ static BOOL install(BOOL relaunch) {
         if (!adopted) return removeTree(copy), NO;
     }
     removeRelay();
-    DPForgetApp(gPristine);  // clears a copy registered before diapatch did this
+    DPForgetApp(gPristine);
     if (!build(gPristine)) return NO;
     if (appRunning() && relaunch) {
         run(@[ @"/usr/bin/osascript", @"-e", @"tell application id \"company.thebrowser.dia\" to quit" ], NULL);
@@ -633,7 +754,7 @@ static NSString *unpatchableReason(Release *release) {
 static BOOL update(void) {
     NSString *channel, *problem, *output;
     Release *release = latest(60, &channel, &problem);
-    if (!release) return say(@"%@", problem);
+    if (!release) return fail(@"%@", problem);
     if (!newer(release.build, buildOf(gPristine))) {
         if (stagedReady()) return say(@"Dia %@ is staged; relaunch Dia or run `diapatch apply` to install it", versionOf(gStaged));
         return say(@"Dia %@ is up to date", release.version);
@@ -644,13 +765,13 @@ static BOOL update(void) {
     note(@"downloading Dia %@ (%@) from %@", release.version, channel ?: @"stable", release.url);
     if (fetch(release.url, 3600, zip, &output) != 0) {
         removeTree(work);
-        return fail(@"cannot download Dia %@: %@", release.version, output);
+        return fail(@"cannot download Dia %@: %@", release.version, trimmed(output) ?: @"unknown error");
     }
+    gFailure = nil;
     BOOL unpacked = check(@[ @"/usr/bin/ditto", @"-x", @"-k", zip, work ]) && check(@[ @"/usr/bin/xattr", @"-cr", work ]);
     BOOL official = unpacked && ([buildOf(app) isEqual:release.build] || fail(@"the download holds build %@, not %@", buildOf(app), release.build))
         && verifyOfficial(app);
     BOOL built = official && build(app);
-    // Remember what unpacked but fails again on every launch; a bad download or a full disk can pass.
     if (unpacked && !built) rememberUnpatchable(release, official ? @"patch" : @"verify");
     BOOL ok = built && makeDir(gPristine.stringByDeletingLastPathComponent) && moveBundle(app, gPristine) && (DPForgetApp(gPristine), YES);
     removeTree(work);
@@ -658,20 +779,25 @@ static BOOL update(void) {
     return ok && say(@"Dia %@ is staged; relaunch Dia or run `diapatch apply` to install it", release.version);
 }
 
-// Only a host pointing at this diapatch is ours to remove; the one kept aside goes back.
 static void removePasswordsHost(void) {
+    NSArray<NSString *> *folders = @[
+        [NSHomeDirectory() stringByAppendingPathComponent:@"Library/Application Support/Google/Chrome/NativeMessagingHosts"],
+        [NSHomeDirectory() stringByAppendingPathComponent:@"Library/Application Support/Dia/User Data/NativeMessagingHosts"],
+    ];
     for (NSString *file in @[ @"com.apple.passwordmanager.json", @"io.github.fanckush.betterpasswords.bridge.json", @"com.openpasswords.icloud.json", @"com.diapatches.passkeys.json" ]) {
-        NSString *path = [NSHomeDirectory() stringByAppendingPathComponent:[@"Library/Application Support/Google/Chrome/NativeMessagingHosts" stringByAppendingPathComponent:file]];
-        NSDictionary *host = [NSJSONSerialization JSONObjectWithData:[NSData dataWithContentsOfFile:path] ?: NSData.data options:0 error:NULL];
-        if (![host isKindOfClass:NSDictionary.class] || ![host[@"path"] isEqual:inHome(@"bin/diapatch")]) continue;
-        removeTree(path);
-        [NSFileManager.defaultManager moveItemAtPath:inHome(file) toPath:path error:NULL];
+        for (NSString *folder in folders) {
+            NSString *path = [folder stringByAppendingPathComponent:file];
+            NSData *data = [NSData dataWithContentsOfFile:path];
+            if (!data) continue;
+            NSDictionary *host = [NSJSONSerialization JSONObjectWithData:data options:0 error:NULL];
+            if (![host isKindOfClass:NSDictionary.class] || ![host[@"path"] isEqual:inHome(@"bin/diapatch")]) continue;
+            removeTree(path);
+            [NSFileManager.defaultManager moveItemAtPath:inHome(file) toPath:path error:NULL];
+        }
     }
 }
 
-// Deletes only what DiaPatches creates, in case DIAPATCH_HOME points somewhere shared.
 static BOOL purge(void) {
-    // Mirrors install.sh's link locations.
     NSArray<NSString *> *linkDirs = env("DIATWEAKS_LINK_DIR") ? @[ env("DIATWEAKS_LINK_DIR") ]
         : @[ @"/opt/homebrew/bin", @"/usr/local/bin", [NSHomeDirectory() stringByAppendingPathComponent:@".local/bin"] ];
     for (NSString *dir in linkDirs) {
@@ -681,7 +807,7 @@ static BOOL purge(void) {
         if (!removeTree(link)) return NO;
         say(@"deleted %@", link);
     }
-    for (NSString *name in @[ @"bin", @DYLIB, @"patches.json", @"release.plist", @"pristine", @"staged", @"identity", @"diapatch.log", @"safe-mode.plist",
+    for (NSString *name in @[ @"bin", @DYLIB, @"patches.json", @"release.plist", @"pristine", @"staged", @"identity", @"diapatch.log", @"safe-mode.plist", @"paused",
                               @".diatweaks.lock", @".incoming", @"icons", @"app-icons", @"passwords-helper", @"passwords.sock", @"onepassword.sock", @"passwords-launch",
                               @"passkey-helper", @"passkey-helper.lock", @"passkeys-extension", @"unpatchable.plist",
                               @"methods.txt", @"views.txt", @"layout-loops.txt" ])
@@ -698,13 +824,14 @@ static BOOL purge(void) {
 
 static BOOL uninstall(BOOL purgeFiles) {
     if (appRunning()) return fail(@"Dia is running; quit it, then run `diapatch uninstall`");
+    BOOL needRestore = !claimsOfficial(gApp);
+    if (needRestore && !exists(gPristine)) return fail(@"no official Dia at %@; reinstall Dia from https://www.diabrowser.com", gPristine);
     removeRelay();
     removePasswordsHost();
     if (!removeTree(DPCopyFolder)) return NO;
     NSString *signature = signatureOf(gApp);
-    if (!claimsOfficial(gApp)) {
+    if (needRestore) {
         NSString *copy = [gPristine stringByAppendingString:@".restore"];
-        if (!exists(gPristine)) return fail(@"no official Dia at %@; reinstall Dia from https://www.diabrowser.com", gPristine);
         if (!removeTree(copy) || !clone(gPristine, copy) || !moveBundle(copy, gApp)) return removeTree(copy), NO;
     }
     forgetScreenRecordingIfResigned(signature);
@@ -744,14 +871,15 @@ static BOOL checkUpdates(void) {
     NSString *channel, *problem, *tweaksProblem;
     Release *dia = latest(15, &channel, &problem);
     NSDictionary *tweaks = latestTweaks(15, &tweaksProblem);
-    BOOL diaStaged = stagedReady() && [buildOf(gStaged) isEqual:dia.build];
+    BOOL ready = stagedReady();
+    BOOL diaStaged = ready && [buildOf(gStaged) isEqual:dia.build];
     NSDictionary *result = @{
         @"dia" : @{
             @"installed" : versionOf(gPristine) ?: NSNull.null,
             @"latest" : dia.version ?: NSNull.null,
             @"size" : @(dia.size),
             @"releaseNotes" : kDiaReleaseNotes,
-            @"staged" : (stagedReady() ? versionOf(gStaged) : nil) ?: NSNull.null,
+            @"staged" : (ready ? versionOf(gStaged) : nil) ?: NSNull.null,
             @"available" : @((BOOL)(dia && newer(dia.build, buildOf(gPristine)) && !diaStaged)),
             @"unpatchable" : unpatchableReason(dia) ?: NSNull.null,
             @"error" : dia ? NSNull.null : problem,
@@ -793,9 +921,9 @@ int main(int argc, const char *argv[]) {
     @autoreleasepool {
         if (DPIsPasswordsHandoff(argc, argv)) return DPRunPasswordsHandoff();
         signal(SIGPIPE, SIG_IGN);
-        gHome = env("DIAPATCH_HOME") ?: [NSHomeDirectory() stringByAppendingPathComponent:@"Library/Application Support/DiaPatches"];
-        gApp = env("DIAPATCH_APP") ?: @"/Applications/Dia.app";
-        gCache = env("DIAPATCH_CACHE") ?: [NSHomeDirectory() stringByAppendingPathComponent:@"Library/Caches/DiaPatches"];
+        gHome = (env("DIAPATCH_HOME") ?: [NSHomeDirectory() stringByAppendingPathComponent:@"Library/Application Support/DiaPatches"]).stringByStandardizingPath;
+        gApp = (env("DIAPATCH_APP") ?: @"/Applications/Dia.app").stringByStandardizingPath;
+        gCache = (env("DIAPATCH_CACHE") ?: [NSHomeDirectory() stringByAppendingPathComponent:@"Library/Caches/DiaPatches"]).stringByStandardizingPath;
         gPristine = inHome(@"pristine/Dia.app");
         gStaged = inHome(@"staged/Dia.app");
         gReady = inHome(@"staged/ready");
@@ -822,7 +950,6 @@ int main(int argc, const char *argv[]) {
             fputs(kUsage, help ? stdout : stderr);
             return help ? 0 : 2;
         }
-        // Tests patch a copy of Dia: relaunching or quitting by bundle ID could hit the real one.
         if (env("DIAPATCH_NO_RELAUNCH")) [flags removeObject:@"--relaunch"];
         if ([command isEqualToString:@"status"]) return status([flags containsObject:@"--json"]) ? 0 : 1;
         if ([command isEqualToString:@"check"]) return checkUpdates() ? 0 : 1;
@@ -830,13 +957,13 @@ int main(int argc, const char *argv[]) {
         if (pid) setsid();  // Dia is about to quit: leave its process group
         gCommand = argv[1];
         if (!makeDir(gHome)) return 1;
-        gLog = fopen(inHome(@"diapatch.log").fileSystemRepresentation, "a");
+        gLog = fopen(inHome(@"diapatch.log").fileSystemRepresentation, "ae");
         if (!gLog) return fail(@"cannot open %@: %s", inHome(@"diapatch.log"), strerror(errno)), 1;
         setvbuf(gLog, NULL, _IOLBF, 0);
         if (pid) waitForQuit(pid);
         if (flock(fileno(gLog), LOCK_EX | LOCK_NB) != 0) {
-            say(@"waiting for another diapatch run to finish");
-            flock(fileno(gLog), LOCK_EX);
+            if (errno == EWOULDBLOCK) say(@"waiting for another diapatch run to finish");
+            while (flock(fileno(gLog), LOCK_EX) != 0 && errno == EINTR) {}
         }
         removeSetAside(), emptyTrash();
         BOOL ok = [command isEqualToString:@"install"] ? install([flags containsObject:@"--relaunch"])
@@ -847,9 +974,14 @@ int main(int argc, const char *argv[]) {
             : [command isEqualToString:@"apply"]       ? applyChosen([flags containsObject:@"--dia"], [flags containsObject:@"--tweaks"])
                                                        : uninstall([flags containsObject:@"--purge"]);
         // open sometimes fails with -600 right after Dia quits itself.
-        for (int i = 0; [flags containsObject:@"--relaunch"] && i < 20; i++) {
-            if (check(@[ @"/usr/bin/open", gApp ])) break;
-            usleep(500000);
+        if ([flags containsObject:@"--relaunch"] && exists(gApp)) {
+            NSString *relaunchOut = nil;
+            int relaunchStatus = -1;
+            for (int i = 0; i < 20; i++) {
+                if ((relaunchStatus = run(@[ @"/usr/bin/open", gApp ], &relaunchOut)) == 0) break;
+                usleep(500000);
+            }
+            if (relaunchStatus != 0) fail(@"open failed (%d): %@", relaunchStatus, trimmed(relaunchOut) ?: @"unknown error");
         }
         return ok ? 0 : 1;
     }

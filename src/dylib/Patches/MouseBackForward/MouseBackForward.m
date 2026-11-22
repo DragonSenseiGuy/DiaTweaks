@@ -53,8 +53,9 @@ static void DPInstallMouseBackForward(void) {
     DPPages = [NSHashTable weakObjectsHashTable];
     DPHook(DPDiaWebContents, @selector(setVisibility:), (IMP)DPPage_setVisibility);
     [NSEvent addLocalMonitorForEventsMatchingMask:NSEventMaskOtherMouseDown | NSEventMaskOtherMouseUp | NSEventMaskSwipe handler:^NSEvent *(NSEvent *event) {
+        if (!DPMouseBackForward.on) return event;
         NSInteger offset = DPOffset(event);
-        id page = DPMouseBackForward.on && offset ? DPPageAt(event) : nil;
+        id page = offset ? DPPageAt(event) : nil;
         if (!page) return event;
         if (event.type != NSEventTypeOtherMouseDown) DPGo(page, offset);
         return nil;

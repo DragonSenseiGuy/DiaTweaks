@@ -16,6 +16,7 @@ struct DPPatch {
     __unsafe_unretained NSString *requires;
     __unsafe_unretained NSString *disabledBy;
     __unsafe_unretained NSString *coveredBy;
+    BOOL relaunch;  // Applies only at launch.
     __unsafe_unretained NSString *choice, *defaultChoice;  // Saved as the chosen item's representedObject.
     NSMenu *(*choices)(void);
     NSArray<NSView *> *(*rows)(void);
@@ -27,7 +28,7 @@ struct DPPatch {
     void (*relayout)(void);
     // nil if Dia's views match `on`, else what's wrong. Use DPFindViews, not your hooks, so a hook that never ran fails.
     NSString *(*verify)(DPPatch *patch);
-    BOOL (*animating)(void);  // Optional: whether it's still easing something its verify reads. The test waits for it.
+    BOOL (*animating)(void);  // Non-nil when verify must wait for an ease.
     NSString *(*ready)(DPPatch *patch);
     BOOL on, unavailable;
     CGFloat progress;
@@ -35,9 +36,9 @@ struct DPPatch {
 
 #define DPClasses(...) ((const char *const []){__VA_ARGS__, NULL})
 
-#define DP_PATCH(name)                                                                              \
-    DPPatch name;                                                                                   \
-    __attribute__((used, section("__DATA,__dppatches"))) static DPPatch *const name##Entry = &name; \
+#define DP_PATCH(name)                                                                                                      \
+    DPPatch name;                                                                                                           \
+    __attribute__((used, no_sanitize("address"), section("__DATA,__dppatches"))) static DPPatch *const name##Entry = &name; \
     DPPatch name =
 
 extern DPPatch *const *DPPatches;
@@ -45,14 +46,20 @@ extern NSUInteger DPPatchCount;
 DPPatch *DPPatchNamed(NSString *key);
 DPPatch *DPRequired(DPPatch *patch);
 void DPSetPatch(DPPatch *patch, BOOL on, BOOL save);
-BOOL DPAnimating(void);  // Whether any easing is still running.
+void DPApplySavedSettings(void);
+BOOL DPEffectiveOn(DPPatch *patch);
+BOOL DPAnimating(void);
 BOOL DPSavedOn(DPPatch *patch);
 NSString *DPChoice(DPPatch *patch);
 void DPSetChoice(DPPatch *patch, NSString *value);
 void DPLoadPatches(void);
+void DPWatchSavedSettings(void);
 void DPInstallPatches(void);
-BOOL DPWriteManifest(NSString *path);  // Reads no settings.
+BOOL DPWriteManifest(NSString *path);
 NSString *DPAppSupport(NSString *path);
+NSArray<NSString *> *DPHostFolders(void);
+NSString *DPHostFolder(BOOL create, NSError **error);
+NSString *DPSystemHostFolder(void);
 NSString *DPRelayProblem(void);
 NSString *DPHostProblem(NSString *manifest, NSString *name);
 NSString *DPWriteProblem(NSString *path, NSError *error);
@@ -60,13 +67,26 @@ extern NSNotificationName const DPPatchesDidChangeNotification;
 #define DPLeadingOption @"DPLeadingOption"
 extern BOOL DPTesting;
 
+typedef struct DPHookFrame {
+    const void *object;
+    SEL sel;
+    IMP replacement;
+    Class cls;
+    struct DPHookFrame *previous;
+} DPHookFrame;
+
 void DPHook(const char *className, SEL sel, IMP replacement);
 void DPHookClass(Class cls, SEL sel, IMP replacement);
 IMP DPDiaIMP(Class cls, SEL sel);
 IMP DPOriginalIMP(id object, SEL sel, IMP replacement);
+IMP DPPushOriginalIMP(id object, SEL sel, IMP replacement, DPHookFrame *frame);
+void DPPopOriginalIMP(DPHookFrame *frame);
 
-#define DPCallOriginal(hook, self, ...) \
-    ((__typeof__(&hook))DPOriginalIMP(self, _cmd, (IMP)hook))(self, _cmd, ##__VA_ARGS__)
+#define DPCallOriginal(hook, self, ...)                                                                      \
+    ({                                                                                                       \
+        DPHookFrame dp_frame __attribute__((cleanup(DPPopOriginalIMP)));                                     \
+        ((__typeof__(&hook))DPPushOriginalIMP(self, _cmd, (IMP)hook, &dp_frame))(self, _cmd, ##__VA_ARGS__); \
+    })
 
 NSView *DPFindView(NSView *root, BOOL (^match)(NSView *view));
 NSArray<NSView *> *DPFindViews(const char *className);
@@ -74,6 +94,7 @@ NSString *DPTabLayout(void);
 NSView *DPSubview(NSView *parent, const char *className);
 BOOL DPIsKind(id object, const char *className);
 BOOL DPIsFloatingChat(NSView *popover);
+BOOL DPIsChatButton(NSView *view);
 BOOL DPHasLabel(NSView *view, NSString *accessibilityLabel);
 void DPRelayoutViews(NSHashTable<NSView *> *views);
 // Call before changing a frame during layout: if Dia keeps restoring it, the two loop until AppKit aborts Dia.
@@ -103,12 +124,12 @@ NSURL *DPAddressURL(NSString *typed);
 
 float DPZoomStep(float now, int direction);
 
-// Chromium reads extensions and launch flags once as Dia starts: call DPLoadExtension and DPAddLaunchFlag from an `install`.
-// A tweak that is off calls DPDropExtension and DPDropLaunchFlag there instead, with what it adds when on.
+// Call DPLoad*/DPAdd* when on, or DPDrop* when off, from install.
 void DPLoadExtension(NSString *folder);
 void DPAddLaunchFlag(NSString *flag);
 void DPDropExtension(NSString *folder);
 void DPDropLaunchFlag(NSString *flag);
+void DPDropStaleLaunchFlags(void);
 
 void DPOnLaunch(void (^block)(void));
 void DPOnQuit(void (^block)(void));

@@ -11,7 +11,7 @@ static NSString *DPVerifyPullRequestRepo(DPPatch *patch) {
         NSDictionary *pr = DPPullRequestOf(view);
         if (!pr) continue;
         NSString *text = ((NSTextField *)view).stringValue;
-        if (patch->on && [text hasPrefix:pr[@"author"]]) return @"a pull request still shows its author";
+        if (patch->on && ![text hasPrefix:pr[@"repo"]] && [text hasPrefix:pr[@"author"]]) return @"a pull request still shows its author";
         if (!patch->on && [text hasPrefix:pr[@"repo"]]) return @"a pull request still shows its repository";
     }
     if (patch->on) return nil;

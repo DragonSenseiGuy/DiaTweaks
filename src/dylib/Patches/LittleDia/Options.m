@@ -35,7 +35,7 @@ void DPSaveLittleDiaFrame(NSRect frame) { [DPSettings() setObject:NSStringFromRe
     self.slider.doubleValue = value;
     self.field.doubleValue = value;
     [DPSettings() setDouble:value forKey:self.key];
-    [DPSettings() removeObjectForKey:DPFrameKey];  // The new size should show, not the one left behind.
+    [DPSettings() removeObjectForKey:DPFrameKey];
 }
 
 - (BOOL)control:(NSControl *)control textView:(NSTextView *)textView doCommandBySelector:(SEL)command {
@@ -86,13 +86,13 @@ extern DPPatch DPLittleDiaEscape;
 
 // Peek's own monitor takes Escape too and may run first or second, so this one stands aside while a Peek is open.
 static BOOL DPEscapeCloses(NSEvent *event) {
-    NSWindow *window = event.window;
+    if (!DPLittleDia.on || !DPLittleDiaEscape.on || event.keyCode != 53 || event.isARepeat) return NO;
     NSEventModifierFlags mods = event.modifierFlags & (NSEventModifierFlagCommand | NSEventModifierFlagShift | NSEventModifierFlagOption | NSEventModifierFlagControl);
-    if (!DPLittleDia.on || !DPLittleDiaEscape.on || event.keyCode != 53 || mods || event.isARepeat || !window.isKeyWindow) return NO;
-    if (!DPIsLittleDiaWindow(window) || (window.styleMask & NSWindowStyleMaskFullScreen) || DPPeekCardIn(window)) return NO;
-    if ([window.firstResponder isKindOfClass:NSText.class] && [(NSText *)window.firstResponder isFieldEditor]) return NO;
-    NSResponder<NSTextInputClient> *typing = (id)window.firstResponder;
-    if ([typing conformsToProtocol:@protocol(NSTextInputClient)] && typing.hasMarkedText) return NO;
+    NSWindow *window = event.window;
+    if (mods || !window.isKeyWindow || !DPIsLittleDiaWindow(window) || (window.styleMask & NSWindowStyleMaskFullScreen) || DPPeekCardIn(window)) return NO;
+    NSResponder *responder = window.firstResponder;
+    if ([responder isKindOfClass:NSText.class] && [(NSText *)responder isFieldEditor]) return NO;
+    if ([responder conformsToProtocol:@protocol(NSTextInputClient)] && [(id<NSTextInputClient>)responder hasMarkedText]) return NO;
     [window performClose:nil];
     return YES;
 }

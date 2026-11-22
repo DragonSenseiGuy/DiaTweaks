@@ -156,17 +156,26 @@ NSView *DPIconTile(NSString *symbol, NSColor *color) { return DPIconTileOfSize(s
 static CGFloat DPLinear(CGFloat c) { return c <= 0.04045 ? c / 12.92 : pow((c + 0.055) / 1.055, 2.4); }
 
 static NSColor *DPTileFill(NSColor *color) {
+    if (!color) return NSColor.blackColor;
+    static NSMutableDictionary<NSColor *, NSColor *> *cache;
+    if (!cache) cache = [NSMutableDictionary new];
+    NSColor *cached = cache[color];
+    if (cached) return cached;
     __block NSColor *rgb;
     [[NSAppearance appearanceNamed:NSAppearanceNameAqua] performAsCurrentDrawingAppearance:^{
         rgb = [color colorUsingColorSpace:NSColorSpace.sRGBColorSpace];
     }];
+    NSColor *fill = NSColor.blackColor;
     for (CGFloat dark = 0; dark < 1; dark += 0.01) {
         CGFloat k = 1 - dark;
         CGFloat luminance = 0.2126 * DPLinear(rgb.redComponent * k) + 0.7152 * DPLinear(rgb.greenComponent * k) +
                             0.0722 * DPLinear(rgb.blueComponent * k);
-        if (1.05 / (luminance + 0.05) >= 3) return [NSColor colorWithSRGBRed:rgb.redComponent * k green:rgb.greenComponent * k blue:rgb.blueComponent * k alpha:1];
+        if (1.05 / (luminance + 0.05) >= 3) {
+            fill = [NSColor colorWithSRGBRed:rgb.redComponent * k green:rgb.greenComponent * k blue:rgb.blueComponent * k alpha:1];
+            break;
+        }
     }
-    return NSColor.blackColor;
+    return cache[color] = fill;
 }
 
 NSView *DPIconTileOfSize(NSString *symbol, NSColor *color, CGFloat size) {

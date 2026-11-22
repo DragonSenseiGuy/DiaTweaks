@@ -1,21 +1,27 @@
 #import "Patches/Peek/Peek.h"
 #import "Commands/GroupTabs/GroupTabs.h"
 #import "Patches/LittleDia/LittleDia.h"
+#import "Patches/CommandBar/Tabs.h"
 
 static NSURL *DPPeekHovered;
 static __weak id DPPeekHoveredPage, DPPeekHoveredDelegate;
 static NSUInteger DPPeekLookAheadTurn;
-static NSString *DPPeekLink, *DPPeekPressed;  // The link under the pointer, as Dia's status text says; it leaves "http://" out, so it is kept without a scheme.
+static NSString *DPPeekLink, *DPPeekPressed;
 static __weak id DPPeekLinkPage, DPPeekPressedPage;
 static NSTimeInterval DPPeekPressedAt;
 
-static BOOL DPPeekWanted(NSInteger disposition) {
-    BOOL elsewhere = disposition == DPForegroundTab || disposition == DPBackgroundTab || disposition == DPPopup || disposition == DPNewWindow;
-    NSEventModifierFlags mods = NSEvent.modifierFlags & NSEventModifierFlagDeviceIndependentFlagsMask & ~(NSEventModifierFlagCapsLock | NSEventModifierFlagNumericPad | NSEventModifierFlagFunction);
-    return DPPeek.on && !DPPeekGiving && elsewhere && mods == NSEventModifierFlagShift;  // Exactly Shift: ⌘⇧-click and ⌥⇧-click keep their meaning.
+static NSEventModifierFlags DPPeekModifiers(void) {
+    return NSEvent.modifierFlags & NSEventModifierFlagDeviceIndependentFlagsMask &
+           ~(NSEventModifierFlagCapsLock | NSEventModifierFlagNumericPad | NSEventModifierFlagFunction);
 }
 
-// The page clears the status as a click starts, before Dia is asked what to do with it, so the link under the pointer at mouse-down counts.
+static BOOL DPPeekWanted(NSInteger disposition) {
+    if (!DPPeek.on || DPPeekGiving) return NO;
+    BOOL elsewhere = disposition == DPForegroundTab || disposition == DPBackgroundTab || disposition == DPPopup || disposition == DPNewWindow;
+    return elsewhere && DPPeekModifiers() == NSEventModifierFlagShift;
+}
+
+// Pages clear status text on mouse-down before decidePolicy runs, so fall back to the hovered link at mouse-down.
 BOOL DPPeekOverLink(id page, NSURL *url) {
     NSString *key = url ? DPPeekLinkKey(url.absoluteString) : nil;
     if (!page || !key) return NO;
@@ -23,13 +29,18 @@ BOOL DPPeekOverLink(id page, NSURL *url) {
     return page == DPPeekPressedPage && [key isEqual:DPPeekPressed] && NSProcessInfo.processInfo.systemUptime - DPPeekPressedAt < 2;
 }
 
-BOOL DPPeekIsWeb(NSURL *url) { return [url isKindOfClass:NSURL.class] && [@[ @"http", @"https" ] containsObject:url.scheme.lowercaseString]; }
+BOOL DPPeekIsWeb(NSURL *url) {
+    if (![url isKindOfClass:NSURL.class]) return NO;
+    NSString *scheme = url.scheme;
+    return [scheme caseInsensitiveCompare:@"http"] == NSOrderedSame || [scheme caseInsensitiveCompare:@"https"] == NSOrderedSame;
+}
 
 static void DPPeekOpenLater(id delegate, id source, NSURL *url) {
-    DPPeekLookAheadTurn++;  // The link opens now; a look-ahead still waiting would load it again.
+    DPPeekLookAheadTurn++;
     NSWindow *window = NSApp.keyWindow;
+    NSString *originTabID = DPActiveTabID(window);
     NSPoint origin = NSEvent.mouseLocation;
-    dispatch_async(dispatch_get_main_queue(), ^{ DPPeekOpen(window, url, origin, delegate, source); });
+    dispatch_async(dispatch_get_main_queue(), ^{ DPPeekOpen(window, originTabID, url, origin, delegate, source); });
 }
 
 static void DPWebContent_didCreate(id self, SEL _cmd, id webContents, id newWebContent, NSURL *url, NSInteger disposition) {
@@ -50,29 +61,28 @@ static void DPWebContent_didCreate(id self, SEL _cmd, id webContents, id newWebC
 - (void)forwardInvocation:(NSInvocation *)invocation { [invocation invokeWithTarget:self.action]; }
 @end
 
-// Dia leaves a pinned row's links in its tab, so a plain click that goes to another site is Peek's to take.
 static BOOL DPPeekLeavesPinnedRow(id webContents, id action, NSInteger disposition, NSInteger policy) {
-    NSEventModifierFlags mods = NSEvent.modifierFlags & NSEventModifierFlagDeviceIndependentFlagsMask & ~(NSEventModifierFlagCapsLock | NSEventModifierFlagNumericPad | NSEventModifierFlagFunction);
     BOOL stays = disposition == DPCurrentTab || disposition == DPForegroundTab;
     NSInteger type = [[action valueForKey:@"navigationType"] integerValue];
-    // Dia reports a click on a target=_blank link as an "other" navigation (4) into a new tab, a click on any other link as a link activation (0).
+    // navigationType: 0 = link activation, 4 = other (how Dia reports target=_blank clicks).
     BOOL clicked = type == 0 || (type == 4 && disposition == DPForegroundTab);
-    if (mods || !stays || !clicked || (policy != DPCurrentTab && policy != DPForegroundTab)) return NO;
+    if (DPPeekModifiers() || !stays || !clicked || (policy != DPCurrentTab && policy != DPForegroundTab)) return NO;
     NSString *from = DPDomainKey([[(NSObject *)webContents valueForKey:@"url"] absoluteString]), *to = DPDomainKey([[action valueForKey:@"url"] absoluteString]);
     if (!from || !to || [DPRegistrableDomain(from) isEqual:DPRegistrableDomain(to)]) return NO;
     return !DPPeekShows(webContents) && DPPeekInPinnedRow(NSApp.keyWindow, webContents);
 }
 
 static NSInteger DPWebContent_decidePolicy(id self, SEL _cmd, id webContents, id action) {
+    BOOL little = DPLittleDia.on && DPLittleDiaTabLinks.on;
+    if (!DPPeek.on && !little) return DPCallOriginal(DPWebContent_decidePolicy, self, webContents, action);
     NSInteger disposition = [[action valueForKey:@"navigationDisposition"] integerValue];
     if (!DPPeekWanted(disposition)) {
         NSInteger policy = DPCallOriginal(DPWebContent_decidePolicy, self, webContents, action);
-        BOOL peeks = DPPeek.on && DPPeekPinnedLinks.on, little = DPLittleDia.on && DPLittleDiaTabLinks.on;
+        BOOL peeks = DPPeek.on && DPPeekPinnedLinks.on;
         if (!peeks && !little) return policy;
         NSURL *url = [action valueForKey:@"url"];
-        // A new tab asked for by a page's own script has no link under the pointer, and would lose its opener in Little Dia.
+        // Script-opened tabs have no link under the pointer and would lose their opener in Little Dia.
         BOOL clicked = disposition != DPForegroundTab || DPPeekOverLink(webContents, url);
-        // Finding a pinned row builds a menu. Without Peek's pinned links, Little Dia needs it only for a clicked link that Dia keeps in the tab.
         BOOL leaves = (peeks || (clicked && policy == DPCurrentTab)) && DPPeekLeavesPinnedRow(webContents, action, disposition, policy);
         if (!leaves && policy == DPForegroundTab) {
             // Ask Dia as if the link stayed in the tab: only an icon-only pinned tab turns that into a new tab.
@@ -114,10 +124,12 @@ static void DPPeekLookAhead(void) {
 
 static void DPWebContent_status(id self, SEL _cmd, id webContents, NSString *text) {
     DPCallOriginal(DPWebContent_status, self, webContents, text);
+    if (!DPPeek.on && !(DPLittleDia.on && DPLittleDiaTabLinks.on)) return;
     DPPeekLink = text.length ? DPPeekLinkKey(text) : nil;
     DPPeekLinkPage = webContents;
+    if (!DPPeek.on) return;
     NSURL *url = text.length ? [NSURL URLWithString:text] : nil;
-    if (!url && webContents != DPPeekHoveredPage) return;  // Other pages, the warm one included, clear their own.
+    if (!url && webContents != DPPeekHoveredPage) return;
     DPPeekHovered = DPPeekIsWeb(url) ? url : nil;
     DPPeekHoveredPage = webContents;
     DPPeekHoveredDelegate = self;
@@ -125,31 +137,41 @@ static void DPWebContent_status(id self, SEL _cmd, id webContents, NSString *tex
 }
 
 void DPPeekOpenDragged(NSURL *url, NSPoint origin) {
+    if (!DPPeek.on) return;
     id page = DPPeekHoveredPage;
     if (DPPeekShows(page)) return DPPeekLoad(page, url);
-    if (DPPeekCanOpen(page)) DPPeekOpen(NSApp.keyWindow, url, origin, DPPeekHoveredDelegate, page);
+    NSWindow *window = NSApp.keyWindow;
+    if (DPPeekCanOpen(page)) DPPeekOpen(window, DPActiveTabID(window), url, origin, DPPeekHoveredDelegate, page);
 }
 
 static void DPInstallPeek(void) {
     DPPeekInstallPages();
+    DPPeekInstallSelection();
     DPPeekInstallZoom();
     DPPeekInstallCursor();
+    DPPeekInstallChat();
     DPOnLaunch(^{
         DPHook(DPDiaWebContent, @selector(webContents:didCreateNewWebContent:targetURL:disposition:), (IMP)DPWebContent_didCreate);
         DPHook(DPDiaWebContent, @selector(webContents:decidePolicyForNavigationAction:), (IMP)DPWebContent_decidePolicy);
         DPHook(DPDiaWebContent, @selector(webContents:didChangeStatusText:), (IMP)DPWebContent_status);
     });
     [NSEvent addLocalMonitorForEventsMatchingMask:NSEventMaskLeftMouseDown handler:^NSEvent *(NSEvent *event) {
+        if (!DPPeek.on && !(DPLittleDia.on && DPLittleDiaTabLinks.on)) return event;
         DPPeekPressed = DPPeekLink;
         DPPeekPressedPage = DPPeekLinkPage;
         DPPeekPressedAt = event.timestamp;
         return event;
     }];
     [NSEvent addLocalMonitorForEventsMatchingMask:NSEventMaskFlagsChanged | NSEventMaskKeyDown handler:^NSEvent *(NSEvent *event) {
+        if (!DPPeek.on) return event;
         if (event.type == NSEventTypeKeyDown) DPPeekLookAheadTurn++;
         else DPPeekLookAhead();
         return event;
     }];
+}
+
+static void DPApplyPeek(DPPatch *patch) {
+    if (!patch->on) DPPeekCloseAll();
 }
 
 static NSString *DPVerifyPeek(DPPatch *patch) {
@@ -158,6 +180,15 @@ static NSString *DPVerifyPeek(DPPatch *patch) {
         return @"link clicks don't reach Peek";
     if (class_getMethodImplementation(delegate, @selector(webContents:didCreateNewWebContent:targetURL:disposition:)) != (IMP)DPWebContent_didCreate)
         return @"new windows don't reach Peek";
+    if (!patch->on && DPPeekAllCards(nil).count) return @"Peek cards stayed open when turned off";
+    if (patch->on) {
+        NSCountedSet<NSWindow *> *visibleByWindow = [NSCountedSet set];
+        for (DPPeekCard *peek in DPPeekAllCards(nil)) {
+            if (peek.closing || peek.isHiddenOrHasHiddenAncestor || !peek.window) continue;
+            [visibleByWindow addObject:peek.window];
+            if ([visibleByWindow countForObject:peek.window] > 1) return @"multiple Peek cards are visible in one window";
+        }
+    }
     return DPPeekZoomProblem();
 }
 
@@ -171,6 +202,7 @@ DP_PATCH(DPPeek) {
     .section = @"Links",
     .classes = DPClasses(DPDiaBrowserContext, DPDiaWebContents, DPDiaWebContentsConfiguration, DPDiaContentPane),
     .install = DPInstallPeek,
+    .apply = DPApplyPeek,
     .verify = DPVerifyPeek,
     .rows = DPPeekSettingsRows,
     .hint = @"Tip: right after Dia starts, open or switch to any tab once to start Peek.",

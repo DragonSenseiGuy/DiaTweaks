@@ -53,16 +53,18 @@ static void DPView_setNeedsUpdateConstraints(NSView *self, SEL _cmd, BOOL needs)
 }
 
 static void DPView_setFrameSize(NSView *self, SEL _cmd, NSSize size) {
-    if (!NSEqualSizes(size, self.frame.size)) {
-        DPRemember(self, self.frame, (NSRect){self.frame.origin, size});
+    NSRect from = self.frame;
+    if (!NSEqualSizes(size, from.size)) {
+        DPRemember(self, from, (NSRect){from.origin, size});
         DPCount(self, @"setFrameSize");
     }
     DPCallOriginal(DPView_setFrameSize, self, size);
 }
 
 static void DPView_setFrameOrigin(NSView *self, SEL _cmd, NSPoint origin) {
-    if (!NSEqualPoints(origin, self.frame.origin)) {
-        DPRemember(self, self.frame, (NSRect){origin, self.frame.size});
+    NSRect from = self.frame;
+    if (!NSEqualPoints(origin, from.origin)) {
+        DPRemember(self, from, (NSRect){origin, from.size});
         DPCount(self, @"setFrameOrigin");
     }
     DPCallOriginal(DPView_setFrameOrigin, self, origin);

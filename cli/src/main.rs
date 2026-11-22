@@ -4,6 +4,7 @@ mod env;
 mod lock;
 mod manifest;
 mod menu;
+mod pause;
 mod prefs;
 mod restore;
 mod signals;
@@ -48,6 +49,10 @@ enum Command {
         #[arg(required = true, value_name = "TWEAK")]
         tweaks: Vec<String>,
     },
+    /// Turn every tweak off, keeping their settings, until `diatweaks resume`
+    Pause,
+    /// Turn the tweaks back on as they were before `diatweaks pause`
+    Resume,
     /// Show Dia's versions, safe mode and which tweaks are on
     Status,
     /// Install the latest DiaTweaks release, then patch Dia again
@@ -101,6 +106,8 @@ fn run(command: Option<Command>, ui: &Ui) -> Result<()> {
         Command::List => tweaks::list(&env),
         Command::Enable { tweaks } => tweaks::set(&env, ui, &tweaks, true),
         Command::Disable { tweaks } => tweaks::set(&env, ui, &tweaks, false),
+        Command::Pause => pause::set(&env, ui, true),
+        Command::Resume => pause::set(&env, ui, false),
         Command::Status => status::print(&env, ui),
         Command::Update => update::run(&env, ui),
         Command::UpdateDia => update_dia::run(&env, ui),

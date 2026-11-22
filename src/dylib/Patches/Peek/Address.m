@@ -47,7 +47,9 @@
 
 - (void)refresh {
     BOOL open = self.hovered || self.field;
-    self.layer.backgroundColor = open ? [NSColor.labelColor colorWithAlphaComponent:0.07].CGColor : nil;
+    [self.effectiveAppearance performAsCurrentDrawingAppearance:^{
+        self.layer.backgroundColor = open ? [NSColor.labelColor colorWithAlphaComponent:0.07].CGColor : nil;
+    }];
     if (self.field) return;
     NSURL *url = self.url;
     NSString *title = [(NSObject *)self.page valueForKey:@"title"];
@@ -67,7 +69,8 @@
     if (![self.label.attributedStringValue isEqual:text]) self.label.attributedStringValue = text;
     self.label.toolTip = url.absoluteString;
     CGFloat height = ceil(self.label.intrinsicContentSize.height);
-    self.label.frame = NSMakeRect(10, round((NSHeight(self.bounds) - height) / 2), MAX(0, NSWidth(self.bounds) - 20), height);
+    NSRect frame = NSMakeRect(10, round((NSHeight(self.bounds) - height) / 2), MAX(0, NSWidth(self.bounds) - 20), height);
+    if (!NSEqualRects(self.label.frame, frame)) self.label.frame = frame;
 }
 
 - (void)setFrameSize:(NSSize)size {
@@ -106,7 +109,10 @@
     self.field = nil;
     self.label.hidden = NO;
     for (NSView *view = self.superview; view; view = view.superview)
-        if ([view isKindOfClass:DPPeekCard.class]) [self.window makeFirstResponder:((DPPeekCard *)view).host];
+        if ([view isKindOfClass:DPPeekCard.class]) {
+            DPPeekCard *card = (DPPeekCard *)view;
+            if (!card.closing && !card.isHiddenOrHasHiddenAncestor) [self.window makeFirstResponder:card.host];
+        }
     self.ending = NO;
     [self refresh];
 }

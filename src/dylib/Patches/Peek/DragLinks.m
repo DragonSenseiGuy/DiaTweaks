@@ -37,8 +37,9 @@ static void DPZoneSpring(CALayer *layer, NSString *keyPath, id to, CFTimeInterva
 
 @implementation DPPeekZone
 
-- (instancetype)initWithFrame:(NSRect)frame {
+- (instancetype)initWithFrame:(NSRect)frame appearance:(NSAppearance *)appearance {
     self = [super initWithFrame:frame];
+    self.appearance = appearance;
     self.layer = [CALayer layer];
     self.wantsLayer = YES;
     [self registerForDraggedTypes:@[ NSPasteboardTypeURL ]];
@@ -134,8 +135,9 @@ static void DPZoneSpring(CALayer *layer, NSString *keyPath, id to, CFTimeInterva
 
 - (NSDragOperation)track:(id<NSDraggingInfo>)info {
     NSPoint p = [self convertPoint:info.draggingLocation fromView:nil];
-    CGFloat dx = p.x - self.rest.x, dy = p.y - self.rest.y, d = hypot(dx, dy);
-    NSRect reach = NSInsetRect(NSMakeRect(self.rest.x - DPZoneCard.width / 2, self.rest.y - DPZoneCard.height / 2, DPZoneCard.width, DPZoneCard.height), -DPZoneReach, -DPZoneReach);
+    CGPoint rest = self.rest;
+    CGFloat dx = p.x - rest.x, dy = p.y - rest.y, d = hypot(dx, dy);
+    NSRect reach = NSInsetRect(NSMakeRect(rest.x - DPZoneCard.width / 2, rest.y - DPZoneCard.height / 2, DPZoneCard.width, DPZoneCard.height), -DPZoneReach, -DPZoneReach);
     BOOL over = NSPointInRect(p, reach);
     CGFloat pull = over ? 0.8 / (1 + d / (1.05 * DPZoneCard.width)) : 0;
     [self pull:CGPointMake(dx * pull, dy * pull)];
@@ -175,7 +177,10 @@ static void DPHideZone(void) {
     });
 }
 
+void DPPeekHideDragZone(void) { DPHideZone(); }
+
 static void DPShowZone(NSWindow *window, NSPoint pointer) {
+    if (!window) return;
     DPHideZone();
     CGFloat above = pointer.y + DPZoneGap + DPZoneCard.height / 2, below = pointer.y - DPZoneGap - DPZoneCard.height / 2;
     CGFloat y = above + DPZoneCard.height / 2 < NSMaxY([window convertRectToScreen:window.contentLayoutRect]) ? above : below;
@@ -189,7 +194,7 @@ static void DPShowZone(NSWindow *window, NSPoint pointer) {
     panel.hasShadow = NO;
     panel.releasedWhenClosed = NO;
     panel.appearance = window.effectiveAppearance;
-    DPPeekZone *zone = [[DPPeekZone alloc] initWithFrame:(NSRect){NSZeroPoint, size}];
+    DPPeekZone *zone = [[DPPeekZone alloc] initWithFrame:(NSRect){NSZeroPoint, size} appearance:window.effectiveAppearance];
     zone.link = pointer;
     panel.contentView = zone;
     [window addChildWindow:panel ordered:NSWindowAbove];
@@ -220,6 +225,10 @@ static void DPInstallPeekDragLinks(void) {
     DPHook("WebContentsViewCocoa", @selector(draggingSession:endedAtPoint:operation:), (IMP)DPPage_dragEnded);
 }
 
+static void DPApplyPeekDragLinks(DPPatch *patch) {
+    if (!patch->on) DPHideZone();
+}
+
 DP_PATCH(DPPeekDragLinks) {
     .key = @"peekDragLinks",
     .order = 104,
@@ -229,5 +238,6 @@ DP_PATCH(DPPeekDragLinks) {
     .tint = @"systemMintColor",
     .classes = DPClasses("WebContentsViewCocoa"),
     .install = DPInstallPeekDragLinks,
+    .apply = DPApplyPeekDragLinks,
     .requires = @"peek",
 };

@@ -28,11 +28,16 @@
 
 - (void)viewDidMoveToWindow {
     [super viewDidMoveToWindow];
+    static NSArray<NSNotificationName> *windowNames, *appNames;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        windowNames = @[NSWindowDidBecomeKeyNotification, NSWindowDidResignKeyNotification,
+                        NSWindowDidBecomeMainNotification, NSWindowDidResignMainNotification];
+        appNames = @[NSApplicationDidBecomeActiveNotification, NSApplicationDidResignActiveNotification];
+    });
     NSNotificationCenter *center = NSNotificationCenter.defaultCenter;
-    NSArray<NSNotificationName> *windowNames = @[NSWindowDidBecomeKeyNotification, NSWindowDidResignKeyNotification,
-                                                 NSWindowDidBecomeMainNotification, NSWindowDidResignMainNotification];
-    NSArray<NSNotificationName> *appNames = @[NSApplicationDidBecomeActiveNotification, NSApplicationDidResignActiveNotification];
-    for (NSNotificationName name in [windowNames arrayByAddingObjectsFromArray:appNames]) [center removeObserver:self name:name object:nil];
+    for (NSNotificationName name in windowNames) [center removeObserver:self name:name object:nil];
+    for (NSNotificationName name in appNames) [center removeObserver:self name:name object:nil];
     if (!self.window || !self.tracksWindowActivity) return;
     for (NSNotificationName name in windowNames) [center addObserver:self selector:@selector(refreshActivity:) name:name object:self.window];
     for (NSNotificationName name in appNames) [center addObserver:self selector:@selector(refreshActivity:) name:name object:NSApp];
@@ -64,7 +69,7 @@
     CGFloat soft = MAX(0, MIN(100, softness)) / 100, zoom = MAX(50, MIN(300, scale)) / 100;
     BOOL fine = [material isEqual:@"fine"];
     CGFloat opacity = MAX(0, MIN(100, amount)) / 100 * (fine ? 0.3 : 0.8 / sqrt(1 - 1.5 * soft * (1 - soft)));
-    if (self.tracksWindowActivity && self.window && !self.window._hasActiveAppearance) opacity = 0;
+    if (self.tracksWindowActivity && self.window && [self.window respondsToSelector:@selector(_hasActiveAppearance)] && !self.window._hasActiveAppearance) opacity = 0;
     BOOL dark = DPGrainDarkAppearance(self.effectiveAppearance);
     if (_darkAppearance == dark && _grainOpacity == opacity && _softness == soft && _scale == zoom && [_material isEqual:material]) return;
     _darkAppearance = dark;

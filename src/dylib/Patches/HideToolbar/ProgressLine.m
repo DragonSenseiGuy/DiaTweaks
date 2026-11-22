@@ -70,12 +70,14 @@ static char DPLineKey;
 }
 
 - (void)viewDidMoveToWindow {
+    [super viewDidMoveToWindow];
     [self.frames invalidate];
     self.frames = nil;
     if (!self.window || !self.glow) return;
     __weak DPProgressLineView *weakSelf = self;
     self.frames = [NSTimer timerWithTimeInterval:1.0 / 60 repeats:YES block:^(NSTimer *timer) {
         DPProgressLineView *me = weakSelf;
+        if (!me) return [timer invalidate];
         me.shown += (me.fraction - me.shown) * 0.15;
         [me draw];
     }];
@@ -90,7 +92,8 @@ static char DPLineKey;
 
 - (void)placeIn:(NSView *)pane {
     CGFloat height = self.height;
-    self.frame = NSMakeRect(0, pane.isFlipped ? 0 : NSHeight(pane.bounds) - height, NSWidth(pane.bounds), height);
+    NSRect frame = NSMakeRect(0, pane.isFlipped ? 0 : NSHeight(pane.bounds) - height, NSWidth(pane.bounds), height);
+    if (!NSEqualRects(self.frame, frame)) self.frame = frame;
     self.autoresizingMask = NSViewWidthSizable | (pane.isFlipped ? NSViewMaxYMargin : NSViewMinYMargin);
     if (self.superview != pane || pane.subviews.lastObject != self) [pane addSubview:self positioned:NSWindowAbove relativeTo:nil];
 }

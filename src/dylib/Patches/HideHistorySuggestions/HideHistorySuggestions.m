@@ -6,7 +6,7 @@ extern DPPatch DPHideHistorySuggestions;
 static BOOL DPFromHistory(id match) {
     if ([[match valueForKey:@"hasTabMatch"] boolValue]) return NO;
     NSString *provider = [match valueForKey:@"providerType"], *type = [match valueForKey:@"matchType"];
-    // The address as typed is made by the history provider too but isn't a suggestion; without it Return searches the text.
+    // Kept: without url-what-you-typed, Return searches instead of navigating.
     if ([type isEqualToString:@"url-what-you-typed"]) return NO;
     return [provider hasPrefix:@"History"] || [provider isEqualToString:@"Shortcuts"] || [type hasPrefix:@"history-"] || [type isEqualToString:@"search-history"];
 }
@@ -21,7 +21,7 @@ static id DPWithoutHistory(id result) {
         NSArray *matches = [perProvider[provider] filteredArrayUsingPredicate:kept];
         if (matches.count) filtered[provider] = matches;
     }
-    NSArray *combined = [[result valueForKey:@"combinedMatches"] filteredArrayUsingPredicate:kept];
+    NSArray *combined = [[result valueForKey:@"combinedMatches"] filteredArrayUsingPredicate:kept] ?: @[];
     return ((id (*)(id, SEL, id, id))objc_msgSend)([[result class] alloc], make, combined, filtered);
 }
 

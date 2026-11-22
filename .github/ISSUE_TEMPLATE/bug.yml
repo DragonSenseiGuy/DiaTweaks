@@ -31,6 +31,7 @@ body:
         - Extensions Shortcut
         - Tidy Tabs
         - Profile Emoji
+        - Profile Color Picker
         - Switch Profiles with ⌘1–9
         - Translucent Sidebar
         - Compact Sidebar Header
@@ -47,6 +48,7 @@ body:
         - Pin Tab Shortcut
         - Save Page As
         - Hide Sleeping Tabs
+        - Clean Tab Titles
         - Compact Command Bar
         - Compact with Chat Usage Too
         - Open New Tabs in Command Bar
@@ -65,6 +67,7 @@ body:
         - Hide Upgrade Banner
         - Hide Personalize Button
         - Hide Skills Suggestions
+        - Hide Connect App Prompt
         - Window Material
         - Keep Windows Active
         - Drag Window from Page
@@ -73,8 +76,10 @@ body:
         - Hide Window Controls
         - Private Window Theme
         - Skip Account
+        - Launch Flags
         - Allow 1Password
         - Allow Bitwarden
+        - Allow Proton Pass
         - Allow iCloud Passkeys
         - Allow iCloud Passwords
         - Group Tabs by Domain

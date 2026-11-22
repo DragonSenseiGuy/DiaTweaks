@@ -6,19 +6,15 @@ use std::{
     path::{Path, PathBuf},
     process::{Command, ExitStatus, Stdio},
     thread,
-    time::{Duration, Instant},
+    time::Duration,
 };
 
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result};
 
-use crate::{
-    signals::{self, Cancelled},
-    ui::Spinner,
-};
+use crate::{signals, ui::Spinner};
 
 pub enum OnInterrupt {
-    Stop,
-    /// Only downloads stop: diapatch moves whole app bundles, which must finish.
+    // Only curl is stopped; diapatch moves whole bundles that must finish.
     StopDownloads,
     Finish(&'static str),
 }
@@ -42,13 +38,12 @@ impl Finished {
     }
 }
 
-/// An unlinked file, not a pipe: the child must not die of SIGPIPE if diatweaks is killed.
+// Unlinked file instead of a pipe so the child never dies of SIGPIPE if diatweaks is killed.
 pub fn run(
     command: &mut Command,
     on_interrupt: OnInterrupt,
     spinner: &Spinner,
 ) -> Result<Finished> {
-    let program = Path::new(command.get_program()).display().to_string();
     let mut log = tempfile::tempfile().context("Couldn't create a temporary file")?;
     let mut child = command
         .process_group(0)
@@ -56,46 +51,37 @@ pub fn run(
         .stdout(log.try_clone()?)
         .stderr(log.try_clone()?)
         .spawn()
-        .with_context(|| format!("Couldn't run {program}"))?;
+        .with_context(|| {
+            format!(
+                "Couldn't run {}",
+                Path::new(command.get_program()).display()
+            )
+        })?;
     let pid = child.id() as libc::pid_t;
-    let mut stopping_since = None;
+    let mut stopping = false;
     let status = loop {
         if let Some(status) = child.try_wait()? {
             break status;
         }
         if signals::interrupted() {
             match on_interrupt {
-                OnInterrupt::Stop => match stopping_since {
-                    None => {
-                        spinner.set_message("Stopping…");
-                        unsafe { libc::killpg(pid, libc::SIGINT) };
-                        stopping_since = Some(Instant::now());
-                    }
-                    Some(since) if since.elapsed() > Duration::from_secs(10) => unsafe {
-                        libc::killpg(pid, libc::SIGKILL);
-                    },
-                    Some(_) => {}
-                },
                 OnInterrupt::StopDownloads => {
-                    if stopping_since.is_none() {
+                    if !stopping {
                         spinner.set_message("Stopping after the current step…");
-                        stopping_since = Some(Instant::now());
+                        stopping = true;
                     }
                     stop_downloads(pid);
                 }
                 OnInterrupt::Finish(why) => {
-                    if stopping_since.is_none() {
+                    if !stopping {
                         spinner.set_message(why);
-                        stopping_since = Some(Instant::now());
+                        stopping = true;
                     }
                 }
             }
         }
         thread::sleep(Duration::from_millis(50));
     };
-    if matches!(on_interrupt, OnInterrupt::Stop) && signals::interrupted() {
-        bail!(Cancelled::nothing_changed());
-    }
     let mut bytes = Vec::new();
     log.seek(SeekFrom::Start(0))?;
     log.read_to_end(&mut bytes)?;
@@ -115,8 +101,8 @@ fn stop_downloads(parent: libc::pid_t) {
 }
 
 fn child_pids(parent: libc::pid_t) -> Vec<libc::pid_t> {
-    let mut pids: Vec<libc::pid_t> = vec![0; 256];
-    let size = (pids.len() * mem::size_of::<libc::pid_t>()) as libc::c_int;
+    let mut pids = vec![0 as libc::pid_t; 256];
+    let size = mem::size_of_val(pids.as_slice()) as libc::c_int;
     let count = unsafe { libc::proc_listchildpids(parent, pids.as_mut_ptr().cast(), size) };
     pids.truncate(count.max(0) as usize);
     pids
@@ -124,8 +110,8 @@ fn child_pids(parent: libc::pid_t) -> Vec<libc::pid_t> {
 
 pub fn all_pids() -> Vec<libc::pid_t> {
     let capacity = unsafe { libc::proc_listallpids(std::ptr::null_mut(), 0) }.max(0) as usize + 64;
-    let mut pids: Vec<libc::pid_t> = vec![0; capacity];
-    let size = (pids.len() * mem::size_of::<libc::pid_t>()) as libc::c_int;
+    let mut pids = vec![0 as libc::pid_t; capacity];
+    let size = mem::size_of_val(pids.as_slice()) as libc::c_int;
     let count = unsafe { libc::proc_listallpids(pids.as_mut_ptr().cast(), size) };
     pids.truncate(count.max(0) as usize);
     pids

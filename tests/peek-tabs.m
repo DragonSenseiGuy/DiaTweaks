@@ -1,0 +1,505 @@
+#import "Patches/Peek/Peek.h"
+#import "Patches/CommandBar/Tabs.h"
+#import "Patches/HideToolbar/HideToolbar.h"
+#import <Carbon/Carbon.h>
+#import <objc/runtime.h>
+
+static int gCloseCalls, gDetachCalls, gGiveCalls, gZoomCalls, gOrigZoomCalls;
+static NSString *gActiveTabID;
+static NSMapTable<NSWindow *, id> *gScriptWindows;
+
+@interface DPTabMock : NSObject
+@property (nonatomic, copy) NSString *tabId;
+@end
+@implementation DPTabMock
++ (instancetype)tabWithID:(NSString *)tid { DPTabMock *t = [self new]; t.tabId = tid; return t; }
+@end
+
+@interface DPProfileMock : NSObject
+@property (nonatomic, strong) NSMutableArray<DPTabMock *> *appleScriptTabs;
+@end
+@implementation DPProfileMock
+@end
+
+@interface DPScriptWindowMock : NSObject
+@property (nonatomic, strong) NSMutableArray<DPTabMock *> *appleScriptTabs;
+@property (nonatomic, strong) NSMutableArray<DPProfileMock *> *appleScriptProfiles;
+@property (nonatomic, copy) NSString *activeID;
+@end
+@implementation DPScriptWindowMock
+- (id)activeTab {
+    if (!self.activeID) return nil;
+    return [DPTabMock tabWithID:self.activeID];
+}
+@end
+
+@interface DPFakeTabState : NSObject
+@property (nonatomic, copy) NSString *selectionStyle, *contentID;
+@end
+@implementation DPFakeTabState
+- (NSString *)description {
+    return self.contentID ? [NSString stringWithFormat:@"state(contentIDs: [%@], selectionStyle: %@)", self.contentID, self.selectionStyle ?: @"nil"]
+                          : [NSString stringWithFormat:@"state(selectionStyle: %@)", self.selectionStyle ?: @"nil"];
+}
+- (id)safeSwiftValueForKey:(NSString *)key { return [key isEqual:@"selectionStyle"] ? self.selectionStyle : nil; }
+@end
+
+@interface DPFakeTabSubject : NSObject
+@property (nonatomic, strong) DPFakeTabState *currentValue;
+@end
+@implementation DPFakeTabSubject
+- (id)safeSwiftValueForKey:(NSString *)key { return [key isEqual:@"currentValue"] ? self.currentValue : nil; }
+@end
+
+@interface DPFakeTabVM : NSObject
+@property (nonatomic, strong) DPFakeTabSubject *stateSubject;
+@end
+@implementation DPFakeTabVM
+- (id)safeSwiftValueForKey:(NSString *)key { return [key isEqual:@"stateSubject"] ? self.stateSubject : nil; }
+@end
+
+@interface _TtC5TabUI7TabView : NSView
+@property (nonatomic, strong) DPFakeTabVM *viewModel;
+@end
+@implementation _TtC5TabUI7TabView
+- (id)safeSwiftValueForKey:(NSString *)key { return [key isEqual:@"viewModel"] ? self.viewModel : nil; }
+@end
+
+@interface _TtC5TabUI15TabDockItemView : NSView
+@property (nonatomic, strong) DPFakeTabVM *viewModel;
+@end
+@implementation _TtC5TabUI15TabDockItemView
+- (id)safeSwiftValueForKey:(NSString *)key { return [key isEqual:@"viewModel"] ? self.viewModel : nil; }
+@end
+
+@interface DPTestTabStrip : NSView
+@end
+@implementation DPTestTabStrip
+@end
+
+@interface _TtC11ContentPane15ContentPaneView : NSView
+@end
+@implementation _TtC11ContentPane15ContentPaneView
+- (BOOL)acceptsFirstResponder { return YES; }
+- (void)viewDidMoveToWindow { [super viewDidMoveToWindow]; }
+@end
+
+@interface DPPeekHostMock : NSView
+@end
+@implementation DPPeekHostMock
+- (BOOL)acceptsFirstResponder { return YES; }
+@end
+
+@interface ArcWebContents : NSObject <DPPeekPage>
+@property (nonatomic, strong) NSURL *url;
+@property (nonatomic, copy) NSString *title;
+@property (nonatomic) BOOL isReadyToDisplay;
+@property (nonatomic) float zoomFactor;
+@property (nonatomic, weak) NSView *attachedHost;
+@end
+@implementation ArcWebContents
+- (NSView *)createPaneHostView { return [[DPPeekHostMock alloc] initWithFrame:NSMakeRect(0, 0, 200, 200)]; }
+- (void)attachToPaneHostView:(NSView *)host { self.attachedHost = host; }
+- (void)detachFromPaneHostView:(NSView *)host { gDetachCalls++; if (self.attachedHost == host) self.attachedHost = nil; }
+- (void)close { gCloseCalls++; }
+- (void)closeWithForegroundCommitTiming:(NSInteger)timing {}
+- (void)setVisibility:(NSInteger)visibility {}
+- (id)navigationController { return self; }
+- (id)load:(NSURL *)url initiatorOrigin:(NSURL *)origin { self.url = url; return nil; }
+- (void)resetZoomAndScaleFactors { self.zoomFactor = 1; gZoomCalls++; }
+- (void)setZoomFactor:(float)z { _zoomFactor = z; gZoomCalls++; }
+@end
+
+@interface ArcWebContentsConfiguration : NSObject
+@end
+@implementation ArcWebContentsConfiguration
+@end
+
+@interface ArcBrowserContext : NSObject
+@end
+@implementation ArcBrowserContext
+- (id)createWebContents:(id)config {
+    ArcWebContents *p = [ArcWebContents new];
+    p.url = [NSURL URLWithString:@"https://example.com"];
+    return p;
+}
+@end
+
+@interface ArcBrowser : NSObject
+@end
+@implementation ArcBrowser
+- (id)createWebContents:(id)config { return [[ArcBrowserContext new] createWebContents:config]; }
+@end
+
+@interface _TtC3ADK18WebContentChromium : NSObject
+@end
+@implementation _TtC3ADK18WebContentChromium
+- (void)webContents:(id)source didCreateNewWebContent:(id)page targetURL:(NSURL *)url disposition:(NSInteger)disp { gGiveCalls++; }
+- (void)webContents:(id)page finalizeDiscardRequest:(BOOL)discarded {}
+@end
+
+@interface _TtC6Window24PlatformWindowController : NSWindowController
+@end
+@implementation _TtC6Window24PlatformWindowController
+- (void)zoomIn:(id)sender { gOrigZoomCalls++; }
+- (void)zoomInAlternate:(id)sender { gOrigZoomCalls++; }
+- (void)zoomOut:(id)sender { gOrigZoomCalls++; }
+- (void)resetZoom:(id)sender { gOrigZoomCalls++; }
+- (BOOL)validateMenuItem:(NSMenuItem *)item { return YES; }
+@end
+
+@interface DPPeekTabWindow : NSWindow
+@property NSInteger makeKeyCalls;
+@property BOOL fakeKey;
+@end
+@implementation DPPeekTabWindow
+- (void)makeKeyWindow { self.makeKeyCalls++; }
+- (BOOL)isKeyWindow { return self.fakeKey; }
+- (BOOL)isVisible { return YES; }
+@end
+
+DPPatch DPPeek = { .on = YES }, DPPeekPinnedLinks = { .on = YES }, DPShowLoadingProgress;
+static ArcBrowser *gBrowser;
+
+id DPScriptWindow(NSWindow *window) { return [gScriptWindows objectForKey:window]; }
+NSString *DPTabID(id tab) { return [tab respondsToSelector:@selector(tabId)] ? [tab valueForKey:@"tabId"] : nil; }
+NSString *DPActiveTabIDIn(id scriptWindow) { return DPTabID([scriptWindow valueForKey:@"activeTab"]); }
+NSString *DPActiveTabID(NSWindow *window) {
+    id sw = DPScriptWindow(window);
+    return sw ? DPActiveTabIDIn(sw) : gActiveTabID;
+}
+id DPBrowserOfWindow(NSWindow *window) { return gBrowser; }
+void DPOnLaunch(void (^block)(void)) { block(); }
+double DPPeekDarkness(void) { return 0.45; }
+double DPPeekResponse(void) { return 0.2; }
+BOOL DPPeekGenie(void) { return NO; }
+BOOL DPPeekShowsToolbar(void) { return NO; }
+void DPPeekAddToolbar(DPPeekCard *peek) {}
+CGFloat DPPeekToolbarInset(DPPeekCard *peek) { return 0; }
+void DPPeekPlaceToolbar(DPPeekCard *peek) {}
+void DPPeekNavigate(id page, DPPeekStep step) {}
+void DPPeekEditToolbarAddress(DPPeekCard *peek) {}
+BOOL DPPeekCopyURL(DPPeekCard *peek, NSEvent *event) { return NO; }
+BOOL DPPeekIsShortcut(NSEvent *event, NSMenuItem *item) { return NO; }
+float DPZoomStep(float now, int direction) { return direction > 0 ? now + 0.1f : now - 0.1f; }
+BOOL DPEventIsKey(NSEvent *event, NSString *key) { return [event.charactersIgnoringModifiers caseInsensitiveCompare:key] == NSOrderedSame; }
+BOOL DPPeekIsWeb(NSURL *url) { return [url.scheme isEqual:@"https"] || [url.scheme isEqual:@"http"]; }
+void DPPeekOpenDragged(NSURL *url, NSPoint origin) {}
+void DPPeekHideDragZone(void) {}
+NSURL *DPAddressURL(NSString *typed) { return [NSURL URLWithString:typed]; }
+NSButton *DPMakeBarButton(NSString *symbol, NSString *label, NSString *key, void (^action)(void)) { return [NSButton new]; }
+
+#import "Patches/Peek/Controls.m"
+#import "Patches/Peek/Address.m"
+#import "Patches/Peek/Find.m"
+#import "Patches/Peek/Tab.m"
+#import "Patches/Peek/Selection.m"
+#import "Patches/Peek/Motion.m"
+#import "Patches/Peek/Keys.m"
+#import "Patches/Peek/Visibility.m"
+#import "Patches/Peek/Chat.m"
+#import "Patches/Peek/ChatContext.m"
+#import "Patches/Peek/Card.m"
+#import "Patches/Peek/Pages.m"
+#import "Patches/Peek/Zoom.m"
+
+static int failures;
+static void Check(BOOL ok, const char *message) {
+    if (!ok) { fprintf(stderr, "FAIL: %s\n", message); failures++; }
+}
+
+static NSView *MakeHolder(NSWindow *window, NSRect frame, _TtC11ContentPane15ContentPaneView **outPane) {
+    NSView *holder = [[NSView alloc] initWithFrame:frame];
+    holder.wantsLayer = YES;
+    holder.layer.cornerRadius = 10;
+    holder.layer.masksToBounds = YES;
+    _TtC11ContentPane15ContentPaneView *pane = [[_TtC11ContentPane15ContentPaneView alloc] initWithFrame:holder.bounds];
+    [holder addSubview:pane];
+    [window.contentView addSubview:holder];
+    if (outPane) *outPane = pane;
+    return holder;
+}
+
+static _TtC5TabUI7TabView *MakeTabRow(NSView *parent, NSString *contentID, NSString *style) {
+    _TtC5TabUI7TabView *tab = [[_TtC5TabUI7TabView alloc] initWithFrame:NSMakeRect(0, 0, 180, 32)];
+    DPFakeTabVM *vm = [DPFakeTabVM new];
+    vm.stateSubject = [DPFakeTabSubject new];
+    vm.stateSubject.currentValue = [DPFakeTabState new];
+    vm.stateSubject.currentValue.contentID = contentID;
+    vm.stateSubject.currentValue.selectionStyle = style;
+    tab.viewModel = vm;
+    [parent addSubview:tab];
+    return tab;
+}
+
+static _TtC5TabUI15TabDockItemView *MakePinnedTile(NSView *parent, NSString *style) {
+    _TtC5TabUI15TabDockItemView *tab = [[_TtC5TabUI15TabDockItemView alloc] initWithFrame:NSMakeRect(0, 0, 44, 44)];
+    DPFakeTabVM *vm = [DPFakeTabVM new];
+    vm.stateSubject = [DPFakeTabSubject new];
+    vm.stateSubject.currentValue = [DPFakeTabState new];
+    vm.stateSubject.currentValue.selectionStyle = style;
+    tab.viewModel = vm;
+    [parent addSubview:tab];
+    return tab;
+}
+
+static NSEvent *KeyEvent(NSWindow *window, NSString *chars, unsigned short code, NSEventModifierFlags mods) {
+    return [NSEvent keyEventWithType:NSEventTypeKeyDown location:NSZeroPoint modifierFlags:mods timestamp:0
+                        windowNumber:window.windowNumber context:nil characters:chars charactersIgnoringModifiers:chars isARepeat:NO keyCode:code];
+}
+
+static void DrainMain(void) {
+    __block BOOL drained = NO;
+    dispatch_async(dispatch_get_main_queue(), ^{ drained = YES; });
+    NSDate *deadline = [NSDate dateWithTimeIntervalSinceNow:1.0];
+    while (!drained && deadline.timeIntervalSinceNow > 0)
+        [NSRunLoop.mainRunLoop runMode:NSDefaultRunLoopMode beforeDate:[NSDate dateWithTimeIntervalSinceNow:0.01]];
+}
+
+int main(void) {
+    @autoreleasepool {
+        [NSApplication sharedApplication];
+        gScriptWindows = [NSMapTable weakToStrongObjectsMapTable];
+        gBrowser = [ArcBrowser new];
+        DPPeekInstallPages();
+        DPPeekInstallSelection();
+        DPPeekInstallZoom();
+
+        DPPeekTabWindow *window = [[DPPeekTabWindow alloc] initWithContentRect:NSMakeRect(-30000, -30000, 900, 600)
+            styleMask:NSWindowStyleMaskTitled backing:NSBackingStoreBuffered defer:NO];
+        window.releasedWhenClosed = NO;
+        window.fakeKey = YES;
+
+        DPScriptWindowMock *sw = [DPScriptWindowMock new];
+        sw.appleScriptTabs = [NSMutableArray arrayWithObjects:[DPTabMock tabWithID:@"A"], [DPTabMock tabWithID:@"B"], [DPTabMock tabWithID:@"C"], nil];
+        sw.activeID = @"A";
+        [gScriptWindows setObject:sw forKey:window];
+
+        _TtC11ContentPane15ContentPaneView *pane1 = nil;
+        NSView *holder1 = MakeHolder(window, NSMakeRect(200, 0, 700, 600), &pane1);
+        _TtC3ADK18WebContentChromium *delegate = [_TtC3ADK18WebContentChromium new];
+
+        // 1. Multiple Peeks per window: Tab A -> P1, switch to Tab B -> P2, switch to C, return to A.
+        ArcWebContents *sourceA = [ArcWebContents new], *sourceB = [ArcWebContents new];
+        NSString *uuidA = @"11111111-1111-1111-1111-111111111111";
+        _TtC5TabUI7TabView *rowA = MakeTabRow(window.contentView, uuidA, @"selected");
+        DPPeekOpenFrom(window, @"A", [NSURL URLWithString:@"https://a.example"], NSMakeRect(250, 200, 80, 20), delegate, sourceA, nil, nil);
+        DPPeekCard *p1 = DPPeekCardIn(window);
+        ArcWebContents *p1Page = (ArcWebContents *)p1.page;
+        p1Page.url = [NSURL URLWithString:@"about:blank"];
+        Check(p1 != nil && DPPeekPageIn(window) == p1Page && [p1.originTabID isEqual:@"A"], "P1 opens on Tab A");
+        Check(p1.superview == holder1 && p1.tabBadge.superview == rowA, "P1 mounts in holder1 with badge on rowA");
+        Check(DPPeekSyncTimer != nil, "sync timer runs while cards exist");
+
+        // Duplicate Peek on Tab A is rejected (and warm page discarded).
+        ArcWebContents *dupWarm = [ArcWebContents new];
+        dupWarm.url = [NSURL URLWithString:@"about:blank"];
+        gCloseCalls = 0;
+        DPPeekOpenFrom(window, @"A", [NSURL URLWithString:@"https://dup.example"], NSMakeRect(250, 200, 80, 20), delegate, sourceA, dupWarm, nil);
+        Check(DPPeekAllCards(window).count == 1 && gCloseCalls == 1, "duplicate Peek on Tab A rejected and warm page discarded");
+
+        // Switch to Tab B: P1 hides & parks on contentView without detaching or closing p1Page.
+        gDetachCalls = gCloseCalls = 0;
+        [window makeFirstResponder:p1.host];
+        sw.activeID = @"B";
+        rowA.viewModel.stateSubject.currentValue.selectionStyle = @"none";
+        DPPeekSyncTabs(window);
+        Check(p1.hidden && !p1.closing && p1.superview == window.contentView, "switching to B hides P1 and parks it on contentView");
+        Check(DPPeekCardIn(window) == nil && DPPeekPageIn(window) == nil && DPPeekHiddenCards(window).count == 1, "DPPeekCardIn/PageIn nil while P1 parked");
+        Check(gDetachCalls == 0 && gCloseCalls == 0 && p1Page.attachedHost == p1.host, "parking preserves P1 WebContents attached");
+        Check(window.firstResponder != p1.host, "hiding P1 clears first responder off hidden card");
+        Check(p1.tabBadge.superview == rowA, "👀 badge stays on Tab A row while parked");
+
+        // Stale click for Tab A while on Tab B is rejected cleanly.
+        ArcWebContents *staleWarm = [ArcWebContents new];
+        staleWarm.url = [NSURL URLWithString:@"about:blank"];
+        gCloseCalls = 0;
+        DPPeekOpenFrom(window, @"A", [NSURL URLWithString:@"https://stale.example"], NSMakeRect(250, 200, 80, 20), delegate, sourceA, staleWarm, nil);
+        Check(DPPeekAllCards(window).count == 1 && gCloseCalls == 1, "stale click for inactive origin tab discarded cleanly");
+
+        // Open Peek P2 on Tab B while P1 is parked.
+        DPPeekOpenFrom(window, @"B", [NSURL URLWithString:@"https://b.example"], NSMakeRect(250, 200, 80, 20), delegate, sourceB, nil, nil);
+        DPPeekCard *p2 = DPPeekCardIn(window);
+        ArcWebContents *p2Page = (ArcWebContents *)p2.page;
+        p2Page.url = [NSURL URLWithString:@"about:blank"];
+        Check(p2 != nil && p2 != p1 && DPPeekAllCards(window).count == 2 && DPPeekHiddenCards(window).count == 1, "P2 opens on Tab B alongside parked P1");
+
+        // 2. Hidden card MUST NOT intercept Esc, Cmd+W, Cmd+F, Cmd++, Control+Tab!
+        NSEvent *esc = KeyEvent(window, @"\x1b", kVK_Escape, 0);
+        NSEvent *cmdW = KeyEvent(window, @"w", kVK_ANSI_W, NSEventModifierFlagCommand);
+        NSEvent *cmdF = KeyEvent(window, @"f", kVK_ANSI_F, NSEventModifierFlagCommand);
+        NSEvent *ctrlTab = KeyEvent(window, @"\t", kVK_Tab, NSEventModifierFlagControl);
+        Check(DPPeekHandleKeyEvent(p1, esc) == esc && !p1.closing, "hidden P1 does not intercept Esc");
+        Check(DPPeekHandleKeyEvent(p1, cmdW) == cmdW && !p1.closing, "hidden P1 does not intercept Cmd+W");
+        Check(DPPeekHandleKeyEvent(p1, cmdF) == cmdF, "hidden P1 does not intercept Cmd+F");
+        Check(DPPeekHandleKeyEvent(p1, ctrlTab) == ctrlTab, "hidden P1 does not intercept Control+Tab");
+
+        // Zoom reaches P2 (active), NOT hidden P1!
+        _TtC6Window24PlatformWindowController *wc = [[_TtC6Window24PlatformWindowController alloc] initWithWindow:window];
+        gZoomCalls = gOrigZoomCalls = 0;
+        [wc zoomIn:nil];
+        Check(gZoomCalls == 1 && p2Page.zoomFactor > 0 && p1Page.zoomFactor == 0, "zoom reaches active P2, not hidden P1");
+
+        // Switch to Tab C (no Peek): both P1 and P2 hidden; zoom goes to Dia!
+        sw.activeID = @"C";
+        DPPeekSyncTabs(window);
+        Check(p1.hidden && p2.hidden && DPPeekCardIn(window) == nil && DPPeekHiddenCards(window).count == 2, "Tab C hides both P1 and P2");
+        Check(DPPeekHandleKeyEvent(p1, esc) == esc && DPPeekHandleKeyEvent(p2, esc) == esc, "neither hidden card intercepts Esc on Tab C");
+        gZoomCalls = gOrigZoomCalls = 0;
+        [wc zoomIn:nil];
+        Check(gZoomCalls == 0 && gOrigZoomCalls == 1, "zoom passes through to Dia on Tab C with no visible Peek");
+
+        // 3. Container replacement & sidebar->top-tab badge migration while parked!
+        [holder1 removeFromSuperview];
+        [rowA removeFromSuperview];
+        _TtC11ContentPane15ContentPaneView *pane2 = nil;
+        NSView *holder2 = MakeHolder(window, NSMakeRect(0, 0, 900, 540), &pane2);
+        DPTestTabStrip *strip = [[DPTestTabStrip alloc] initWithFrame:NSMakeRect(0, 540, 900, 40)];
+        [window.contentView addSubview:strip];
+        _TtC5TabUI7TabView *topRowA = MakeTabRow(strip, uuidA, @"selected");
+        sw.activeID = @"A";
+        [window makeFirstResponder:pane2];
+        DPPeekSyncTabs(window);
+        DrainMain();
+        Check(!p1.hidden && p2.hidden && p1.superview == holder2 && p1.pane == pane2, "returning to A remounts P1 into rebuilt holder2/pane2");
+        Check(NSEqualRects(p1.frame, [holder2 convertRect:pane2.bounds fromView:pane2]), "P1 adopts rebuilt pane2 frame");
+        Check(p1.tabBadge.superview == topRowA, "👀 badge reattaches onto rebuilt top-tab rowA");
+        Check(window.firstResponder == p1.host, "returning to A restores first responder to P1");
+
+        // Address edit end & Find hide while hidden MUST NOT steal focus back to hidden P1.
+        DPPeekAddress *addr = (DPPeekAddress *)DPPeekAddressFor(p1Page);
+        addr.frame = NSMakeRect(0, 0, 200, 30);
+        [p1.clip addSubview:addr];
+        [addr begin];
+        Check(addr.field != nil, "address field begins editing");
+        sw.activeID = @"C";
+        DPPeekSyncTabs(window);
+        [addr end];
+        Check(window.firstResponder != p1.host, "ending address edit on hidden P1 never steals focus");
+        DPPeekFindShortcut(p1, cmdF, NSEventModifierFlagCommand);
+        DPPeekHideFind(p1);
+        Check(window.firstResponder != p1.host, "closing Find bar on hidden P1 never steals focus");
+
+        // External text view keeps focus when returning to Tab A.
+        NSTextView *externalBar = [[NSTextView alloc] initWithFrame:NSMakeRect(0, 0, 200, 30)];
+        [window.contentView addSubview:externalBar];
+        [window makeFirstResponder:externalBar];
+        sw.activeID = @"A";
+        DPPeekSyncTabs(window);
+        DrainMain();
+        Check(window.firstResponder == externalBar, "returning to A does not steal focus from external NSTextView");
+
+        // 4. Profile switch preserves parked Peeks; closing/moving origin tab prunes them!
+        DPProfileMock *prof1 = [DPProfileMock new];
+        prof1.appleScriptTabs = [NSMutableArray arrayWithObjects:[DPTabMock tabWithID:@"A"], [DPTabMock tabWithID:@"B"], nil];
+        DPProfileMock *prof2 = [DPProfileMock new];
+        prof2.appleScriptTabs = [NSMutableArray arrayWithObjects:[DPTabMock tabWithID:@"P2-1"], nil];
+        sw.appleScriptProfiles = [NSMutableArray arrayWithObjects:prof1, prof2, nil];
+        sw.appleScriptTabs = prof2.appleScriptTabs;
+        sw.activeID = @"P2-1";
+        DPPeekSyncTabs(window);
+        Check(p1.hidden && p2.hidden && !p1.closing && !p2.closing && DPPeekAllCards(window).count == 2,
+              "switching profiles hides Peeks without pruning other profile's tabs");
+
+        // Unreadable selection (active == nil) hides cards and does NOT prune!
+        sw.activeID = nil;
+        DPPeekSyncTabs(window);
+        Check(p1.hidden && p2.hidden && !p1.closing && !p2.closing, "unreadable selection hides without exposing or pruning");
+
+        // Tab B closed/moved out of window (removed from prof1 while active is P2-1): ONLY P2 closes!
+        gCloseCalls = 0;
+        window.makeKeyCalls = 0;
+        [prof1.appleScriptTabs removeLastObject]; // removes B
+        sw.activeID = @"P2-1";
+        DPPeekSyncTabs(window);
+        Check(p2.closing && !p2.superview && gCloseCalls == 1 && window.makeKeyCalls == 0, "removed origin tab B synchronously closes hidden P2 without makeKeyWindow");
+        Check(!p1.closing && DPPeekAllCards(window).count == 1, "P1 stays alive when B is removed");
+
+        // 5. Declined discard does NOT close P1; confirmed discard (Unload Tab) DOES close hidden P1 immediately!
+        gCloseCalls = 0;
+        [delegate webContents:sourceA finalizeDiscardRequest:NO];
+        Check(!p1.closing && DPPeekAllCards(window).count == 1, "declined discard leaves hidden P1 open");
+        [delegate webContents:sourceA finalizeDiscardRequest:YES];
+        Check(p1.closing && !p1.superview && gCloseCalls == 1 && DPPeekAllCards(window).count == 0,
+              "confirmed discard (unload) immediately tears down hidden P1");
+        Check(DPPeekSyncTimer == nil, "sync timer stops once last card closes");
+
+        // 6. Pinned icon tile (TabDockItemView) + closeWithForegroundCommitTiming: while hidden!
+        topRowA.hidden = YES; // Hidden stale row must not steal badge from visible pinned tile.
+        sw.appleScriptTabs = [NSMutableArray arrayWithObjects:[DPTabMock tabWithID:@"pin-1"], [DPTabMock tabWithID:@"C"], nil];
+        sw.appleScriptProfiles = nil;
+        sw.activeID = @"pin-1";
+        _TtC5TabUI15TabDockItemView *pinTile = MakePinnedTile(window.contentView, @"selected");
+        ArcWebContents *pinSource = [ArcWebContents new];
+        DPPeekOpenFrom(window, @"pin-1", [NSURL URLWithString:@"https://pin.example"], NSMakeRect(100, 100, 80, 20), delegate, pinSource, nil, nil);
+        DPPeekCard *pinPeek = DPPeekCardIn(window);
+        ((ArcWebContents *)pinPeek.page).url = [NSURL URLWithString:@"about:blank"];
+        Check(pinPeek != nil && pinPeek.tabBadge.superview == pinTile, "pinned icon tile opens Peek with badge on TabDockItemView");
+        sw.activeID = @"C";
+        pinTile.viewModel.stateSubject.currentValue.selectionStyle = nil;
+        DPPeekSyncTabs(window);
+        Check(pinPeek.hidden && !pinPeek.closing && pinPeek.tabBadge.superview == pinTile, "switching away from pinned tile hides Peek and keeps badge");
+        sw.activeID = @"pin-1";
+        pinTile.viewModel.stateSubject.currentValue.selectionStyle = @"selected";
+        DPPeekSyncTabs(window);
+        Check(!pinPeek.hidden && DPPeekCardIn(window) == pinPeek, "returning to pinned tile restores its Peek");
+        sw.activeID = @"C";
+        DPPeekSyncTabs(window);
+        // Sleeping/closing pinned tab's WebContents closes its hidden Peek even though pin-1 stays in appleScriptTabs!
+        gCloseCalls = 0;
+        [pinSource closeWithForegroundCommitTiming:0];
+        Check(pinPeek.closing && !pinPeek.superview && gCloseCalls == 1 && DPPeekAllCards(window).count == 0,
+              "closing pinned tab's WebContents tears down hidden Peek immediately");
+
+        // 7. Source deallocation closes only its own Peek; multi-window close & Peek OFF clean everything.
+        DPPeekTabWindow *window2 = [[DPPeekTabWindow alloc] initWithContentRect:NSMakeRect(-30000, -30000, 800, 500)
+            styleMask:NSWindowStyleMaskTitled backing:NSBackingStoreBuffered defer:NO];
+        window2.releasedWhenClosed = NO;
+        DPScriptWindowMock *sw2 = [DPScriptWindowMock new];
+        sw2.appleScriptTabs = [NSMutableArray arrayWithObjects:[DPTabMock tabWithID:@"X"], [DPTabMock tabWithID:@"Y"], nil];
+        sw2.activeID = @"X";
+        [gScriptWindows setObject:sw2 forKey:window2];
+        MakeHolder(window2, NSMakeRect(0, 0, 800, 500), NULL);
+
+        sw.activeID = @"C";
+        ArcWebContents *s1 = [ArcWebContents new], *s2 = [ArcWebContents new], *sX = [ArcWebContents new];
+        DPPeekOpenFrom(window, @"C", [NSURL URLWithString:@"https://c.example"], NSMakeRect(100, 100, 80, 20), delegate, s1, nil, nil);
+        DPPeekCard *c1 = DPPeekCardIn(window);
+        ((ArcWebContents *)c1.page).url = [NSURL URLWithString:@"about:blank"];
+        sw.activeID = @"pin-1";
+        DPPeekSyncTabs(window);
+        DPPeekOpenFrom(window, @"pin-1", [NSURL URLWithString:@"https://p.example"], NSMakeRect(100, 100, 80, 20), delegate, s2, nil, nil);
+        DPPeekCard *c2 = DPPeekCardIn(window);
+        ((ArcWebContents *)c2.page).url = [NSURL URLWithString:@"about:blank"];
+        DPPeekOpenFrom(window2, @"X", [NSURL URLWithString:@"https://x.example"], NSMakeRect(100, 100, 80, 20), delegate, sX, nil, nil);
+        DPPeekCard *cX = DPPeekCardIn(window2);
+        ((ArcWebContents *)cX.page).url = [NSURL URLWithString:@"about:blank"];
+        sw2.activeID = @"Y";
+        DPPeekSyncTabs(window2);
+        Check(DPPeekAllCards(window).count == 2 && DPPeekAllCards(window2).count == 1 && cX.hidden, "two windows hold visible + hidden cards");
+
+        // Closing window 1 tears down both c1 (hidden) and c2 (visible) without touching window 2's cX.
+        [NSNotificationCenter.defaultCenter postNotificationName:NSWindowWillCloseNotification object:window];
+        Check(DPPeekAllCards(window).count == 0 && DPPeekAllCards(window2).count == 1 && !cX.closing,
+              "closing window 1 tears down visible+hidden cards in window 1 only");
+
+        // Turning Peek OFF tears down hidden cX in window 2 and stops sync timer.
+        DPPeek.on = NO;
+        DPPeekCloseAll();
+        Check(DPPeekAllCards(nil).count == 0 && DPPeekHiddenCards(nil).count == 0 && DPPeekSyncTimer == nil,
+              "DPPeekCloseAll tears down hidden background cards across all windows and stops sync timer");
+
+        // Off-tweak invariant: hooks do nothing when DPPeek.on == NO.
+        [pane2 removeFromSuperview];
+        [holder2 addSubview:pane2];
+        [sX setVisibility:2];
+        [sX closeWithForegroundCommitTiming:0];
+        [delegate webContents:sX finalizeDiscardRequest:YES];
+        Check(DPPeekSyncTimer == nil && DPPeekAllCards(nil).count == 0, "hooks are complete no-ops when Peek is off");
+
+        [window close];
+        [window2 close];
+        printf("peek-tabs: %d failures\n", failures);
+    }
+    return failures ? 1 : 0;
+}

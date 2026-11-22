@@ -14,7 +14,7 @@ static NSInteger DPTidyPinnedRows(NSWindow *window) {
             for (NSInteger item = 0; item < [collection numberOfItemsInSection:section]; item++) {
                 NSIndexPath *path = [NSIndexPath indexPathForItem:item inSection:section];
                 NSCollectionViewLayoutAttributes *attrs = [collection.collectionViewLayout layoutAttributesForItemAtIndexPath:path];
-                // Folded, Collapse Pinned Tabs moves pinned rows below the line and hides them.
+                // Folded pinned tabs sit below the line hidden/fading.
                 if (attrs && (attrs.hidden || attrs.alpha < 1 || NSMaxY(attrs.frame) <= line + 0.5)) above++;
             }
         return above;
@@ -22,7 +22,7 @@ static NSInteger DPTidyPinnedRows(NSWindow *window) {
     return 0;
 }
 
-// Scripting lists favorites, then pinned tabs, then the rest; a URL on both sides of the divider is dropped.
+// appleScriptTabs orders favorites, then pinned, then loose tabs.
 NSDictionary<NSString *, NSString *> *DPTidyLooseTabs(NSWindow *window) {
     id scripted = DPScriptWindow(window);
     NSArray *tabs = [scripted respondsToSelector:@selector(appleScriptTabs)] ? DPMsg(scripted, @selector(appleScriptTabs)) : nil;
@@ -45,5 +45,7 @@ NSString *DPTidyAddress(NSString *url, NSString *host) {
     NSString *path = [NSURL URLWithString:url].path ?: @"";
     while ([path hasSuffix:@"/"]) path = [path substringToIndex:path.length - 1];
     NSString *address = [host stringByAppendingString:path];
-    return address.length > 70 ? [address substringToIndex:70] : address;
+    if (address.length <= 70) return address;
+    NSRange boundary = [address rangeOfComposedCharacterSequenceAtIndex:70];
+    return [address substringToIndex:boundary.location];
 }

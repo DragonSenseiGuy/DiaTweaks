@@ -2,8 +2,6 @@
 #import "Passwords.h"
 #import "PasswordsParts.h"
 
-static NSString *const kAppleHost = @"/Library/Google/Chrome/NativeMessagingHosts/com.apple.passwordmanager.json";
-
 // Apple's iCloud Passwords extensions plus Better Passwords and Open Passwords, which use Apple's helper too.
 static const char *const kAppleOrigins[] = { "chrome-extension://pejdijmoenmkgeppbflobdenhhabjlaj/",
                                              "chrome-extension://mfbcdcnpokpoajjciilocoachedjkima/",
@@ -16,11 +14,39 @@ static NSDictionary *hostAt(NSString *manifest) {
     return [host isKindOfClass:NSDictionary.class] && [host[@"path"] isKindOfClass:NSString.class] ? host : nil;
 }
 
-static NSDictionary *onePasswordHost(void) {
-    return hostAt([NSHomeDirectory() stringByAppendingPathComponent:@"Library/Application Support/Google/Chrome/NativeMessagingHosts/com.1password.1password.json"]);
+static NSString *appleHelperIn(NSArray<NSString *> *manifests) {
+    for (NSString *manifest in manifests) {
+        NSString *path = hostAt(manifest)[@"path"];
+        if (path && [NSFileManager.defaultManager isExecutableFileAtPath:path]) return path;
+    }
+    return nil;
 }
 
-NSString *DPAppleHelper(void) { return hostAt(kAppleHost)[@"path"]; }
+static NSDictionary *onePasswordHostIn(NSArray<NSString *> *folders) {
+    for (NSString *folder in folders) {
+        NSDictionary *host = hostAt([folder stringByAppendingPathComponent:@"com.1password.1password.json"]);
+        if (host) return host;
+    }
+    return nil;
+}
+
+static NSDictionary *onePasswordHost(void) {
+    NSString *home = NSHomeDirectory();
+    return onePasswordHostIn(@[
+        [home stringByAppendingPathComponent:@"Library/Application Support/Google/Chrome/NativeMessagingHosts"],
+        [home stringByAppendingPathComponent:@"Library/Application Support/Dia/User Data/NativeMessagingHosts"],
+        @"/Library/Google/Chrome/NativeMessagingHosts",
+        @"/Library/Application Support/Chromium/NativeMessagingHosts",
+    ]);
+}
+
+NSString *DPAppleHelper(void) {
+    return appleHelperIn(@[
+        @"/Library/Google/Chrome/NativeMessagingHosts/com.apple.passwordmanager.json",
+        @"/System/Library/Templates/Data/Library/Google/Chrome/NativeMessagingHosts/com.apple.passwordmanager.json",
+        @"/System/Cryptexes/App/Library/Google/Chrome/NativeMessagingHosts/com.apple.passwordmanager.json",
+    ]);
+}
 
 NSString *DPOnePasswordHelper(void) {
     NSString *path = onePasswordHost()[@"path"];
@@ -40,9 +66,11 @@ BOOL DPIsPasswordsOrigin(const char *origin) {
 
 static void waitForExit(pid_t pid) {
     int queue = kqueue();
+    if (queue < 0) return;
     struct kevent change, event;
     EV_SET(&change, pid, EVFILT_PROC, EV_ADD | EV_ONESHOT, NOTE_EXIT, 0, NULL);
-    if (queue >= 0 && kevent(queue, &change, 1, NULL, 0, NULL) == 0) kevent(queue, NULL, 0, &event, 1, NULL);
+    if (kevent(queue, &change, 1, NULL, 0, NULL) == 0) kevent(queue, NULL, 0, &event, 1, NULL);
+    close(queue);
 }
 
 // Chromium hears the helper exit when the pipes close, so this must hold no end of them.

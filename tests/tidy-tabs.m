@@ -79,6 +79,12 @@ int main(void) {
         expectEqual(DPTidyLooseTabs(newer), @{}, @"a window without a tab list has no loose tabs");
         delegate.appleScriptWindows = @[];
         expectEqual(DPTidyLooseTabs(newer), @{}, @"no scripted windows means no loose tabs");
+
+        NSString *emojiPath = [NSString stringWithFormat:@"https://example.com/%@/%@", [@"" stringByPaddingToLength:57 withString:@"a" startingAtIndex:0], @"\U0001F525tail"];
+        NSString *trimmed = DPTidyAddress(emojiPath, @"example.com");
+        unichar last = trimmed.length ? [trimmed characterAtIndex:trimmed.length - 1] : 0;
+        expectEqual(@(trimmed.length <= 70 && [trimmed UTF8String] != NULL && (last < 0xD800 || last > 0xDBFF)), @YES,
+            @"address truncation does not split a UTF-16 surrogate pair");
     }
     if (!failures) printf("all Tidy Tabs checks passed\n");
     return failures ? 1 : 0;

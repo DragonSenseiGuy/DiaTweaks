@@ -55,9 +55,11 @@ static NSButton *DPButton(NSString *title, id target, SEL action, NSString *part
 
 - (void)sync {
     DPUpdates *updates = DPUpdates.shared;
-    NSMutableString *shape = [NSMutableString stringWithFormat:@"%d %d %@", updates.checking, updates.found != nil, updates.checkProblem];
+    NSMutableString *shape = [NSMutableString stringWithFormat:@"%d %d %@ %@ %@", updates.checking, updates.found != nil, updates.checkProblem,
+                              updates.found[DPDia][@"installed"], updates.found[DPTweaks][@"installed"]];
     for (NSString *part in self.shown)
-        [shape appendFormat:@" %@:%@:%@:%d:%@", part, [self stateOf:part], updates.found[part][@"latest"], [updates failed:part], [updates failure:part]];
+        [shape appendFormat:@" %@:%@:%@:%@:%d:%@", part, [self stateOf:part], updates.found[part][@"latest"], updates.found[part][@"staged"],
+                            [updates failed:part], [updates failure:part]];
     for (NSString *part in @[DPDia, DPTweaks]) [shape appendFormat:@"%ld", DPAutoLevelOf(part)];
     if (![shape isEqual:_shape]) {
         _shape = shape;
@@ -68,7 +70,10 @@ static NSButton *DPButton(NSString *title, id target, SEL action, NSString *part
         NSProgressIndicator *bar = [_bars objectForKey:part];
         bar.indeterminate = progress < 0;
         if (progress < 0) [bar startAnimation:nil];
-        else bar.doubleValue = progress;
+        else {
+            [bar stopAnimation:nil];
+            bar.doubleValue = progress;
+        }
         [_details objectForKey:part].stringValue = progress < 0 ? @"Preparing…"
             : [NSString stringWithFormat:@"Downloading… %.0f%%", progress * 100];
     }
@@ -127,16 +132,18 @@ static NSButton *DPButton(NSString *title, id target, SEL action, NSString *part
 - (NSView *)automaticGroup {
     NSMutableArray<NSView *> *automatic = [NSMutableArray new];
     for (NSString *part in @[DPDia, DPTweaks]) {
+        DPAutoLevel level = DPAutoLevelOf(part);
+        NSString *name = DPPartName(part);
         NSPopUpButton *menu = [NSPopUpButton new];
         [menu addItemsWithTitles:@[@"Off", @"Show in Software Update", @"Download", @"Download and install on quit"]];
-        [menu selectItemAtIndex:DPAutoLevelOf(part)];
+        [menu selectItemAtIndex:level];
         menu.identifier = part;
         menu.target = self;
         menu.action = @selector(automaticChanged:);
-        menu.accessibilityLabel = [DPPartName(part) stringByAppendingString:@" updates"];
+        menu.accessibilityLabel = [name stringByAppendingString:@" updates"];
         NSString *does = @[@"Only checks when you open this page", @"Checks when Dia opens and lists it here",
-                           @"Downloads it, then you choose when to install", @"Downloads it and installs when you quit Dia"][DPAutoLevelOf(part)];
-        NSView *text = DPColumn(@[DPLine(DPPartName(part), 13, NSColor.labelColor), DPLine(does, 11, NSColor.secondaryLabelColor)], 2);
+                           @"Downloads it, then you choose when to install", @"Downloads it and installs when you quit Dia"][level];
+        NSView *text = DPColumn(@[DPLine(name, 13, NSColor.labelColor), DPLine(does, 11, NSColor.secondaryLabelColor)], 2);
         [automatic addObject:DPRow(text, menu)];
     }
     return DPGroup(automatic);
@@ -146,16 +153,21 @@ static NSButton *DPButton(NSString *title, id target, SEL action, NSString *part
     DPUpdates *updates = DPUpdates.shared;
     NSDictionary *found = updates.found[part];
     NSString *state = [self stateOf:part];
+    BOOL staged = [state isEqual:@"staged"];
     BOOL installsOnQuit = DPAutoLevelOf(part) == DPAutoInstall && !DPIsLocalBuild(part);
-    NSString *size = [NSByteCountFormatter stringFromByteCount:[found[@"size"] longLongValue] countStyle:NSByteCountFormatterCountStyleFile];
+    id rawSize = found[@"size"];
+    NSString *size = [NSByteCountFormatter stringFromByteCount:[rawSize isKindOfClass:NSNumber.class] ? [rawSize longLongValue] : 0
+                                                    countStyle:NSByteCountFormatterCountStyleFile];
     BOOL failed = [updates failed:part];
-    NSTextField *detail = DPLine([state isEqual:@"staged"] ? (installsOnQuit ? @"Installs when you quit" : @"Ready to install")
+    NSTextField *detail = DPLine(staged ? (installsOnQuit ? @"Installs when you quit" : @"Ready to install")
                                  : failed ? ([updates failure:part] ?: @"Download failed") : size,
                                  11, failed ? NSColor.systemRedColor : NSColor.secondaryLabelColor);
     if (failed) detail.toolTip = detail.stringValue;
+    id rawVersion = found[staged ? @"staged" : @"latest"];
+    NSString *title = [rawVersion isKindOfClass:NSString.class] ? [NSString stringWithFormat:@"%@ %@", DPPartName(part), rawVersion] : DPPartName(part);
     NSStackView *leading = [NSStackView stackViewWithViews:@[
         DPPartIcon(part),
-        DPColumn(@[DPLine([NSString stringWithFormat:@"%@ %@", DPPartName(part), found[@"latest"]], 13, NSColor.labelColor), detail], 2),
+        DPColumn(@[DPLine(title, 13, NSColor.labelColor), detail], 2),
     ]];
     leading.spacing = 10;
 

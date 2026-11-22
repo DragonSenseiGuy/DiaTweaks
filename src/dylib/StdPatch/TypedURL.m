@@ -4,12 +4,17 @@
 
 // javascript: is left out on purpose: a bar that only navigates has nothing to run it on, so it is searched for.
 static BOOL DPKeepsScheme(NSString *scheme) {
-    return [@[ @"about", @"chrome", @"data", @"file", @"mailto", @"view-source" ] containsObject:scheme];
+    static NSSet<NSString *> *kept;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{ kept = [NSSet setWithArray:@[ @"about", @"chrome", @"data", @"file", @"mailto", @"view-source" ]]; });
+    return [kept containsObject:scheme];
 }
 
 static BOOL DPIsPort(NSString *text) {
-    return text.length && text.length <= 5 && text.integerValue <= 65535 &&
-           [text rangeOfCharacterFromSet:NSCharacterSet.decimalDigitCharacterSet.invertedSet].location == NSNotFound;
+    static NSCharacterSet *nonDigits;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{ nonDigits = [NSCharacterSet characterSetWithCharactersInString:@"0123456789"].invertedSet; });
+    return text.length && text.length <= 5 && text.integerValue <= 65535 && [text rangeOfCharacterFromSet:nonDigits].location == NSNotFound;
 }
 
 static BOOL DPIsIPv4(NSArray<NSString *> *labels) {
@@ -39,37 +44,45 @@ static BOOL DPIsTopLevel(NSString *label) {
 
 static BOOL DPIsLocalName(NSString *name) {
     if ([name isEqual:@"localhost"]) return YES;
-    for (NSString *suffix in @[ @".localhost", @".test", @".local", @".internal", @".lan", @".home.arpa" ]) if ([name hasSuffix:suffix]) return YES;
+    static NSArray<NSString *> *suffixes;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{ suffixes = @[ @".localhost", @".test", @".local", @".internal", @".lan", @".home.arpa" ]; });
+    for (NSString *suffix in suffixes) if ([name hasSuffix:suffix]) return YES;
     return NO;
 }
 
 static BOOL DPIsHostLabel(NSString *label) {
-    static NSCharacterSet *allowed;
+    static NSCharacterSet *disallowed;
     static dispatch_once_t once;
     dispatch_once(&once, ^{
         NSMutableCharacterSet *set = [NSCharacterSet.letterCharacterSet mutableCopy];
         [set formUnionWithCharacterSet:NSCharacterSet.decimalDigitCharacterSet];
         [set formUnionWithCharacterSet:NSCharacterSet.nonBaseCharacterSet];
         [set addCharactersInString:@"-_"];
-        allowed = set;
+        disallowed = set.invertedSet;
     });
     return label.length && ![label hasPrefix:@"-"] && ![label hasSuffix:@"-"] &&
-           [label rangeOfCharacterFromSet:allowed.invertedSet].location == NSNotFound;
+           [label rangeOfCharacterFromSet:disallowed].location == NSNotFound;
 }
 
 NSURL *DPAddressURL(NSString *typed) {
+    static NSCharacterSet *nonScheme, *delims;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        nonScheme = [NSCharacterSet characterSetWithCharactersInString:@"abcdefghijklmnopqrstuvwxyz0123456789+.-"].invertedSet;
+        delims = [NSCharacterSet characterSetWithCharactersInString:@"/?#"];
+    });
     NSCharacterSet *space = NSCharacterSet.whitespaceAndNewlineCharacterSet;
     NSString *text = [typed stringByTrimmingCharactersInSet:space];
     if (!text.length || [text rangeOfCharacterFromSet:space].location != NSNotFound) return nil;
 
     NSRange colon = [text rangeOfString:@":"];
     NSString *scheme = colon.location == NSNotFound ? @"" : [text substringToIndex:colon.location].lowercaseString;
-    NSCharacterSet *schemeLetters = [NSCharacterSet characterSetWithCharactersInString:@"abcdefghijklmnopqrstuvwxyz0123456789+.-"];
-    if (scheme.length && isalpha([scheme characterAtIndex:0]) && [scheme rangeOfCharacterFromSet:schemeLetters.invertedSet].location == NSNotFound &&
+    if (scheme.length && isalpha([scheme characterAtIndex:0]) && [scheme rangeOfCharacterFromSet:nonScheme].location == NSNotFound &&
         ![scheme isEqual:@"javascript"] && ([[text substringFromIndex:NSMaxRange(colon)] hasPrefix:@"//"] || DPKeepsScheme(scheme)))
         return [NSURL URLWithString:text];
 
-    NSRange end = [text rangeOfCharacterFromSet:[NSCharacterSet characterSetWithCharactersInString:@"/?#"]];
+    NSRange end = [text rangeOfCharacterFromSet:delims];
     NSString *authority = end.location == NSNotFound ? text : [text substringToIndex:end.location], *host = authority, *port = nil;
     if ([authority hasPrefix:@"["]) {
         NSRange close = [authority rangeOfString:@"]"];

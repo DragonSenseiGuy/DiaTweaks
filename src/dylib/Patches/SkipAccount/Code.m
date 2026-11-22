@@ -4,22 +4,35 @@
 #import <mach-o/getsect.h>
 #import <mach/mach_vm.h>
 
-uint32_t *DPSkipFindCode(const DPSkipInstruction *signature, NSUInteger length) {
+static BOOL DPMatches(const uint32_t *code, const DPSkipInstruction *signature, NSUInteger length) {
+    for (NSUInteger j = 0; j < length; j++)
+        if ((code[j] & signature[j].mask) != signature[j].value) return NO;
+    return YES;
+}
+
+BOOL DPSkipFindPatterns(DPSkipPattern *patterns, NSUInteger count) {
     const struct mach_header_64 *header = NULL;
     for (uint32_t i = 0; i < _dyld_image_count(); i++)
-        if (_dyld_get_image_header(i)->filetype == MH_EXECUTE) header = (const struct mach_header_64 *)_dyld_get_image_header(i);
-    if (!header) return NULL;
+        if (_dyld_get_image_header(i)->filetype == MH_EXECUTE) { header = (const struct mach_header_64 *)_dyld_get_image_header(i); break; }
+    if (!header || !count) return NO;
     unsigned long size = 0;
     const uint32_t *text = (const uint32_t *)getsectiondata(header, "__TEXT", "__text", &size);
-    uint32_t *found = NULL;
-    for (NSUInteger i = 0; text && i + length <= size / sizeof *text; i++) {
-        NSUInteger j = 0;
-        while (j < length && (text[i + j] & signature[j].mask) == signature[j].value) j++;
-        if (j != length) continue;
-        if (found) return NULL;
-        found = (uint32_t *)(text + i);
+    if (!text) return NO;
+    NSUInteger words = size / sizeof *text;
+    for (NSUInteger p = 0; p < count; p++) patterns[p].match = NULL;
+
+    for (NSUInteger i = 0; i < words; i++) {
+        uint32_t first = text[i];
+        for (NSUInteger p = 0; p < count; p++) {
+            DPSkipPattern *pat = &patterns[p];
+            if ((first & pat->signature[0].mask) != pat->signature[0].value) continue;
+            if (i + pat->length > words || !DPMatches(text + i, pat->signature, pat->length)) continue;
+            if (pat->match) return NO;
+            pat->match = (uint32_t *)(text + i);
+        }
     }
-    return found;
+    for (NSUInteger p = 0; p < count; p++) if (!patterns[p].match) return NO;
+    return YES;
 }
 
 BOOL DPSkipWriteCode(uint32_t *site, uint32_t expected, uint32_t value) {

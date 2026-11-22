@@ -7,49 +7,53 @@
 
 extern DPPatch DPOpenSidebarInstantly;
 
-static const uint32_t DPLoadDelay = 0x9E670100;
-static const uint32_t DPNoDelay = 0x9E6703E0;
-static const NSUInteger DPSiteIndex = 28;
+// WindowController opens a hidden sidebar or top tab bar only once an edge region reaches .hasLingered (2) or
+// .hasStopped (3). Lowering those two hidden-state edge checks to > .none (0) opens on first touch without touching
+// ARCUI.MouseListener's shared 0.08 s wait, which also drives pinned-tab cards and folder popovers.
+static const uint32_t DPWaitInner = 0x7100051f;
+static const uint32_t DPInstantInner = 0x7100011f;
+static const uint32_t DPWaitOuter = 0x7a419922;
+static const uint32_t DPInstantOuter = 0x7a409922;
+static const NSUInteger DPSiteIndex = 9;
 static uint32_t *DPSite;
 
 static const struct { uint32_t value, mask; } DPSignature[] = {
-    {0xcb0c0119, 0xffffffff},
-    {0x9100033f, 0xffffffff},
-    {0x94000000, 0xfc000000},
-    {0xfd002a80, 0xffffffff},
-    {0x90000000, 0x9f000000},
-    {0xf9400100, 0xffc003ff},
-    {0x94000000, 0xfc000000},
-    {0xaa0003fb, 0xffffffff},
-    {0x94000000, 0xfc000000},
-    {0x6d058680, 0xffffffff},
-    {0xf9401a98, 0xffffffff},
-    {0xb4000000, 0xff000000},
-    {0xf9401f54, 0xffffffff},
-    {0xaa1b03e0, 0xffffffff},
-    {0x94000000, 0xfc000000},
-    {0xd63f0300, 0xffffffff},
-    {0xfd402b48, 0xffffffff},
-    {0xd2800000, 0xffffffff},
-    {0x94000000, 0xfc000000},
-    {0xaa0003f4, 0xffffffff},
-    {0x94000000, 0xfc000000},
-    {0xaa0003fb, 0xffffffff},
-    {0xaa1c03e8, 0xffffffff},
-    {0x94000000, 0xfc000000},
-    {0xd2828f68, 0xffffffff},
-    {0xf2a8f5c8, 0xffffffff},
-    {0xf2cf5c28, 0xffffffff},
-    {0xf2e7f688, 0xffffffff},
+    {0x8b080288, 0xffffffff},
+    {0x39401509, 0xffffffff},
+    {0x7100055f, 0xffffffff},
+    {0x54000001, 0xff00001f},
+    {0x7100053f, 0xffffffff},
+    {0x54000008, 0xff00001f},
+    {0x39401109, 0xffffffff},
+    {0x39400d08, 0xffffffff},
+    {0x12001d08, 0xffffffff},
     {0x00000000, 0x00000000},
-    {0xaa1903e8, 0xffffffff},
-    {0xaa1c03e0, 0xffffffff},
+    {0x00000000, 0x00000000},
+    {0x52800028, 0xffffffff},
+    {0x1a889500, 0xffffffff},
+    {0x14000000, 0xfc000000},
+    {0x35000009, 0xff00001f},
+    {0x39400509, 0xffffffff},
+    {0x39400108, 0xffffffff},
+    {0x14000000, 0xfc000000},
+    {0x35000009, 0xff00001f},
+    {0x39401109, 0xffffffff},
+    {0x39400d08, 0xffffffff},
+    {0x12001d08, 0xffffffff},
+    {0x2a080128, 0xffffffff},
+    {0x7100011f, 0xffffffff},
+    {0x52800028, 0xffffffff},
+    {0x1a880500, 0xffffffff},
+    {0x14000000, 0xfc000000},
 };
 
+static const NSUInteger DPSignatureCount = sizeof DPSignature / sizeof *DPSignature;
+
 static BOOL DPMatchesAt(const uint32_t *code) {
-    for (NSUInteger i = 0; i < sizeof DPSignature / sizeof *DPSignature; i++)
+    for (NSUInteger i = 0; i < DPSignatureCount; i++)
         if ((code[i] & DPSignature[i].mask) != DPSignature[i].value) return NO;
-    return code[DPSiteIndex] == DPLoadDelay || code[DPSiteIndex] == DPNoDelay;
+    return (code[DPSiteIndex] == DPWaitInner && code[DPSiteIndex + 1] == DPWaitOuter)
+        || (code[DPSiteIndex] == DPInstantInner && code[DPSiteIndex + 1] == DPInstantOuter);
 }
 
 static NSUInteger DPSearch(const uint32_t *text, NSUInteger first, NSUInteger end, uint32_t **found) {
@@ -59,29 +63,34 @@ static NSUInteger DPSearch(const uint32_t *text, NSUInteger first, NSUInteger en
     return count;
 }
 
-// Measured on Dia 1.57.0: searched first, the whole 100 MB only as a fallback.
+static uint32_t *DPFindSiteIn(const uint32_t *text, NSUInteger words) {
+    if (!text || words < DPSignatureCount) return NULL;
+    NSUInteger limit = words - DPSignatureCount + 1, near = 0x18f0000, reach = 0x40000;
+    uint32_t *found = NULL;
+    if (near >= reach && near + reach <= limit && DPSearch(text, near - reach, near + reach, &found) == 1) return found;
+    return DPSearch(text, 0, limit, &found) == 1 ? found : NULL;
+}
+
 static uint32_t *DPFindSite(void) {
     unsigned long size = 0;
     const struct mach_header_64 *header = (const struct mach_header_64 *)_dyld_get_image_header(0);
     const uint32_t *text = (const uint32_t *)getsectiondata(header, "__TEXT", "__text", &size);
-    if (!text) return NULL;
-    NSUInteger words = size / 4 - sizeof DPSignature / sizeof *DPSignature, near = 0x1ff629, reach = 0x10000;
-    uint32_t *found = NULL;
-    if (near + reach < words && DPSearch(text, near - reach, near + reach, &found) == 1) return found;
-    return DPSearch(text, 0, words, &found) == 1 ? found : NULL;
+    return DPFindSiteIn(text, size / 4);
 }
 
-static BOOL DPRewrite(uint32_t expected, uint32_t value) {
-    if (!DPSite || *DPSite != expected) return NO;
-    mach_vm_address_t page = (mach_vm_address_t)DPSite & ~((mach_vm_address_t)vm_page_size - 1);
-    if (mach_vm_protect(mach_task_self(), page, vm_page_size, FALSE, VM_PROT_READ | VM_PROT_WRITE | VM_PROT_COPY)) return NO;
-    *DPSite = value;
-    mach_vm_protect(mach_task_self(), page, vm_page_size, FALSE, VM_PROT_READ | VM_PROT_EXECUTE);
-    sys_icache_invalidate(DPSite, sizeof *DPSite);
+static BOOL DPRewrite(uint32_t expected0, uint32_t expected1, uint32_t value0, uint32_t value1) {
+    if (!DPSite || DPSite[0] != expected0 || DPSite[1] != expected1) return NO;
+    mach_vm_address_t mask = (mach_vm_address_t)vm_page_size - 1;
+    mach_vm_address_t start = (mach_vm_address_t)DPSite & ~mask;
+    mach_vm_size_t len = (((mach_vm_address_t)(DPSite + 2) + mask) & ~mask) - start;
+    if (mach_vm_protect(mach_task_self(), start, len, FALSE, VM_PROT_READ | VM_PROT_WRITE | VM_PROT_COPY)) return NO;
+    DPSite[0] = value0;
+    DPSite[1] = value1;
+    mach_vm_protect(mach_task_self(), start, len, FALSE, VM_PROT_READ | VM_PROT_EXECUTE);
+    sys_icache_invalidate(DPSite, 2 * sizeof *DPSite);
     return YES;
 }
 
-// Looked for the first time the switch is on, so Dia launches without the search while it's off.
 static BOOL DPSearched;
 
 static uint32_t *DPLocate(void) {
@@ -89,34 +98,14 @@ static uint32_t *DPLocate(void) {
     return DPSite;
 }
 
-// The same wait is what lets the pointer cross from the sidebar into a card or popover without the sidebar closing, so it stays while one is showing.
-static BOOL DPCardShowing(void) {
-    for (NSWindow *window in NSApp.windows)
-        if (window.visible && window.alphaValue > 0.01 && (DPIsKind(window, DPDiaPinnedTabCard) || DPIsKind(window, "_NSPopoverWindow"))) return YES;
-    return NO;
-}
-
-static id DPMoveMonitor;
-
-static void DPMatchWait(void) {
-    if (DPCardShowing()) DPRewrite(DPNoDelay, DPLoadDelay);
-    else DPRewrite(DPLoadDelay, DPNoDelay);
-}
-
 static void DPApplyOpenSidebarInstantly(DPPatch *patch) {
-    if (DPMoveMonitor && !patch->on) [NSEvent removeMonitor:DPMoveMonitor], DPMoveMonitor = nil;
-    if (!patch->on) return (void)DPRewrite(DPNoDelay, DPLoadDelay);
-    if (DPLocate()) {
-        DPMatchWait();
-        if (!DPMoveMonitor) DPMoveMonitor = [NSEvent addLocalMonitorForEventsMatchingMask:NSEventMaskMouseMoved handler:^NSEvent *(NSEvent *event) { DPMatchWait(); return event; }];
-        return;
-    }
+    if (!patch->on) return (void)DPRewrite(DPInstantInner, DPInstantOuter, DPWaitInner, DPWaitOuter);
+    if (DPLocate()) return (void)DPRewrite(DPWaitInner, DPWaitOuter, DPInstantInner, DPInstantOuter);
     patch->unavailable = YES;
     DPSetPatch(patch, NO, !DPTesting);
     dispatch_async(dispatch_get_main_queue(), ^{ [NSNotificationCenter.defaultCenter postNotificationName:DPPatchesDidChangeNotification object:nil]; });
 }
 
-// Off in memory only: the saved switch stays on for a release that knows this Dia's code.
 static void DPInstallOpenSidebarInstantly(void) {
     if (!DPOpenSidebarInstantly.on) return;
     if (DPLocate()) return DPApplyOpenSidebarInstantly(&DPOpenSidebarInstantly);
@@ -127,10 +116,11 @@ static void DPInstallOpenSidebarInstantly(void) {
 
 static NSString *DPVerifyOpenSidebarInstantly(DPPatch *patch) {
     if (!patch->on && !DPSite) return nil;
-    if (!DPSite) return @"the delay isn't where it was";
-    if (patch->on && !DPMoveMonitor) return @"the pointer isn't watched";
-    BOOL fine = patch->on ? *DPSite == (DPCardShowing() ? DPLoadDelay : DPNoDelay) : *DPSite == DPLoadDelay;
-    return fine ? nil : patch->on ? @"the delay doesn't match the cards showing" : @"the delay is gone";
+    if (!DPSite) return @"the sidebar hover check isn't where it was";
+    BOOL fine = patch->on
+        ? (DPSite[0] == DPInstantInner && DPSite[1] == DPInstantOuter)
+        : (DPSite[0] == DPWaitInner && DPSite[1] == DPWaitOuter);
+    return fine ? nil : patch->on ? @"the wait is still there" : @"the wait is gone";
 }
 
 DP_PATCH(DPOpenSidebarInstantly) {

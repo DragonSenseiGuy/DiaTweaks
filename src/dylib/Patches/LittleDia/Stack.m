@@ -45,10 +45,14 @@ static void DPUnveil(void) {
 }
 
 void DPLinkArrived(void) {
+    for (NSWindow *window in NSApp.orderedWindows)
+        if ([DPVeiled objectForKey:window] && window.visible) DPPutAwayWindow(window);
     for (NSWindow *window in DPVeiled)
         if (window.visible) DPPutAwayWindow(window);
     DPUnveil();
 }
+
+NSArray<NSWindow *> *DPPutAwayWindows(void) { return DPPutAway.copy ?: @[]; }
 
 void DPBringBackPutAway(NSWindow *little) {
     for (NSWindow *window in DPPutAway) {
@@ -114,8 +118,11 @@ void DPInstallLittleDiaStack(void) {
     DPVeiled = [NSMapTable weakToStrongObjectsMapTable];
     NSNotificationCenter *center = NSNotificationCenter.defaultCenter;
     [center addObserverForName:NSApplicationWillUnhideNotification object:nil queue:nil usingBlock:^(NSNotification *note) { DPVeilWindows(); }];
-    [center addObserverForName:NSApplicationDidUnhideNotification object:nil queue:nil usingBlock:^(NSNotification *note) { DPUnhiddenAt = [NSDate date]; }];
+    [center addObserverForName:NSApplicationDidUnhideNotification object:nil queue:nil usingBlock:^(NSNotification *note) {
+        if (DPLittleDia.on) DPUnhiddenAt = [NSDate date];
+    }];
     [center addObserverForName:NSApplicationWillBecomeActiveNotification object:nil queue:nil usingBlock:^(NSNotification *note) {
+        if (!DPLittleDia.on) return;
         DPBeforeActivating = DPWindowStack();
         DPNotedAt = [NSDate date];
     }];

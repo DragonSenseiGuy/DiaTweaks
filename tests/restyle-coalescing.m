@@ -13,7 +13,7 @@ NSValue *DPRequestedFrame(NSView *view) { return requested; }
 @interface CountingContainer : NSView
 @end
 @implementation CountingContainer
-- (void)layout {}  // Dia's own work is outside this fixture.
+- (void)layout {}
 - (void)updateLayer {}
 - (void)setFrame:(NSRect)frame { frameWrites++; [super setFrame:frame]; }
 @end

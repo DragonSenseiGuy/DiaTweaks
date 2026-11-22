@@ -9,7 +9,8 @@ static NSView *DPWebRow(NSString *title, NSString *path) {
 }
 
 @implementation DPHomeView {
-    NSTextField *_version, *_updateSummary;
+    NSTextField *_version, *_updateSummary, *_pauseLabel;
+    NSButton *_pauseButton;
 }
 
 - (instancetype)initWithFrame:(NSRect)frame {
@@ -30,17 +31,22 @@ static NSView *DPWebRow(NSString *title, NSString *path) {
     trailing.spacing = 10;
     __weak DPHomeView *weakSelf = self;
     NSView *updateRow = DPLinkRow(DPRow(leading, trailing), @"Software Update", ^{
-        weakSelf.open(@"Software Update", [DPSoftwareUpdateView new]);
+        if (weakSelf.open) weakSelf.open(@"Software Update", [DPSoftwareUpdateView new]);
     });
+    _pauseLabel = DPLabel(@"", 13, NSFontWeightRegular, NSColor.labelColor);
+    _pauseButton = [NSButton buttonWithTitle:@"" target:self action:@selector(togglePause:)];
+    NSView *pauseRow = DPRow(_pauseLabel, _pauseButton);
     NSView *restoreRow = DPRow(DPLabel(@"Restore the original Dia without patches.", 13, NSFontWeightRegular, NSColor.labelColor),
                                [NSButton buttonWithTitle:@"Restore…" target:self action:@selector(restore:)]);
 
     NSTextField *notice = DPLabel(@"DiaTweaks is unofficial and not affiliated with The Browser Company.", 11, NSFontWeightRegular, NSColor.tertiaryLabelColor);
     NSView *help = DPGroup(@[DPWebRow(@"Wiki", @"/wiki"), DPWebRow(@"Report a Bug", @"/issues/new/choose"), DPWebRow(@"GitHub", @"")]);
-    DPFillStack(self, @[about, DPGroup(@[updateRow]), DPHeader(@"Help"), help, DPGroup(@[restoreRow]), notice]);
+    DPFillStack(self, @[about, DPGroup(@[updateRow]), DPHeader(@"Help"), help, DPGroup(@[pauseRow, restoreRow]), notice]);
     [self setCustomSpacing:20 afterView:about];
     [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(updatesDidChange) name:DPUpdatesDidChangeNotification object:nil];
+    [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(syncPause) name:DPPatchesDidChangeNotification object:nil];
     [self updatesDidChange];
+    [self syncPause];
     return self;
 }
 
@@ -57,14 +63,22 @@ static NSView *DPWebRow(NSString *title, NSString *path) {
         : updates.checkProblem ? @"Couldn’t check"
         : updates.found ? @"Up to date" : @"";
 
+    static NSCharacterSet *vSet;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{ vSet = [NSCharacterSet characterSetWithCharactersInString:@"v"]; });
     id installed = updates.found[DPTweaks][@"installed"];
-    _version.stringValue = [installed isKindOfClass:NSString.class] ? [@"Version " stringByAppendingString:[installed stringByTrimmingCharactersInSet:[NSCharacterSet characterSetWithCharactersInString:@"v"]]]
+    _version.stringValue = [installed isKindOfClass:NSString.class] ? [@"Version " stringByAppendingString:[installed stringByTrimmingCharactersInSet:vSet]]
         : updates.found ? @"Development build" : @"";
     _version.hidden = !_version.stringValue.length;
 }
 
+- (void)syncPause { DPSyncPauseRow(_pauseLabel, _pauseButton); }
+
+- (void)togglePause:(id)sender { DPSetTweaksPaused(!DPPaused, self.window); }
+
 - (void)refresh {
     [self updatesDidChange];
+    [self syncPause];
     [DPUpdates.shared check:nil];
 }
 

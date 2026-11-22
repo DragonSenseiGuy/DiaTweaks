@@ -20,7 +20,6 @@ static CAGradientLayer *DPGradientLayer(NSView *gradient) {
     return nil;
 }
 
-// What Dia draws in the window you are using, a normal one.
 static CAGradientLayer *DPThemeSource(void) {
     for (NSWindow *window in NSApp.orderedWindows) {
         CAGradientLayer *layer = DPIsKind(window, DPDiaWindow) && !DPIsPrivate(window) ? DPGradientLayer(DPWindowGradient(window)) : nil;
@@ -31,27 +30,40 @@ static CAGradientLayer *DPThemeSource(void) {
 
 static void DPThemePrivate(NSView *gradient) {
     CAGradientLayer *layer = DPGradientLayer(gradient), *source = DPPrivateWindowTheme.on ? DPThemeSource() : nil;
-    NSArray *dia = DPDiaValue(layer, &DPColorsKey, layer.colors ?: @[]), *ours = source.colors ?: dia;
-    DPOverride(layer, &DPColorsKey, dia, ours);
-    if ([layer.colors isEqual:ours]) return;
+    if (!layer || (!source.colors && !DPGet(layer, &DPColorsKey))) return;
+    id current = layer.colors ?: NSNull.null;
+    id dia = DPDiaValue(layer, &DPColorsKey, current), ours = source.colors ?: dia;
+    if (source.colors) DPOverride(layer, &DPColorsKey, dia, ours);
+    else DPSet(layer, &DPColorsKey, nil);
+    NSArray *target = ours == NSNull.null ? nil : ours;
+    if (layer.colors == target || [layer.colors isEqual:target]) return;
     [CATransaction begin];
     [CATransaction setDisableActions:YES];
-    layer.colors = ours;
+    layer.colors = target;
     [CATransaction commit];
 }
 
 static void DPThemePrivateWindows(void) {
     for (NSWindow *window in NSApp.windows) {
-        NSView *gradient = DPIsKind(window, DPDiaWindow) && DPIsPrivate(window) ? DPWindowGradient(window) : nil;
-        if (DPGradientLayer(gradient)) DPThemePrivate(gradient);
+        if (!DPIsKind(window, DPDiaWindow) || !DPIsPrivate(window)) continue;
+        DPFindView(window.contentView.superview, ^BOOL(NSView *view) {
+            if (DPIsKind(view, DPDiaGradientView) && DPIsKind(view.superview, DPDiaWindowTint)) DPThemePrivate(view);
+            return NO;
+        });
     }
 }
 
 static void DPGradient_updateLayer(NSView *self, SEL _cmd) {
     DPCallOriginal(DPGradient_updateLayer, self);
-    if (!DPIsKind(self.superview, DPDiaWindowTint) || !DPGradientLayer(self)) return;
+    if (!DPIsKind(self.superview, DPDiaWindowTint)) return;
+    CAGradientLayer *layer = DPGradientLayer(self);
+    if (!layer) return;
+    if (!DPPrivateWindowTheme.on) {
+        if (DPGet(layer, &DPColorsKey)) DPThemePrivate(self);
+        return;
+    }
     if (self.window && DPIsPrivate(self.window)) DPThemePrivate(self);
-    else DPThemePrivateWindows();  // This may be the window the private ones follow.
+    else DPThemePrivateWindows();
 }
 
 static void DPApplyPrivateTheme(DPPatch *patch) { DPThemePrivateWindows(); }
@@ -69,7 +81,9 @@ static NSString *DPVerifyPrivateTheme(DPPatch *patch) {
 
 static void DPInstallPrivateTheme(void) {
     DPHook(DPDiaGradientView, @selector(updateLayer), (IMP)DPGradient_updateLayer);
-    [NSNotificationCenter.defaultCenter addObserverForName:NSWindowDidBecomeMainNotification object:nil queue:nil usingBlock:^(NSNotification *_) { DPThemePrivateWindows(); }];
+    [NSNotificationCenter.defaultCenter addObserverForName:NSWindowDidBecomeMainNotification object:nil queue:nil usingBlock:^(NSNotification *_) {
+        if (DPPrivateWindowTheme.on) DPThemePrivateWindows();
+    }];
 }
 
 DP_PATCH(DPPrivateWindowTheme) {

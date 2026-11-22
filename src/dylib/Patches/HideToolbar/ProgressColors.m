@@ -1,8 +1,10 @@
 #import "HideToolbar.h"
 #import <Metal/Metal.h>
 
+extern DPPatch DPPeek;
 static char DPDiaColorsKey;
-static __weak id DPDrawing;
+// TLS so Chromium/Skia background Metal encoders never race on or misattribute the main thread's indicator draw.
+static _Thread_local void *DPDrawing;
 static NSData *DPLastDiaColors;
 
 static NSArray<NSString *> *DPPresetNames(void) { return @[@"Blue", @"Purple", @"Pink", @"Orange", @"Green", @"Graphite", @"Jace"]; }
@@ -16,15 +18,19 @@ static NSColor *DPHex(uint32_t light, uint32_t dark) {
 }
 
 static NSArray<NSColor *> *DPPreset(NSString *name) {
-    NSDictionary<NSString *, NSArray<NSColor *> *> *presets = @{
-        @"Blue" : @[NSColor.systemBlueColor, NSColor.systemTealColor],
-        @"Purple" : @[NSColor.systemPurpleColor, NSColor.systemIndigoColor],
-        @"Pink" : @[NSColor.systemPinkColor, NSColor.systemPurpleColor],
-        @"Orange" : @[NSColor.systemOrangeColor, NSColor.systemRedColor],
-        @"Green" : @[NSColor.systemGreenColor, NSColor.systemMintColor],
-        @"Graphite" : @[NSColor.systemGrayColor, NSColor.labelColor],
-        @"Jace" : @[DPHex(0x73574a, 0x9a918a), DPHex(0x432818, 0xfef1df)],
-    };
+    static NSDictionary<NSString *, NSArray<NSColor *> *> *presets;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        presets = @{
+            @"Blue" : @[NSColor.systemBlueColor, NSColor.systemTealColor],
+            @"Purple" : @[NSColor.systemPurpleColor, NSColor.systemIndigoColor],
+            @"Pink" : @[NSColor.systemPinkColor, NSColor.systemPurpleColor],
+            @"Orange" : @[NSColor.systemOrangeColor, NSColor.systemRedColor],
+            @"Green" : @[NSColor.systemGreenColor, NSColor.systemMintColor],
+            @"Graphite" : @[NSColor.systemGrayColor, NSColor.labelColor],
+            @"Jace" : @[DPHex(0x73574a, 0x9a918a), DPHex(0x432818, 0xfef1df)],
+        };
+    });
     return presets[name];
 }
 
@@ -66,17 +72,20 @@ void DPProgressColors(NSView *pane, NSString *choice, simd_float3 *primary, simd
 }
 
 static void DPIndicator_drawInMTKView(id self, SEL _cmd, id view) {
-    DPDrawing = self;
+    if (!(DPHideToolbar.on && DPShowLoadingProgress.on) && !DPPeek.on) return DPCallOriginal(DPIndicator_drawInMTKView, self, view);
+    void *prev = DPDrawing;
+    DPDrawing = (__bridge void *)self;
     DPCallOriginal(DPIndicator_drawInMTKView, self, view);
-    DPDrawing = nil;
+    DPDrawing = prev;
 }
 
 static void DPEncoder_setFragmentBytes(id self, SEL _cmd, const void *bytes, NSUInteger length, NSUInteger index) {
     DPCallOriginal(DPEncoder_setFragmentBytes, self, bytes, length, index);
+    void *raw = DPDrawing;
+    if (!raw || length < 3 * sizeof(float)) return;
+    id drawing = (__bridge id)raw;
     NSUInteger slots[2];
-    id drawing = DPDrawing;
-    if (!drawing || length < 3 * sizeof(float) || !DPProgressColorSlots(slots)) return;
-    if (index != slots[0] && index != slots[1]) return;
+    if (!DPProgressColorSlots(slots) || (index != slots[0] && index != slots[1])) return;
     NSMutableData *colors = DPGet(drawing, &DPDiaColorsKey) ?: [NSMutableData dataWithLength:2 * sizeof(simd_float3)];
     memcpy((simd_float3 *)colors.mutableBytes + (index == slots[1]), bytes, 3 * sizeof(float));
     DPSet(drawing, &DPDiaColorsKey, colors);

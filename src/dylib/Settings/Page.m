@@ -16,6 +16,7 @@ static NSView *DPWideRow(NSView *view) {
 @implementation DPPageView {
     DPPatch *_patch;
     NSMutableArray<DPPatchSwitch *> *_switches;
+    NSMutableArray<NSPopUpButton *> *_pickers;
     NSTextField *_note;
     NSArray<NSView *> *_rows;
     NSMutableArray<NSView *> *_optionChoices;
@@ -25,6 +26,7 @@ static NSView *DPWideRow(NSView *view) {
     if (!(self = [super initWithFrame:NSZeroRect])) return nil;
     _patch = patch;
     _switches = [NSMutableArray new];
+    _pickers = [NSMutableArray new];
     _optionChoices = [NSMutableArray new];
     _note = DPLabel(@"", 11, NSFontWeightRegular, NSColor.secondaryLabelColor);
 
@@ -49,13 +51,16 @@ static NSView *DPWideRow(NSView *view) {
                                            DPLabel(option->detail, 11, NSFontWeightRegular, NSColor.secondaryLabelColor), nil];
         if (option->unavailable) [lines addObject:DPLabel(DPWhyDisabled(option), 11, NSFontWeightRegular, NSColor.secondaryLabelColor)];
         add(title, DPRow(DPColumn(lines, 2), [self switchFor:option]));
-        NSMutableArray<NSView *> *under = [NSMutableArray new];
-        if (option->choices) [under addObject:[self choiceRowFor:option]];
-        for (NSView *view in DPRowsOf(option)) [under addObject:DPWideRow(view)];
-        for (NSView *row in under) {
-            DPSet(row, &DPChoicePatchKey, [NSValue valueWithPointer:option]);
-            add(title, row);
-            [self->_optionChoices addObject:row];
+        NSArray<NSView *> *optionRows = DPRowsOf(option);
+        if (option->choices || optionRows.count) {
+            NSMutableArray<NSView *> *under = [NSMutableArray arrayWithCapacity:optionRows.count + (option->choices != NULL)];
+            if (option->choices) [under addObject:[self choiceRowFor:option]];
+            for (NSView *view in optionRows) [under addObject:DPWideRow(view)];
+            for (NSView *row in under) {
+                DPSet(row, &DPChoicePatchKey, [NSValue valueWithPointer:option]);
+                add(title, row);
+                [self->_optionChoices addObject:row];
+            }
         }
     });
     _rows = DPRowsOf(patch);
@@ -124,6 +129,7 @@ static NSView *DPWideRow(NSView *view) {
     picker.action = @selector(choose:);
     DPSet(picker, &DPChoicePatchKey, [NSValue valueWithPointer:patch]);
     for (NSMenuItem *item in menu.itemArray) if ([item.representedObject isEqual:DPChoice(patch)]) [picker selectItem:item];
+    [_pickers addObject:picker];
     return DPRow(DPLabel(menu.title, 13, NSFontWeightRegular, NSColor.labelColor), picker);
 }
 
@@ -131,18 +137,34 @@ static NSView *DPWideRow(NSView *view) {
     DPSetChoice([DPGet(picker, &DPChoicePatchKey) pointerValue] ?: _patch, picker.selectedItem.representedObject);
 }
 
+static void DPSetRowControlsEnabled(NSView *row, BOOL enabled) {
+    DPFindView(row, ^BOOL(NSView *view) {
+        if ([view isKindOfClass:NSTextField.class] && !((NSTextField *)view).editable) return NO;
+        if ([view isKindOfClass:NSControl.class] || [view respondsToSelector:@selector(setEnabled:)]) [(id)view setEnabled:enabled];
+        return NO;
+    });
+}
+
 - (void)sync {
     for (DPPatchSwitch *toggle in _switches) [toggle sync];
-    for (NSView *row in _rows)
-        DPFindView(row, ^BOOL(NSView *view) {
-            BOOL label = [view isKindOfClass:NSTextField.class] && !((NSTextField *)view).editable;
-            if ([view isKindOfClass:NSControl.class] && !label) ((NSControl *)view).enabled = self->_patch->on && !DPSafeMode;
-            return NO;
-        });
+    for (NSPopUpButton *picker in _pickers) {
+        DPPatch *patch = [DPGet(picker, &DPChoicePatchKey) pointerValue] ?: _patch;
+        picker.enabled = !DPPaused && !DPWhyDisabled(patch);
+        NSString *choice = DPChoice(patch);
+        for (NSMenuItem *item in picker.menu.itemArray)
+            if ([item.representedObject isEqual:choice]) {
+                [picker selectItem:item];
+                break;
+            }
+    }
+    BOOL controlsEnabled = _patch->on && !DPSafeMode && !DPPaused && !DPPausedAtLaunch;
+    for (NSView *row in _rows) DPSetRowControlsEnabled(row, controlsEnabled);
     // Fade in after the group has grown, or the row rides over the one above.
-    NSMutableArray<NSView *> *appeared = [NSMutableArray new];
+    NSMutableArray<NSView *> *appeared = nil;
     for (NSView *row in _optionChoices) {
-        BOOL shown = ((DPPatch *)[DPGet(row, &DPChoicePatchKey) pointerValue])->on;
+        DPPatch *option = [DPGet(row, &DPChoicePatchKey) pointerValue];
+        DPSetRowControlsEnabled(row, option->on && !DPWhyDisabled(option) && !DPSafeMode && !DPPaused && !DPPausedAtLaunch);
+        BOOL shown = DPPaused ? DPSavedOn(option) : option->on;
         if (row.hidden != shown) continue;
         NSArray<NSView *> *rows = ((NSStackView *)row.superview).arrangedSubviews;
         NSUInteger i = [rows indexOfObject:row];
@@ -156,7 +178,10 @@ static NSView *DPWideRow(NSView *view) {
                 if (shown) view.alphaValue = 0;
             }
         }];
-        if (shown) [appeared addObjectsFromArray:views];
+        if (shown) {
+            if (!appeared) appeared = [NSMutableArray new];
+            [appeared addObjectsFromArray:views];
+        }
     }
     if (appeared.count)
         dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.2 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{

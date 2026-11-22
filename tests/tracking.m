@@ -1,6 +1,5 @@
 #import "Commands/GroupTabs/Tracking.m"
 
-// Stand-ins for Dia's classes, found by name as in Dia.
 @interface ArcBrowser : NSObject
 @end
 @implementation ArcBrowser

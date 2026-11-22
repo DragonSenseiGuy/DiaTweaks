@@ -3,49 +3,68 @@
 extern DPPatch DPBitwarden;
 
 static NSString *const kHost = @"com.8bit.bitwarden";
+static NSString *const kHostFile = @"com.8bit.bitwarden.json";
 static NSString *const kExtension = @"chrome-extension://nngceckbapebfimnlniiiahkandclblb/";
-
-// Tells our file from Bitwarden's, which it rewrites whenever it starts and Chrome's folder exists.
 static NSString *const kDescription = @"DiaTweaks link to the Bitwarden app";
-
-// Dia reads hosts from Chrome's folder, not its own.
-static NSString *DPHostManifestPath(void) { return DPAppSupport(@"Google/Chrome/NativeMessagingHosts/com.8bit.bitwarden.json"); }
 
 static NSDictionary *DPHostAt(NSString *path) {
     NSDictionary *host = [NSJSONSerialization JSONObjectWithData:[NSData dataWithContentsOfFile:path] ?: NSData.data options:0 error:nil];
     return [host isKindOfClass:NSDictionary.class] ? host : nil;
 }
 
+#ifndef DP_BITWARDEN_PROXY_PATH
 static NSString *DPProxyPath(void) {
     NSString *app = [NSWorkspace.sharedWorkspace URLForApplicationWithBundleIdentifier:@"com.bitwarden.desktop"].path;
     NSString *proxy = [app stringByAppendingPathComponent:@"Contents/MacOS/desktop_proxy"];
     return app && [NSFileManager.defaultManager isExecutableFileAtPath:proxy] ? proxy : nil;
 }
+#endif
 
 static NSError *gWriteError;
+static NSString *gWritePath;
 
-// Only our own file, told apart by its description, is added over nothing or taken away: Bitwarden's stays.
 static void DPRegisterHost(BOOL on) {
     NSFileManager *files = NSFileManager.defaultManager;
-    NSString *path = DPHostManifestPath(), *proxy = DPProxyPath();
-    BOOL exists = [files fileExistsAtPath:path], ours = [DPHostAt(path)[@"description"] isEqual:kDescription];
     gWriteError = nil;
+    gWritePath = nil;
     if (!on) {
-        if (ours) [files removeItemAtPath:path error:nil];
+        for (NSString *dir in DPHostFolders()) {
+            NSString *path = [dir stringByAppendingPathComponent:kHostFile];
+            if ([files fileExistsAtPath:path] && [DPHostAt(path)[@"description"] isEqual:kDescription])
+                [files removeItemAtPath:path error:nil];
+        }
         return;
     }
-    if (!proxy || (exists && !ours)) return;
+    NSString *proxy = DPProxyPath();
+    if (!proxy) return;
+    NSError *error = nil;
+    NSString *hostFolder = DPHostFolder(YES, &error);
+    if (!hostFolder) {
+        gWriteError = error;
+        gWritePath = [DPHostFolders().lastObject stringByAppendingPathComponent:kHostFile];
+        return;
+    }
+    NSString *path = [hostFolder stringByAppendingPathComponent:kHostFile];
+    BOOL ours = [DPHostAt(path)[@"description"] isEqual:kDescription];
+    if ([files fileExistsAtPath:path] && !ours) return;
     NSDictionary *manifest = @{ @"name" : kHost, @"description" : kDescription, @"path" : proxy, @"type" : @"stdio", @"allowed_origins" : @[ kExtension ] };
-    NSError *error;
-    BOOL written = [files createDirectoryAtPath:path.stringByDeletingLastPathComponent withIntermediateDirectories:YES attributes:nil error:&error]
-        && [[NSJSONSerialization dataWithJSONObject:manifest options:NSJSONWritingPrettyPrinted error:nil] writeToFile:path options:NSDataWritingAtomic error:&error];
-    gWriteError = written ? nil : error;
+    if (![[NSJSONSerialization dataWithJSONObject:manifest options:NSJSONWritingPrettyPrinted error:nil] writeToFile:path options:NSDataWritingAtomic error:&error]) {
+        gWriteError = error;
+        gWritePath = path;
+        return;
+    }
+    for (NSString *dir in DPHostFolders()) {
+        if ([dir isEqualToString:hostFolder]) continue;
+        NSString *stale = [dir stringByAppendingPathComponent:kHostFile];
+        if ([files fileExistsAtPath:stale] && [DPHostAt(stale)[@"description"] isEqual:kDescription])
+            [files removeItemAtPath:stale error:nil];
+    }
 }
 
 static NSString *DPBitwardenProblem(DPPatch *patch) {
-    NSString *path = DPHostManifestPath();
+    NSString *path = [DPHostFolder(NO, nil) stringByAppendingPathComponent:kHostFile];
     if (!DPProxyPath()) return DPTesting ? nil : @"The Bitwarden desktop app isn’t installed. Install it, then try again.";
-    if (gWriteError) return DPWriteProblem(path, gWriteError);
+    if (gWriteError) return DPWriteProblem(gWritePath ?: path, gWriteError);
     NSDictionary *host = DPHostAt(path);
     if (![host[@"name"] isEqual:kHost]) return [NSString stringWithFormat:@"%@ isn’t a valid host file.", path];
     if (![host[@"path"] isKindOfClass:NSString.class] || ![NSFileManager.defaultManager isExecutableFileAtPath:host[@"path"]])

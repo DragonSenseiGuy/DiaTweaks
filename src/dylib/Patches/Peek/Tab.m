@@ -1,5 +1,4 @@
 #import "Patches/Peek/Peek.h"
-#import "Patches/CommandBar/Tabs.h"
 
 static id DPTabState(NSView *tab) {
     return DPSwiftValue(DPSwiftValue(DPSwiftValue(tab, @"viewModel"), @"stateSubject"), @"currentValue");
@@ -8,18 +7,22 @@ static id DPTabState(NSView *tab) {
 // selectionStyle is nil on an unselected pinned tab, "none" on other unselected tabs, above/below beside the selection.
 static BOOL DPTabSelected(NSView *tab) {
     NSString *style = [[DPSwiftValue(DPTabState(tab), @"selectionStyle") description] lowercaseString];
-    return style && ![style containsString:@"none"] && ![style containsString:@"above"] && ![style containsString:@"below"];
+    return style && ![style isEqualToString:@"nil"] && ![style containsString:@"none"] && ![style containsString:@"above"] && ![style containsString:@"below"];
 }
 
-static NSArray<NSView *> *DPTabsIn(NSWindow *window) {
-    NSMutableArray<NSView *> *tabs = [NSMutableArray array];
-    for (NSView *tab in [DPFindViews(DPDiaTabView) arrayByAddingObjectsFromArray:DPFindViews(DPDiaPinnedTab)])
-        if (tab.window == window) [tabs addObject:tab];
-    return tabs;
+static NSView *DPFindTabIn(NSWindow *window, BOOL (^match)(NSView *tab)) {
+    const char *kinds[2] = {DPDiaTabView, DPDiaPinnedTab};
+    for (int i = 0; i < 2; i++)
+        for (NSView *tab in DPFindViews(kinds[i]))
+            if (tab.window == window && !tab.isHiddenOrHasHiddenAncestor && match(tab)) return tab;
+    return nil;
 }
 
 static NSString *DPPeekPageID(id page) {
-    for (NSString *key in @[@"identifier", @"id", @"contentID", @"contentId", @"uuid"]) {
+    static NSArray<NSString *> *keys;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{ keys = @[@"identifier", @"id", @"contentID", @"contentId", @"uuid"]; });
+    for (NSString *key in keys) {
         NSString *value = [DPSwiftValue((NSObject *)page, key) description];
         if (value.length >= 32 && [value containsString:@"-"]) return value;
     }
@@ -28,12 +31,13 @@ static NSString *DPPeekPageID(id page) {
 
 static NSView *DPPeekOriginTab(NSWindow *window, id source) {
     NSString *sourceID = DPPeekPageID(source);
-    NSView *selected = nil;
-    for (NSView *tab in DPTabsIn(window)) {
-        if (sourceID && [[DPTabState(tab) description] containsString:sourceID]) return tab;
+    __block NSView *selected = nil;
+    NSView *exact = DPFindTabIn(window, ^BOOL(NSView *tab) {
+        if (sourceID && [[DPTabState(tab) description] containsString:sourceID]) return YES;
         if (!selected && DPTabSelected(tab)) selected = tab;
-    }
-    return selected;
+        return NO;
+    });
+    return exact ?: selected;
 }
 
 // An icon tile's links already leave in a new tab, but a pinned row's stay in it, and only its menu says it is pinned.
@@ -52,9 +56,7 @@ static NSString *DPPeekTabContentKey(NSView *tab) {
 }
 
 static NSView *DPPeekTabWithContent(NSWindow *window, NSString *key) {
-    for (NSView *tab in DPTabsIn(window))
-        if ([[DPTabState(tab) description] containsString:key]) return tab;
-    return nil;
+    return DPFindTabIn(window, ^BOOL(NSView *tab) { return [[DPTabState(tab) description] containsString:key]; });
 }
 
 static BOOL DPTabIsTop(NSView *tab) {
@@ -65,20 +67,26 @@ static BOOL DPTabIsTop(NSView *tab) {
 
 @interface DPPeekTabBadge : NSView
 @property (nonatomic, weak) DPPeekCard *peek;
-@property (nonatomic, copy) NSString *contentKey, *frontIDAtOpen;
+@property (nonatomic, strong) NSTextField *eyes;
+@property (nonatomic, copy) NSString *contentKey;
 @property (nonatomic) BOOL pinned;
 @property (nonatomic, strong) NSTrackingArea *tabTracking;
 @property (nonatomic, weak) NSView *trackedTab;
-@property (nonatomic, strong) NSTimer *watch;
 @end
 
 @implementation DPPeekTabBadge
 - (NSView *)hitTest:(NSPoint)point { return nil; }
 
+- (void)clearTracking {
+    if (self.tabTracking) [self.trackedTab removeTrackingArea:self.tabTracking];
+    self.tabTracking = nil;
+    self.trackedTab = nil;
+}
+
 - (void)viewDidMoveToSuperview {
     [super viewDidMoveToSuperview];
-    [self.trackedTab removeTrackingArea:self.tabTracking];
-    self.tabTracking = nil;
+    [self clearTracking];
+    self.hidden = NO;
     if (!self.superview || self.pinned) return;
     self.tabTracking = [[NSTrackingArea alloc] initWithRect:self.superview.bounds
         options:NSTrackingMouseEnteredAndExited | NSTrackingActiveAlways | NSTrackingInVisibleRect owner:self userInfo:nil];
@@ -86,49 +94,18 @@ static BOOL DPTabIsTop(NSView *tab) {
     self.trackedTab = self.superview;
 }
 
+- (void)dealloc { [self clearTracking]; }
 - (void)mouseEntered:(NSEvent *)event { if (!self.pinned) self.hidden = YES; }
 - (void)mouseExited:(NSEvent *)event { self.hidden = NO; }
-
-- (void)watch:(NSTimer *)timer {
-    DPPeekCard *peek = self.peek;
-    if (!peek || peek.closing) return [self stop];
-    NSView *tab = self.superview;
-    if (!self.contentKey) {
-        // A pinned tab's state is briefly unreadable at times; only a readable, unselected one means it was left.
-        if (self.pinned && tab && DPTabState(tab) && !DPTabSelected(tab)) [self closePeek];
-        return;
-    }
-    tab = DPPeekTabWithContent(peek.window, self.contentKey);
-    if (!tab) {
-        // A missing row says nothing (the sidebar builds rows lazily); only the tab closing or another coming to the front does.
-        NSString *front = DPActiveTabID(peek.window);
-        if (!peek.source || (self.frontIDAtOpen && front && ![front isEqual:self.frontIDAtOpen])) [self closePeek];
-        return;
-    }
-    if (self.superview != tab) [tab addSubview:self];
-    if (!DPTabSelected(tab)) [self closePeek];
-}
-
-- (void)closePeek {
-    [self stop];
-    [self.peek close:DPPeekClose];
-}
-
-- (void)stop {
-    [self.watch invalidate];
-    self.watch = nil;
-}
 @end
 
-void DPPeekShowTabBadge(DPPeekCard *peek, id source) {
-    NSView *tab = DPPeekOriginTab(peek.window, source);
-    if (!tab) return;
+static void DPPeekPlaceBadge(DPPeekTabBadge *badge, NSView *tab) {
+    if (!badge || !tab) return;
     BOOL pinned = DPIsKind(tab, DPDiaPinnedTab), top = DPTabIsTop(tab);
-    NSTextField *eyes = [NSTextField labelWithString:@"👀"];
-    eyes.font = [NSFont systemFontOfSize:pinned ? 11 : 12];
-    eyes.alignment = NSTextAlignmentCenter;
-    [eyes sizeToFit];
-    CGFloat w = NSWidth(eyes.frame), h = NSHeight(eyes.frame);
+    badge.pinned = pinned;
+    badge.eyes.font = [NSFont systemFontOfSize:pinned ? 11 : 12];
+    [badge.eyes sizeToFit];
+    CGFloat w = NSWidth(badge.eyes.frame), h = NSHeight(badge.eyes.frame);
     NSRect frame;
     NSAutoresizingMaskOptions resize;
     if (pinned) {
@@ -138,22 +115,61 @@ void DPPeekShowTabBadge(DPPeekCard *peek, id source) {
         frame = NSMakeRect(NSMaxX(tab.bounds) - w - 6, NSMidY(tab.bounds) - h / 2, w, h);
         resize = NSViewMinXMargin | NSViewMinYMargin | NSViewMaxYMargin;
     }
-    DPPeekTabBadge *badge = [[DPPeekTabBadge alloc] initWithFrame:frame];
+    badge.frame = frame;
     badge.autoresizingMask = resize;
+    badge.eyes.frame = NSOffsetRect(badge.bounds, 0, !pinned && top ? 2 : 0);
+    badge.hidden = NO;
+    if (badge.superview != tab) [tab addSubview:badge];
+}
+
+void DPPeekShowTabBadge(DPPeekCard *peek, id source) {
+    DPPeekTabBadge *badge = [DPPeekTabBadge new];
     badge.peek = peek;
-    badge.pinned = pinned;
-    badge.contentKey = DPPeekTabContentKey(tab);
-    badge.frontIDAtOpen = DPActiveTabID(peek.window);
-    eyes.frame = NSOffsetRect(badge.bounds, 0, !pinned && top ? 2 : 0);
+    NSTextField *eyes = [NSTextField labelWithString:@"👀"];
+    eyes.alignment = NSTextAlignmentCenter;
     eyes.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
+    badge.eyes = eyes;
     [badge addSubview:eyes];
-    [tab addSubview:badge];
     peek.tabBadge = badge;
-    badge.watch = [NSTimer scheduledTimerWithTimeInterval:0.6 target:badge selector:@selector(watch:) userInfo:nil repeats:YES];
+    NSView *tab = DPPeekOriginTab(peek.window ?: peek.originWindow, source);
+    if (tab) {
+        badge.contentKey = DPPeekTabContentKey(tab);
+        DPPeekPlaceBadge(badge, tab);
+    }
+}
+
+void DPPeekRefreshTabBadge(DPPeekCard *peek) {
+    DPPeekTabBadge *badge = (DPPeekTabBadge *)peek.tabBadge;
+    if (!badge || peek.closing) return;
+    NSWindow *window = peek.window ?: peek.originWindow;
+    if (!window) return;
+    if (badge.contentKey) {
+        NSView *current = badge.superview;
+        if (current.window == window && [[DPTabState(current) description] containsString:badge.contentKey]) return;
+        NSView *tab = DPPeekTabWithContent(window, badge.contentKey);
+        if (tab) DPPeekPlaceBadge(badge, tab);
+        return;
+    }
+    if (badge.superview.window == window || peek.hidden) return;
+    NSView *tab = DPPeekOriginTab(window, peek.source);
+    if (!tab) return;
+    badge.contentKey = DPPeekTabContentKey(tab);
+    DPPeekPlaceBadge(badge, tab);
+}
+
+BOOL DPPeekTabBadgeSelected(DPPeekCard *peek, BOOL *known) {
+    DPPeekTabBadge *badge = (DPPeekTabBadge *)peek.tabBadge;
+    NSWindow *window = peek.window ?: peek.originWindow;
+    NSView *tab = !badge ? nil : badge.contentKey ? DPPeekTabWithContent(window, badge.contentKey)
+                                                  : (badge.superview.window == window ? badge.superview : nil);
+    BOOL readable = tab && DPTabState(tab) != nil;
+    if (known) *known = readable;
+    return readable && DPTabSelected(tab);
 }
 
 void DPPeekHideTabBadge(DPPeekCard *peek) {
-    [(DPPeekTabBadge *)peek.tabBadge stop];
-    [peek.tabBadge removeFromSuperview];
+    DPPeekTabBadge *badge = (DPPeekTabBadge *)peek.tabBadge;
+    [badge clearTracking];
+    [badge removeFromSuperview];
     peek.tabBadge = nil;
 }

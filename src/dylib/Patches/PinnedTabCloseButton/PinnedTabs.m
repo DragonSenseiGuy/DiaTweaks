@@ -3,7 +3,7 @@
 
 extern void *swift_unknownObjectWeakLoadStrong(void *reference);
 
-// viewModel.delegate is a Swift weak reference, which DPSwiftValue can't read.
+// Swift weak reference, unreadable via DPSwiftValue.
 id DPViewModelDelegate(NSView *view) {
     void **viewModel = DPIvar(view, "viewModel");
     void *delegate = viewModel && *viewModel ? DPIvar((__bridge id)*viewModel, "delegate") : NULL;
@@ -15,13 +15,23 @@ NSView *DPEnclosingTab(NSView *view) {
     return view;
 }
 
-void DPRelayoutTabContents(void) {
-    for (NSView *content in DPFindViews(DPDiaTabContentView)) content.needsLayout = YES;
+static void DPCollectPinnedViews(NSView *view, Class cls, NSMutableArray<NSView *> *out) {
+    if ([view isKindOfClass:cls]) [out addObject:view];
+    for (NSView *sub in view.subviews) DPCollectPinnedViews(sub, cls, out);
 }
 
-// The controller holds an enum whose other cases set top bits; only a web page's attributes pass.
+void DPRelayoutTabContents(void) {
+    Class cls = objc_getClass(DPDiaTabContentView);
+    if (!cls) return;
+    NSMutableArray<NSView *> *views = [NSMutableArray new];
+    for (NSWindow *window in NSApp.windows) DPCollectPinnedViews(window.contentView, cls, views);
+    for (NSView *content in views) content.needsLayout = YES;
+}
+
+// Swift enum tags set top bits; only a web page's attributes pass.
 id DPAttributes(NSView *content) {
-    void **slot = DPIvar(DPViewModelDelegate(content), "attributesController");
+    __attribute__((objc_precise_lifetime)) id controller = DPViewModelDelegate(content);
+    void **slot = DPIvar(controller, "attributesController");
     uintptr_t raw = slot ? (uintptr_t)*slot : 0;
     if (!raw || (raw & 0xF000000000000007)) return nil;
     id attributes = (__bridge id)(void *)raw;
@@ -29,18 +39,19 @@ id DPAttributes(NSView *content) {
 }
 
 BOOL DPIsOpenPinned(NSView *content) {
-    id attributes = DPAttributes(content);
+    __attribute__((objc_precise_lifetime)) id attributes = DPAttributes(content);
     BOOL *pinned = DPIvar(attributes, "isInFavoritesOrPinnedContainer");
     void **activeURL = DPIvar(attributes, "activeURL");
     return pinned && *pinned && activeURL && *activeURL;
 }
 
-enum { DPCloseKeepingTabStyle = 1 };  // TabUI.TabCloseButtonStyle.closeKeepingTab.
-static BOOL DPKeeping;  // A click made by DPCloseKeepingTab, which the minus button's hook sees too.
+enum { DPCloseKeepingTabStyle = 1 };
+static BOOL DPKeeping;
 
 BOOL DPClickKeepingTab(NSView *content, void (^click)(void)) {
     if (DPKeeping) return click(), YES;
-    uint8_t *style = DPIvar(DPViewModelDelegate(DPEnclosingTab(content)), "requestedCloseButtonStyle");
+    __attribute__((objc_precise_lifetime)) id controller = DPViewModelDelegate(DPEnclosingTab(content));
+    uint8_t *style = DPIvar(controller, "requestedCloseButtonStyle");
     if (!style) return NO;
     uint8_t dia = *style;
     *style = DPCloseKeepingTabStyle;
@@ -48,7 +59,7 @@ BOOL DPClickKeepingTab(NSView *content, void (^click)(void)) {
     click();
     DPKeeping = NO;
     *style = dia;
-    // The page is gone, but Dia doesn't lay the tab out again while the pointer is on it, so the minus would stay.
+    // Dia skips re-laying out hovered tabs after closing the page.
     __weak NSView *weakContent = content;
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, NSEC_PER_SEC / 4), dispatch_get_main_queue(), ^{ weakContent.needsLayout = YES; });
     return YES;

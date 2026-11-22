@@ -67,6 +67,7 @@ static BOOL DPPeekCanReveal(DPPeekBarZone *zone) { return DPHideToolbar.on && DP
 
 - (void)check {
     DPPeekCard *peek = self.peek;
+    if (!peek || peek.isHiddenOrHasHiddenAncestor) return;
     BOOL pinned = DPPeekBarPinned(peek);
     if (pinned != self.pinned) {
         self.pinned = pinned;

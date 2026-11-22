@@ -53,7 +53,7 @@ static const CGFloat DPGlowEase = 0.15;
     self.shader.drawableSize = CGSizeMake(NSWidth(self.bounds) * self.shader.contentsScale, NSHeight(self.bounds) * self.shader.contentsScale);
     self.line.frame = NSMakeRect(0, 0, round(NSWidth(self.bounds) * self.shown), 2);
     [CATransaction commit];
-    [self draw];
+    if (self.shader) [self draw];
 }
 
 - (NSView *)pane {
@@ -63,13 +63,20 @@ static const CGFloat DPGlowEase = 0.15;
 }
 
 - (void)draw {
-    if (!self.shader) return (void)(self.needsLayout = YES);
+    if (!self.shader) {
+        [CATransaction begin];
+        [CATransaction setDisableActions:YES];
+        self.line.frame = NSMakeRect(0, 0, round(NSWidth(self.bounds) * self.shown), 2);
+        [CATransaction commit];
+        return;
+    }
     simd_float3 primary, secondary;
     DPProgressColors(self.pane, @"dia", &primary, &secondary);
     DPDrawProgressShader(self.shader, self.shown, fmod(CACurrentMediaTime(), DPGlowCycle) / DPGlowCycle, primary, secondary);
 }
 
 - (void)step {
+    if (self.isHiddenOrHasHiddenAncestor) return;
     NSObject *page = self.page;
     BOOL loading = [[page valueForKey:@"isLoading"] boolValue];
     if (loading && !self.loading) {
@@ -103,7 +110,7 @@ static const CGFloat DPGlowEase = 0.15;
             self.animator.alphaValue = 0;
         } completionHandler:^{
             DPPeekGlow *glow = weak;
-            if (!glow.fading) return;  // A new load took over.
+            if (!glow.fading) return;
             glow.finishing = glow.fading = NO;
             glow.fraction = glow.shown = 0;
         }];

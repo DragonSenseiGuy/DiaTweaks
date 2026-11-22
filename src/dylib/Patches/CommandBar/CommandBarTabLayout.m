@@ -13,11 +13,12 @@ BOOL DPInTabLayout(NSView *view) {
 }
 
 NSEvent *DPTabLayoutMouseDown(DPCommandBarOverlay *overlay, NSEvent *event) {
-    if ([overlay.panel hitTest:[overlay convertPoint:event.locationInWindow fromView:nil]]) return event;  // In the bar, which may lie over the sidebar.
+    if ([overlay.panel hitTest:[overlay convertPoint:event.locationInWindow fromView:nil]]) return event;
     NSView *under = [overlay viewUnder:[overlay.superview convertPoint:event.locationInWindow fromView:nil]];
     NSView *button = under, *tabView = under;
+    Class tabCls = objc_getClass(DPDiaTabView);
     while (button && !DPIsNewTabButton(button)) button = button.superview;
-    while (tabView && !DPIsKind(tabView, DPDiaTabView)) tabView = tabView.superview;
+    while (tabView && !(tabCls && [tabView isKindOfClass:tabCls])) tabView = tabView.superview;
     if (!DPInTabLayout(under) || (button && DPHidesTab(DPTabID(overlay.openedTab)))) return event;
     BOOL onFront = tabView && overlay.returnTab && [DPStripTabID(tabView) isEqual:DPTabID(overlay.returnTab)];
     if (onFront && event.clickCount < 2) {
@@ -29,7 +30,6 @@ NSEvent *DPTabLayoutMouseDown(DPCommandBarOverlay *overlay, NSEvent *event) {
     NSString *tab = DPTabID(overlay.openedTab), *front = DPActiveTabID(window);
     DPCancelCommandBar(overlay);
     if (onFront) return nil;  // Not on to Dia, which would take it as a double click and rename the tab.
-    // Only a tab or a favorite is switched to; the sidebar's empty space and its buttons aren't.
     NSView *favorite = under;
     while (favorite && !strstr(object_getClassName(favorite), "TabDockItemView")) favorite = favorite.superview;
     if (event.type == NSEventTypeLeftMouseDown && (tabView || favorite)) DPStandInWhileSwitching(window, tab, front);

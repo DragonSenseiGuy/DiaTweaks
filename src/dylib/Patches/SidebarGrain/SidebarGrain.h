@@ -15,6 +15,7 @@ void DPGrainRowsFor(NSArray<NSView *> *rows, NSString *space, void (^reset)(void
 BOOL DPGrainHasOverrides(NSString *space);
 void DPRefreshSidebarGrain(void);
 NSEvent *DPGrainRightClick(NSEvent *event);
+void DPCloseGrainPopover(void);
 
 BOOL DPGrainHostAvailable(NSView *host);
 void DPTrackGrainHost(NSView *host);

@@ -1,0 +1,727 @@
+#import "StdPatch/StdPatch.h"
+#import "Patches/TidyTabs/TidyTabs.h"
+#import "Patches/PullRequestRepo/PullRequestRepo.h"
+#import "Patches/CompactTabRows/CompactTabRows.h"
+
+extern DPPatch DPHideSleepingTabs, DPCollapsePinned, DPHideTabGroupBackground, DPUndoCloseTab, DPSavePageAs;
+extern DPPatch DPProfileEmoji, DPKeepFoldersOpen, DPUnloadTab, DPCompactSidebarHeader, DPCompactTabRows, DPTidyTabs;
+
+static NSString *DPTestSuiteName(void) {
+    return [NSString stringWithFormat:@"com.diapatches.sidebar-tab-bugs.%d", getpid()];
+}
+
+@interface NSUserDefaults (DPSidebarTabTestSuite)
+- (instancetype)dp_testInitWithSuiteName:(NSString *)suite;
+@end
+@implementation NSUserDefaults (DPSidebarTabTestSuite)
+- (instancetype)dp_testInitWithSuiteName:(NSString *)suite {
+    return [self dp_testInitWithSuiteName:[suite isEqual:@"com.diapatches"] ? DPTestSuiteName() : suite];
+}
+@end
+
+// Minimal StdPatch & cross-patch stubs for standalone unit testing.
+CFTimeInterval DPFoldedAt;
+static BOOL gCanUndoGrouping;
+BOOL DPCanUndoGrouping(void) { return gCanUndoGrouping; }
+void DPForgetGroupingUndo(void) {}
+NSString *DPChoice(DPPatch *patch) { return patch->defaultChoice; }
+void *swift_unknownObjectWeakLoadStrong(void *ref) { return ref && *(__unsafe_unretained id *)ref ? (__bridge_retained void *)*(__unsafe_unretained id *)ref : NULL; }
+void DPSetHint(NSView *view, NSString *text) {}
+void DPShowHint(NSView *view) {}
+void DPTidyTabsNow(NSWindow *window) {}
+NSString *DPTidyUnavailableReason(void) { return nil; }
+void DPOnLaunch(void (^block)(void)) { block(); }
+NSMenuItem *DPMenuItem(NSString *title, void (^action)(void)) { return [[NSMenuItem alloc] initWithTitle:title ?: @"" action:nil keyEquivalent:@""]; }
+BOOL DPShortcutMatches(NSEvent *event, DPPatch *patch) {
+    return event.type == NSEventTypeKeyDown && [[event.charactersIgnoringModifiers lowercaseString] isEqualToString:@"z"]
+        && (event.modifierFlags & NSEventModifierFlagCommand);
+}
+
+static NSMutableArray<NSEvent *(^)(NSEvent *)> *gMonitors;
+static id CaptureMonitor(id self, SEL _cmd, NSEventMask mask, NSEvent *(^handler)(NSEvent *)) {
+    if (!gMonitors) gMonitors = [NSMutableArray new];
+    id copy = [handler copy];
+    [gMonitors addObject:copy];
+    return copy;
+}
+
+static int failures;
+static void Check(BOOL ok, NSString *msg) {
+    if (ok) return;
+    failures++;
+    printf("FAIL: %s\n", msg.UTF8String);
+}
+
+// --- 1. HideSleepingTabs fixtures ---
+@interface DPFakeSwitcherState : NSObject
+@property NSArray *items;
+@property NSString *focusedItemID;
+@end
+@implementation DPFakeSwitcherState
+- (id)safeSwiftValueForKey:(NSString *)key { return [self valueForKey:key]; }
+@end
+
+@interface DPFakeSubject : NSObject
+@property id currentValue;
+@end
+@implementation DPFakeSubject
+- (id)safeSwiftValueForKey:(NSString *)key { return [self valueForKey:key]; }
+@end
+
+@interface DPFakeTabVM : NSObject
+@property DPFakeSubject *stateSubject;
+@end
+@implementation DPFakeTabVM
+- (id)safeSwiftValueForKey:(NSString *)key { return [self valueForKey:key]; }
+@end
+
+@interface DPFakeTabCtrl : NSObject
+@property DPFakeTabVM *viewModel;
+@end
+@implementation DPFakeTabCtrl
+- (id)safeSwiftValueForKey:(NSString *)key { return [self valueForKey:key]; }
+@end
+
+@interface DPFakeSwitcherDelegate : NSObject
+@property NSDictionary *recentTabControllers;
+@end
+@implementation DPFakeSwitcherDelegate
+- (id)safeSwiftValueForKey:(NSString *)key { return [self valueForKey:key]; }
+@end
+
+@interface DPFakeSwitcherVM : NSObject
+@property DPFakeSubject *stateSubject;
+@property DPFakeSwitcherDelegate *delegate;
+@end
+@implementation DPFakeSwitcherVM
+- (id)safeSwiftValueForKey:(NSString *)key { return [self valueForKey:key]; }
+@end
+
+@interface DPFakeGrid : NSCollectionView
+@property NSIndexPath *lastMakePath;
+@end
+@implementation DPFakeGrid
+- (NSCollectionViewItem *)makeItemWithIdentifier:(NSUserInterfaceItemIdentifier)identifier forIndexPath:(NSIndexPath *)indexPath {
+    self.lastMakePath = indexPath;
+    return [NSCollectionViewItem new];
+}
+@end
+
+static NSCollectionView *gNestedGrid;
+@interface _TtC10RecentTabs24RecentTabsViewController : NSViewController <NSCollectionViewDataSource, NSCollectionViewDelegateFlowLayout>
+@property DPFakeSwitcherVM *viewModel;
+@property DPFakeGrid *collectionView;
+@property NSSize cellSize;
+@end
+@implementation _TtC10RecentTabs24RecentTabsViewController
+- (id)safeSwiftValueForKey:(NSString *)key { return [self valueForKey:key]; }
+- (NSInteger)collectionView:(NSCollectionView *)collectionView numberOfItemsInSection:(NSInteger)section { return self.viewModel.stateSubject.currentValue ? [((DPFakeSwitcherState *)self.viewModel.stateSubject.currentValue).items count] : 0; }
+- (NSCollectionViewItem *)collectionView:(NSCollectionView *)collectionView itemForRepresentedObjectAtIndexPath:(NSIndexPath *)indexPath {
+    if (gNestedGrid) [gNestedGrid makeItemWithIdentifier:@"nested" forIndexPath:[NSIndexPath indexPathForItem:99 inSection:0]];
+    return [collectionView makeItemWithIdentifier:@"cell" forIndexPath:indexPath];
+}
+- (NSSize)collectionView:(NSCollectionView *)collectionView layout:(NSCollectionViewLayout *)layout sizeForItemAtIndexPath:(NSIndexPath *)indexPath { return self.cellSize; }
+- (void)collectionView:(NSCollectionView *)collectionView didSelectItemsAtIndexPaths:(NSSet<NSIndexPath *> *)indexPaths {}
+@end
+
+static void TestHideSleepingTabs(void) {
+    DPHideSleepingTabs.install();
+    DPHideSleepingTabs.on = YES;
+    _TtC10RecentTabs24RecentTabsViewController *vc = [_TtC10RecentTabs24RecentTabsViewController new];
+    vc.view = [[NSView alloc] initWithFrame:NSMakeRect(0, 0, 1000, 600)];
+    vc.collectionView = [DPFakeGrid new];
+    vc.cellSize = NSMakeSize(200, 150);
+
+    // 10 tabs total (5x2 grid), only 3 awake -> must fit in 3 columns x 1 row!
+    NSMutableArray *uuids = [NSMutableArray new];
+    NSMutableDictionary *ctrls = [NSMutableDictionary new];
+    for (int i = 0; i < 10; i++) {
+        NSString *u = [NSString stringWithFormat:@"00000000-0000-0000-0000-%012d", i + 1];
+        [uuids addObject:u];
+        DPFakeTabCtrl *c = [DPFakeTabCtrl new];
+        c.viewModel = [DPFakeTabVM new];
+        c.viewModel.stateSubject = [DPFakeSubject new];
+        c.viewModel.stateSubject.currentValue = i < 3 ? @"state(snapshot: Optional(img))" : @"state(snapshot: nil)";
+        ctrls[u] = c;
+    }
+    DPFakeSwitcherState *st = [DPFakeSwitcherState new];
+    st.items = uuids;
+    vc.viewModel = [DPFakeSwitcherVM new];
+    vc.viewModel.stateSubject = [DPFakeSubject new];
+    vc.viewModel.stateSubject.currentValue = st;
+    vc.viewModel.delegate = [DPFakeSwitcherDelegate new];
+    vc.viewModel.delegate.recentTabControllers = ctrls;
+
+    __weak NSLayoutConstraint *weakW = nil;
+    @autoreleasepool {
+        NSView *holder = [[NSView alloc] initWithFrame:NSMakeRect(0, 0, 1000, 600)];
+        vc.view = holder;
+        NSLayoutConstraint *w = [holder.widthAnchor constraintEqualToConstant:152 + 5 * 200];
+        NSLayoutConstraint *h = [holder.heightAnchor constraintEqualToConstant:152 + 2 * 150];
+        w.active = YES; h.active = YES;
+        weakW = w;
+        Check([vc collectionView:vc.collectionView numberOfItemsInSection:0] == 3, @"HideSleepingTabs: hides 7 sleeping tabs");
+        Check(object_getClass(w) == NSLayoutConstraint.class && object_getClass(h) == NSLayoutConstraint.class,
+              @"HideSleepingTabs: watches constraints without KVO isa-swizzling");
+
+        // Width then height: 3 awake tabs fit in 3 columns x 1 row (height = 152 + 150 = 302, NOT 452!).
+        w.constant = 152 + 5 * 200;
+        h.constant = 152 + 2 * 150;
+        Check(fabs(w.constant - (152 + 3 * 200)) < 0.5, @"HideSleepingTabs: shrinks width to 3 columns");
+        Check(fabs(h.constant - (152 + 1 * 150)) < 0.5, @"HideSleepingTabs: shrinks height to 1 row (width-first)");
+
+        // Height BEFORE width from stale 1-column width: 5 awake tabs in 5x3 grid must still end at 1 row!
+        for (int i = 3; i < 5; i++) ((DPFakeTabCtrl *)ctrls[uuids[i]]).viewModel.stateSubject.currentValue = @"state(snapshot: Optional(img))";
+        w.constant = 152 + 1 * 200;
+        h.constant = 152 + 3 * 150;
+        w.constant = 152 + 5 * 200;
+        Check(fabs(w.constant - (152 + 5 * 200)) < 0.5, @"HideSleepingTabs: 5 awake tabs use 5 columns");
+        Check(fabs(h.constant - (152 + 1 * 150)) < 0.5, @"HideSleepingTabs: 5 awake tabs shrink height to 1 row even when height set before width");
+
+        // Unrelated nested NSCollectionView does not receive switcher's DPShownPath.
+        DPFakeGrid *nested = [DPFakeGrid new];
+        gNestedGrid = nested;
+        [vc collectionView:vc.collectionView itemForRepresentedObjectAtIndexPath:[NSIndexPath indexPathForItem:2 inSection:0]];
+        gNestedGrid = nil;
+        Check(nested.lastMakePath.item == 99 && vc.collectionView.lastMakePath.item == 2, @"HideSleepingTabs: DPShownPath scoped to switcher grid only");
+
+        // Off-tweak: setConstant passes through untouched.
+        DPHideSleepingTabs.on = NO;
+        w.constant = 152 + 5 * 200;
+        h.constant = 152 + 3 * 150;
+        Check(fabs(w.constant - (152 + 5 * 200)) < 0.5 && fabs(h.constant - (152 + 3 * 150)) < 0.5, @"HideSleepingTabs: off leaves constraint constants untouched");
+
+        w.active = NO; h.active = NO;
+        vc.view = [NSView new];
+        [NSRunLoop.mainRunLoop runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.01]];
+    }
+    Check(weakW == nil, @"HideSleepingTabs: watched constraints deallocate cleanly with no KVO leak");
+}
+
+// --- 2. HideTabGroupBackground fixtures ---
+@interface _TtCC5TabUI16TabGroupCellViewP33_6B047B569AD47EBB5C3E7DC66393AFEF23ContainerBackgroundView : NSView
+@end
+@implementation _TtCC5TabUI16TabGroupCellViewP33_6B047B569AD47EBB5C3E7DC66393AFEF23ContainerBackgroundView
+@end
+
+@interface _TtC5TabUI16TabGroupCellView : NSView {
+@public
+    id viewModel;
+    NSView *$__lazy_storage_$_chevronIconView;
+}
+@end
+@implementation _TtC5TabUI16TabGroupCellView
+- (void)updateLayer {}
+- (void)layout {}
+- (void)prepareForReuse {}
+@end
+
+static void TestHideTabGroupBackground(void) {
+    DPHideTabGroupBackground.install();
+    NSWindow *hiddenWin = [[NSWindow alloc] initWithContentRect:NSMakeRect(0, 0, 300, 300) styleMask:NSWindowStyleMaskTitled backing:NSBackingStoreBuffered defer:NO];
+    _TtC5TabUI16TabGroupCellView *cell = [[_TtC5TabUI16TabGroupCellView alloc] initWithFrame:NSMakeRect(0, 0, 200, 100)];
+    _TtCC5TabUI16TabGroupCellViewP33_6B047B569AD47EBB5C3E7DC66393AFEF23ContainerBackgroundView *bg =
+        [[_TtCC5TabUI16TabGroupCellViewP33_6B047B569AD47EBB5C3E7DC66393AFEF23ContainerBackgroundView alloc] initWithFrame:cell.bounds];
+    bg.wantsLayer = YES;
+    CGColorRef grey = [NSColor colorWithSRGBRed:0.5 green:0.5 blue:0.5 alpha:0.2].CGColor;
+    bg.layer.backgroundColor = grey;
+    bg.layer.borderWidth = 1.5;
+    CALayer *shadow = [CALayer layer];
+    [bg.layer addSublayer:shadow];
+    [cell addSubview:bg];
+    [hiddenWin.contentView addSubview:cell];
+
+    // Off-tweak does nothing.
+    DPHideTabGroupBackground.on = NO;
+    [cell updateLayer];
+    Check(bg.layer.backgroundColor != nil && bg.layer.borderWidth == 1.5 && !shadow.hidden, @"HideTabGroupBackground: off does not mutate layer");
+
+    // On hides grey background, border, and shadow.
+    DPHideTabGroupBackground.on = YES;
+    [cell updateLayer];
+    Check(bg.layer.backgroundColor == nil && bg.layer.borderWidth == 0 && shadow.hidden, @"HideTabGroupBackground: on hides grey background and shadow");
+
+    // Off restores saved backgroundColor, borderWidth, and shadow even in a non-visible/minimized window!
+    DPHideTabGroupBackground.on = NO;
+    DPHideTabGroupBackground.apply(&DPHideTabGroupBackground);
+    Check(bg.layer.backgroundColor != nil && CGColorEqualToColor(bg.layer.backgroundColor, grey), @"HideTabGroupBackground: off restores saved backgroundColor in minimized window");
+    Check(bg.layer.borderWidth == 1.5 && !shadow.hidden, @"HideTabGroupBackground: off restores borderWidth and shadow sublayer");
+    Check(DPHideTabGroupBackground.verify(&DPHideTabGroupBackground) == nil, @"HideTabGroupBackground: verify passes after restore");
+}
+
+// --- 3. KeepFoldersOpen fixtures ---
+@interface _TtC5TabUI12TabGroupView : NSView {
+@public
+    id viewModel;
+    BOOL shouldDisplayExpandedContainer;
+}
+@end
+@implementation _TtC5TabUI12TabGroupView
+- (void)layout {}
+@end
+
+static void TestKeepFoldersOpen(void) {
+    DPKeepFoldersOpen.install();
+    NSWindow *w = [[NSWindow alloc] initWithContentRect:NSMakeRect(0, 0, 300, 200) styleMask:NSWindowStyleMaskTitled backing:NSBackingStoreBuffered defer:NO];
+    _TtC5TabUI12TabGroupView *folder = [[_TtC5TabUI12TabGroupView alloc] initWithFrame:NSMakeRect(0, 0, 200, 40)];
+    folder->shouldDisplayExpandedContainer = YES;
+    [w.contentView addSubview:folder];
+
+    __weak id weakVM = nil;
+    @autoreleasepool {
+        NSObject *vm = [NSObject new];
+        weakVM = vm;
+        folder->viewModel = vm;
+        DPKeepFoldersOpen.on = NO;
+        [folder layout];
+        DPKeepFoldersOpen.on = YES;
+        [folder layout];
+        folder->viewModel = nil;
+    }
+    Check(weakVM == nil, @"KeepFoldersOpen: does not strongly retain Dia's viewModel");
+
+    DPKeepFoldersOpen.on = NO;
+    DPKeepFoldersOpen.apply(&DPKeepFoldersOpen);
+    [folder layout];
+    Check(YES, @"KeepFoldersOpen: off apply and layout clear state cleanly");
+}
+
+// --- 4. CollapsePinned drag refusal + minimized window fixtures ---
+static int gDragEnteredCalls, gDragUpdatedCalls, gDragExitedCalls;
+@interface _TtC7TabList11TabListView : NSView
+@end
+@implementation _TtC7TabList11TabListView
+- (NSDragOperation)draggingEntered:(id<NSDraggingInfo>)info { gDragEnteredCalls++; return NSDragOperationMove; }
+- (NSDragOperation)draggingUpdated:(id<NSDraggingInfo>)info { gDragUpdatedCalls++; return NSDragOperationMove; }
+- (void)draggingExited:(id<NSDraggingInfo>)info { gDragExitedCalls++; }
+- (BOOL)prepareForDragOperation:(id<NSDraggingInfo>)info { return YES; }
+- (BOOL)performDragOperation:(id<NSDraggingInfo>)info { return YES; }
+- (void)handleBackgroundDoubleClick:(NSGestureRecognizer *)click {}
+@end
+
+@interface _TtCC7TabList11TabListView14CollectionView : NSCollectionView
+@end
+@implementation _TtCC7TabList11TabListView14CollectionView
+@end
+
+@interface _TtC7TabList27TabListCollectionViewLayout : NSCollectionViewLayout {
+@public
+    double contentHeight;
+}
+@end
+@implementation _TtC7TabList27TabListCollectionViewLayout
+- (NSSize)collectionViewContentSize { return NSMakeSize(200, 300); }
+- (NSArray<NSCollectionViewLayoutAttributes *> *)layoutAttributesForElementsInRect:(NSRect)rect { return @[]; }
+- (NSCollectionViewLayoutAttributes *)layoutAttributesForItemAtIndexPath:(NSIndexPath *)indexPath {
+    NSCollectionViewLayoutAttributes *a = [NSCollectionViewLayoutAttributes layoutAttributesForItemWithIndexPath:indexPath];
+    a.frame = indexPath.item == 0 ? NSMakeRect(0, 0, 200, 37) : NSMakeRect(0, 37, 200, 10);
+    return a;
+}
+@end
+
+@interface DPFakePinDS : NSObject <NSCollectionViewDataSource>
+@end
+@implementation DPFakePinDS
+- (NSInteger)numberOfSectionsInCollectionView:(NSCollectionView *)cv { return 1; }
+- (NSInteger)collectionView:(NSCollectionView *)cv numberOfItemsInSection:(NSInteger)section { return 2; }
+- (NSCollectionViewItem *)collectionView:(NSCollectionView *)cv itemForRepresentedObjectAtIndexPath:(NSIndexPath *)ip { return [NSCollectionViewItem new]; }
+@end
+
+@interface DPFakeDrag : NSObject
+@property NSPoint draggingLocation;
+@end
+@implementation DPFakeDrag
+@end
+
+static void TestCollapsePinned(void) {
+    DPCollapsePinned.install();
+    NSWindow *w = [[NSWindow alloc] initWithContentRect:NSMakeRect(0, 0, 300, 400) styleMask:NSWindowStyleMaskTitled backing:NSBackingStoreBuffered defer:NO];
+    _TtC7TabList11TabListView *tabList = [[_TtC7TabList11TabListView alloc] initWithFrame:NSMakeRect(0, 0, 200, 300)];
+    _TtCC7TabList11TabListView14CollectionView *cv = [[_TtCC7TabList11TabListView14CollectionView alloc] initWithFrame:NSMakeRect(0, 0, 200, 300)];
+    _TtC7TabList27TabListCollectionViewLayout *layout = [_TtC7TabList27TabListCollectionViewLayout new];
+    DPFakePinDS *ds = [DPFakePinDS new];
+    cv.dataSource = ds;
+    cv.collectionViewLayout = layout;
+    [tabList addSubview:cv];
+    [w.contentView addSubview:tabList];
+
+    DPCollapsePinned.on = YES;
+    [layout prepareLayout];
+    NSView *header = nil;
+    for (NSView *sub in cv.subviews) if ([NSStringFromClass(sub.class) isEqualToString:@"DPPinnedHeader"]) header = sub;
+    Check(header != nil && !header.hidden, @"CollapsePinned: creates visible Pinned header when on");
+
+    // Force collapsed header, refuse drag over header, then exit, then turn OFF.
+    [header setValue:@YES forKey:@"collapsed"];
+    DPFakeDrag *drag = [DPFakeDrag new];
+    drag.draggingLocation = [cv convertPoint:NSMakePoint(50, 10) toView:nil];
+    gDragEnteredCalls = gDragUpdatedCalls = gDragExitedCalls = 0;
+    Check([(id)tabList draggingEntered:(id)drag] == NSDragOperationNone, @"CollapsePinned: refuses drag over collapsed header");
+    Check(gDragEnteredCalls == 0, @"CollapsePinned: refused drag not forwarded to Dia");
+    [(id)tabList draggingExited:(id)drag];
+    Check(gDragExitedCalls == 0, @"CollapsePinned: exiting a refused drag does not send stray draggingExited");
+
+    // Now refuse again WITHOUT exiting, then turn CollapsePinned OFF mid-drag!
+    [(id)tabList draggingEntered:(id)drag];
+    DPCollapsePinned.on = NO;
+    DPCollapsePinned.apply(&DPCollapsePinned);
+    Check(header.hidden, @"CollapsePinned: off hides header even in minimized/non-visible window");
+    gDragEnteredCalls = gDragUpdatedCalls = 0;
+    [(id)tabList draggingEntered:(id)drag];
+    [(id)tabList draggingUpdated:(id)drag];
+    [(id)tabList draggingUpdated:(id)drag];
+    Check(gDragEnteredCalls == 1 && gDragUpdatedCalls == 2, @"CollapsePinned: off clears refused state and forwards draggingUpdated normally");
+}
+
+// --- 5. UndoCloseTab off-tweak monitor guard ---
+@interface ArcWebContents : NSObject
+@property (nonatomic) NSView *nativeView;
+@property (nonatomic) NSInteger visibility;
+@property (nonatomic) BOOL hasFocus;
+@end
+@implementation ArcWebContents
+- (void)closeWithForegroundCommitTiming:(NSInteger)timing {}
+- (void)setVisibility:(NSInteger)v { _visibility = v; }
+- (void)save {}
+@end
+
+static void TestUndoCloseTabAndSavePageAs(void) {
+    NSUInteger before = gMonitors.count;
+    DPUndoCloseTab.install();
+    NSEvent *(^undoMonitor)(NSEvent *) = gMonitors[before];
+
+    NSMenu *bar = [NSMenu new];
+    NSMenuItem *top = [[NSMenuItem alloc] initWithTitle:@"History" action:nil keyEquivalent:@""];
+    NSMenu *hist = [[NSMenu alloc] initWithTitle:@"History"];
+    NSMenuItem *reopen = [[NSMenuItem alloc] initWithTitle:@"Reopen Closed Tab" action:@selector(description) keyEquivalent:@""];
+    [hist addItem:reopen];
+    top.submenu = hist;
+    [bar addItem:top];
+    NSApp.mainMenu = bar;
+
+    DPUndoCloseTab.on = YES;
+    ArcWebContents *page = [ArcWebContents new];
+    [page closeWithForegroundCommitTiming:0];
+    // Turn off (e.g. Pause Tweaks) BEFORE pressing Cmd+Z!
+    DPUndoCloseTab.on = NO;
+    NSEvent *cmdZ = [NSEvent keyEventWithType:NSEventTypeKeyDown location:NSZeroPoint modifierFlags:NSEventModifierFlagCommand
+                                    timestamp:0 windowNumber:0 context:nil characters:@"z" charactersIgnoringModifiers:@"z" isARepeat:NO keyCode:6];
+    Check(undoMonitor(cmdZ) == cmdZ, @"UndoCloseTab: turning off/pausing before Cmd+Z passes event through without reopening tab");
+
+    // SavePageAs: detached page (nativeView.window == nil) must NOT match when keyWindow/mainWindow are nil!
+    NSUInteger saveBefore = gMonitors.count;
+    DPSavePageAs.install();
+    NSEvent *(^saveMonitor)(NSEvent *) = gMonitors[saveBefore];
+    DPSavePageAs.on = YES;
+    ArcWebContents *detached = [ArcWebContents new];
+    detached.nativeView = [NSView new]; // window == nil!
+    detached.visibility = 2;
+    NSEvent *cmdSave = [NSEvent keyEventWithType:NSEventTypeKeyDown location:NSZeroPoint modifierFlags:NSEventModifierFlagCommand
+                                       timestamp:0 windowNumber:0 context:nil characters:@"z" charactersIgnoringModifiers:@"z" isARepeat:NO keyCode:6];
+    Check(NSApp.keyWindow == nil && NSApp.mainWindow == nil && saveMonitor(cmdSave) == cmdSave,
+          @"SavePageAs: windowless detached page does not match when no window is key/main");
+}
+
+// --- 6. ProfileEmoji DPTopDot_layout self-hiding regression ---
+@interface DPFakeIndicator : NSView
+@property NSDictionary *dotViews;
+@property NSString *focusedSpaceID;
+@end
+@implementation DPFakeIndicator
+- (id)safeSwiftValueForKey:(NSString *)key { return [self valueForKey:key]; }
+@end
+
+@interface _TtC8TabStripP33_B0CB782161153EFE9133A89C9E1DF5E27DotView : NSView
+@end
+@implementation _TtC8TabStripP33_B0CB782161153EFE9133A89C9E1DF5E27DotView
+- (void)layout {}
+@end
+
+static void TestProfileEmoji(void) {
+    NSUserDefaults *defaults = [[NSUserDefaults alloc] initWithSuiteName:@"com.diapatches"];
+    DPProfileEmoji.install();
+    DPProfileEmoji.on = YES;
+    [defaults setObject:@{ @"SPACE-TEST-1" : @"🚀" } forKey:@"profileEmojis"];
+
+    DPFakeIndicator *indicator = [[DPFakeIndicator alloc] initWithFrame:NSMakeRect(0, 0, 100, 20)];
+    _TtC8TabStripP33_B0CB782161153EFE9133A89C9E1DF5E27DotView *dot = [[_TtC8TabStripP33_B0CB782161153EFE9133A89C9E1DF5E27DotView alloc] initWithFrame:NSMakeRect(0, 0, 16, 16)];
+    indicator.dotViews = @{ @"SPACE-TEST-1" : dot };
+    indicator.focusedSpaceID = @"SPACE-TEST-1";
+    [indicator addSubview:dot];
+
+    // Layout twice with NO native dot subview: label must NOT hide itself on second layout!
+    [dot layout];
+    [dot layout];
+    NSTextField *label = nil;
+    for (NSView *sub in dot.subviews) if ([sub isKindOfClass:NSTextField.class]) label = (NSTextField *)sub;
+    Check(label != nil && !label.hidden && [label.stringValue isEqualToString:@"🚀"], @"ProfileEmoji: top dot without native subview does not hide its own emoji label");
+}
+
+// --- 7. PullRequestRepo author-prefix-of-repo + off-tweak restoration ---
+@interface _TtC5ARCUI24FeatheredTruncatingLabel : NSTextField
+@end
+@implementation _TtC5ARCUI24FeatheredTruncatingLabel
+- (void)layout {}
+@end
+
+@interface _TtC5ARCUI27FeatheredTransitioningLabel : NSView
+@end
+@implementation _TtC5ARCUI27FeatheredTransitioningLabel
+@end
+
+@interface DPFakePRDelegate : NSObject
+@property NSString *currentlyRenderedLiveItem;
+@property NSString *tabID;
+@end
+@implementation DPFakePRDelegate
+- (id)safeSwiftValueForKey:(NSString *)key { return [self valueForKey:key]; }
+@end
+
+@interface DPFakePRVM : NSObject
+@property DPFakePRDelegate *delegate;
+@end
+@implementation DPFakePRVM
+- (id)safeSwiftValueForKey:(NSString *)key { return [self valueForKey:key]; }
+@end
+
+@interface _TtC5TabUI14TabContentView : NSView
+@property DPFakePRVM *viewModel;
+@end
+@implementation _TtC5TabUI14TabContentView
+- (id)safeSwiftValueForKey:(NSString *)key { return [self valueForKey:key]; }
+- (void)layout {}
+@end
+
+static void TestPullRequestRepo(void) {
+    DPPullRequestRepo.install();
+    NSWindow *w = [[NSWindow alloc] initWithContentRect:NSMakeRect(0, 0, 300, 200) styleMask:NSWindowStyleMaskTitled backing:NSBackingStoreBuffered defer:NO];
+    _TtC5TabUI14TabContentView *content = [[_TtC5TabUI14TabContentView alloc] initWithFrame:NSMakeRect(0, 0, 200, 44)];
+    DPFakePRVM *vm = [DPFakePRVM new];
+    vm.delegate = [DPFakePRDelegate new];
+    vm.delegate.tabID = @"11111111-1111-1111-1111-111111111111";
+    // Author "jace" is a prefix of repo "jacethings"!
+    vm.delegate.currentlyRenderedLiveItem = @".pullRequest(url: https://github.com/org/jacethings/pull/42, author: \"jace\", status: PullRequest.Status.open)";
+    content.viewModel = vm;
+    _TtC5ARCUI27FeatheredTransitioningLabel *trans = [[_TtC5ARCUI27FeatheredTransitioningLabel alloc] initWithFrame:NSMakeRect(0, 0, 180, 16)];
+    _TtC5ARCUI24FeatheredTruncatingLabel *label = [[_TtC5ARCUI24FeatheredTruncatingLabel alloc] initWithFrame:NSMakeRect(0, 0, 180, 16)];
+    [trans addSubview:label];
+    [content addSubview:trans];
+    [w.contentView addSubview:content];
+
+    DPPullRequestRepo.on = YES;
+    label.stringValue = @"jace • Approved";
+    Check([label.stringValue isEqualToString:@"jacethings #42 · Open • Approved"], @"PullRequestRepo: replaces author with repo when author prefixes repo");
+
+    // Re-setting already-rewritten string must NOT mis-parse "things #42 ..." as review status!
+    NSString *rewritten = label.stringValue;
+    label.stringValue = rewritten;
+    Check([label.stringValue isEqualToString:rewritten], @"PullRequestRepo: does not re-split repo name prefixed by author");
+
+    // Verify must pass even though "jacethings #42..." starts with "jace".
+    Check(DPPullRequestRepo.verify(&DPPullRequestRepo) == nil, @"PullRequestRepo: verify passes when author prefixes repo");
+
+    // Turn off on non-visible/minimized window: layout must restore original author string!
+    DPPullRequestRepo.on = NO;
+    [label layout];
+    Check([label.stringValue isEqualToString:@"jace • Approved"], @"PullRequestRepo: off layout restores author subtitle");
+}
+
+// --- 8. UnloadTab DPTabOpen & DPPageOf nil safety ---
+@interface DPFakeUnloadDelegate : NSObject
+@property NSURL *webContentURL;
+@property NSString *tabID;
+@end
+@implementation DPFakeUnloadDelegate
+- (id)safeSwiftValueForKey:(NSString *)key { return [self valueForKey:key]; }
+@end
+
+@interface DPFakeUnloadContentVM : NSObject
+@property DPFakeUnloadDelegate *delegate;
+@end
+@implementation DPFakeUnloadContentVM
+- (id)safeSwiftValueForKey:(NSString *)key { return [self valueForKey:key]; }
+@end
+
+@interface DPFakeUnloadContentView : NSView
+@property DPFakeUnloadContentVM *viewModel;
+@end
+@implementation DPFakeUnloadContentView
+- (id)safeSwiftValueForKey:(NSString *)key { return [self valueForKey:key]; }
+@end
+
+@interface DPFakeUnloadScriptTab : NSObject
+@property NSString *URL;
+@property NSString *tabId;
+@end
+@implementation DPFakeUnloadScriptTab
+@end
+
+@interface DPFakeUnloadScriptWindow : NSObject
+@property NSArray *appleScriptTabs;
+@end
+@implementation DPFakeUnloadScriptWindow
+@end
+
+@interface DPFakeUnloadAppDelegate : NSObject <NSApplicationDelegate>
+@property NSArray *appleScriptWindows;
+@end
+@implementation DPFakeUnloadAppDelegate
+@end
+
+@interface DPFakeTabSelectionState : NSObject
+@property NSString *selectionStyle;
+@end
+@implementation DPFakeTabSelectionState
+- (id)safeSwiftValueForKey:(NSString *)key { return [self valueForKey:key]; }
+@end
+
+@interface _TtC5TabUI7TabView : NSView
+@property DPFakeTabVM *viewModel;
+@property NSDictionary *contentViews;
+@end
+@implementation _TtC5TabUI7TabView
+- (id)safeSwiftValueForKey:(NSString *)key { return [self valueForKey:key]; }
+- (NSMenu *)menuForEvent:(NSEvent *)event { return [NSMenu new]; }
+@end
+
+static void TestUnloadTab(void) {
+    DPUnloadTab.install();
+    DPUnloadTab.on = YES;
+    _TtC5TabUI7TabView *tab = [[_TtC5TabUI7TabView alloc] initWithFrame:NSMakeRect(0, 0, 200, 36)];
+    NSEvent *rightClick = [NSEvent mouseEventWithType:NSEventTypeRightMouseDown location:NSZeroPoint modifierFlags:0
+                                            timestamp:0 windowNumber:0 context:nil eventNumber:0 clickCount:1 pressure:1];
+    NSMenu *menu = [tab menuForEvent:rightClick];
+    Check([menu itemWithTitle:@"Unload Tab"] == nil, @"UnloadTab: nil contentViews safely produces no Unload Tab item");
+
+    // Scripted tab with nil tabId must NOT throw NSInvalidArgumentException in DPPageOf!
+    DPFakeUnloadContentView *cv = [DPFakeUnloadContentView new];
+    cv.viewModel = [DPFakeUnloadContentVM new];
+    cv.viewModel.delegate = [DPFakeUnloadDelegate new];
+    cv.viewModel.delegate.webContentURL = [NSURL URLWithString:@"https://unload.example/"];
+    cv.viewModel.delegate.tabID = @"22222222-2222-2222-2222-222222222222";
+    tab.contentViews = @{ @"main" : cv };
+    tab.viewModel = [DPFakeTabVM new];
+    tab.viewModel.stateSubject = [DPFakeSubject new];
+    tab.viewModel.stateSubject.currentValue = [DPFakeTabSelectionState new]; // selectionStyle == nil
+
+    DPFakeUnloadScriptTab *badTab = [DPFakeUnloadScriptTab new];
+    badTab.URL = @"https://unload.example/";
+    badTab.tabId = nil;
+    DPFakeUnloadScriptWindow *sw = [DPFakeUnloadScriptWindow new];
+    sw.appleScriptTabs = @[ badTab ];
+    DPFakeUnloadAppDelegate *appDel = [DPFakeUnloadAppDelegate new];
+    appDel.appleScriptWindows = @[ sw ];
+    id prevDelegate = NSApp.delegate;
+    NSApp.delegate = appDel;
+    menu = [tab menuForEvent:rightClick];
+    NSApp.delegate = prevDelegate;
+    Check(menu != nil && [menu itemWithTitle:@"Unload Tab"] == nil, @"UnloadTab: nil tabId in appleScriptTabs does not crash DPPageOf");
+}
+
+// --- 9. CompactSidebarHeader off-tweak no-swizzle ---
+@interface DPUnrelatedSidebarChild : NSView
+@end
+@implementation DPUnrelatedSidebarChild
+- (void)setFrame:(NSRect)frame { [super setFrame:frame]; }
+@end
+
+@interface _TtC10TabSidebar30SidebarContainerViewController : NSViewController
+@end
+@implementation _TtC10TabSidebar30SidebarContainerViewController
+- (void)viewWillLayout {}
+@end
+
+@interface _TtC10TabSidebar17SidebarHeaderView : NSView
+@end
+@implementation _TtC10TabSidebar17SidebarHeaderView
+- (void)layout {}
+@end
+
+static void TestCompactSidebarHeader(void) {
+    DPCompactSidebarHeader.install();
+    DPCompactSidebarHeader.on = NO;
+    _TtC10TabSidebar30SidebarContainerViewController *sc = [_TtC10TabSidebar30SidebarContainerViewController new];
+    sc.view = [[NSView alloc] initWithFrame:NSMakeRect(0, 0, 220, 600)];
+    DPUnrelatedSidebarChild *child = [[DPUnrelatedSidebarChild alloc] initWithFrame:NSMakeRect(0, 0, 220, 40)];
+    [sc.view addSubview:child];
+    IMP beforeIMP = method_getImplementation(class_getInstanceMethod(DPUnrelatedSidebarChild.class, @selector(setFrame:)));
+    [sc viewWillLayout];
+    IMP afterIMP = method_getImplementation(class_getInstanceMethod(DPUnrelatedSidebarChild.class, @selector(setFrame:)));
+    Check(beforeIMP == afterIMP, @"CompactSidebarHeader: off does not swizzle sidebar subview classes");
+}
+
+// --- 10. TidyTabs off-tweak & minimized window cleanup ---
+@interface _TtC7TabList20TabListSeparatorView : NSView
+@end
+@implementation _TtC7TabList20TabListSeparatorView
+- (void)layout {}
+- (void)updateLayer {}
+@end
+
+static void TestTidyTabsCleanup(void) {
+    DPTidyTabs.install();
+    NSWindow *minimized = [[NSWindow alloc] initWithContentRect:NSMakeRect(0, 0, 260, 500) styleMask:NSWindowStyleMaskTitled backing:NSBackingStoreBuffered defer:NO];
+    NSView *sidebar = [[NSView alloc] initWithFrame:NSMakeRect(0, 0, 220, 500)];
+    _TtC10TabSidebar17SidebarHeaderView *header = [[_TtC10TabSidebar17SidebarHeaderView alloc] initWithFrame:NSMakeRect(0, 460, 220, 40)];
+    _TtC7TabList11TabListView *list = [[_TtC7TabList11TabListView alloc] initWithFrame:NSMakeRect(0, 0, 220, 460)];
+    NSScrollView *scroll = [[NSScrollView alloc] initWithFrame:list.bounds];
+    NSView *doc = [[NSView alloc] initWithFrame:list.bounds];
+    _TtC7TabList20TabListSeparatorView *sep = [[_TtC7TabList20TabListSeparatorView alloc] initWithFrame:NSMakeRect(0, 200, 220, 20)];
+    sep.wantsLayer = YES;
+    CALayer *line = [CALayer layer];
+    line.frame = NSMakeRect(10, 10, 180, 1);
+    [sep.layer addSublayer:line];
+    NSButton *closeAll = [NSButton buttonWithTitle:@"Clear" target:nil action:nil];
+    closeAll.frame = NSMakeRect(160, 2, 50, 16);
+    [sep addSubview:closeAll];
+    [doc addSubview:sep];
+    scroll.documentView = doc;
+    [list addSubview:scroll];
+    [sidebar addSubview:header];
+    [sidebar addSubview:list];
+    [minimized.contentView addSubview:sidebar];
+
+    // Turn on -> attaches tracking area on sidebar and places brush on separator when busy.
+    DPTidyTabs.on = YES;
+    DPTidySetBusy(YES);
+    [list layout];
+    [sep layout];
+    DPTidyHover *hover = [DPTidyHover forList:list];
+    BOOL hasBrush = NO;
+    for (NSView *sub in sep.subviews) if ([sub isKindOfClass:DPTidyBrush.class]) hasBrush = YES;
+    Check(hover.tracking != nil && [sidebar.trackingAreas containsObject:hover.tracking], @"TidyTabs: attaches hover tracking area when on");
+    Check(hasBrush && NSWidth(line.frame) < 180, @"TidyTabs: places separator brush and trims line when on");
+
+    // Turn off while window is non-visible/minimized -> MUST detach tracking area, remove brush, and restore line width!
+    DPTidyTabs.on = NO;
+    DPTidySetBusy(NO);
+    DPTidyTabs.apply(&DPTidyTabs);
+    hasBrush = NO;
+    for (NSView *sub in sep.subviews) if ([sub isKindOfClass:DPTidyBrush.class]) hasBrush = YES;
+    Check(hover.tracking == nil && sidebar.trackingAreas.count == 0, @"TidyTabs: detaches tracking area on minimized window when turned off");
+    Check(!hasBrush && fabs(NSWidth(line.frame) - 180) < 0.5, @"TidyTabs: removes brush subview and restores separator line width when off");
+}
+
+int main(void) {
+    @autoreleasepool {
+        [NSApplication sharedApplication];
+        method_exchangeImplementations(class_getInstanceMethod(NSUserDefaults.class, @selector(initWithSuiteName:)),
+            class_getInstanceMethod(NSUserDefaults.class, @selector(dp_testInitWithSuiteName:)));
+        [[[NSUserDefaults alloc] initWithSuiteName:@"com.diapatches"] removePersistentDomainForName:DPTestSuiteName()];
+        DPHookClass(object_getClass(NSEvent.class), @selector(addLocalMonitorForEventsMatchingMask:handler:), (IMP)CaptureMonitor);
+        TestHideSleepingTabs();
+        TestHideTabGroupBackground();
+        TestKeepFoldersOpen();
+        TestCollapsePinned();
+        TestUndoCloseTabAndSavePageAs();
+        TestProfileEmoji();
+        TestPullRequestRepo();
+        TestUnloadTab();
+        TestCompactSidebarHeader();
+        TestTidyTabsCleanup();
+        [[[NSUserDefaults alloc] initWithSuiteName:@"com.diapatches"] removePersistentDomainForName:DPTestSuiteName()];
+    }
+    if (failures) return 1;
+    puts("PASS: all sidebar & tab bug regression checks passed");
+    return 0;
+}

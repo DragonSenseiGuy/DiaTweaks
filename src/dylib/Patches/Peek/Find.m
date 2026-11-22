@@ -2,8 +2,6 @@
 #import "Patches/LittleDia/LittleDia.h"
 #import <objc/message.h>
 
-// Dia's find bar belongs to a tab's pane and can't search a Peek's page, so the card gets a small bar of its own.
-// It reads like the card's toolbar: system colors and fonts, the toolbar's buttons.
 static const void *DPPeekFindKey = &DPPeekFindKey;
 static const CGFloat DPFindWidth = 260, DPFindHeight = 30, DPFindMargin = 8, DPFindButton = 24;
 
@@ -115,11 +113,10 @@ BOOL DPPeekHideFind(DPPeekCard *peek) {
     NSResponder *focus = peek.window.firstResponder;
     BOOL inBar = [focus isKindOfClass:NSView.class] && [(NSView *)focus isDescendantOf:bar];
     [bar removeFromSuperview];
-    if (inBar && !peek.closing) [peek.window makeFirstResponder:peek.host];
+    if (inBar && !peek.closing && !peek.isHiddenOrHasHiddenAncestor) [peek.window makeFirstResponder:peek.host];
     return YES;
 }
 
-// ⌘F opens the bar, ⌘G and ⇧⌘G step through the matches.
 BOOL DPPeekFindShortcut(DPPeekCard *peek, NSEvent *event, NSEventModifierFlags mods) {
     BOOL command = mods == NSEventModifierFlagCommand, shifted = mods == (NSEventModifierFlagCommand | NSEventModifierFlagShift);
     if (command && DPEventIsKey(event, @"f")) DPPeekFindOpen(peek);

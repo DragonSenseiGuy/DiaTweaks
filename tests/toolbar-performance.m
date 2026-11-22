@@ -4,7 +4,11 @@
 - (void)reset;
 @end
 
-DPPatch DPHideToolbar, DPRevealToolbarOnHover;
+DPPatch DPHideToolbar, DPRevealToolbarOnHover, DPShowToolbarWithSidebar, DPShowToolbarOnNewTab, DPShowToolbarWithTopTabs;
+BOOL DPBesideSidebar(NSView *view) { return NO; }
+BOOL DPLittleDiaIsOver(NSWindow *window) { return NO; }
+void DPRepaintTabs(NSWindow *window) {}
+BOOL DPToolbarHasPermissionRequest(DPToolbarHover *hover) { return NO; }
 static NSUInteger frameWrites, alphaWrites;
 @interface CountingView : NSView
 @end

@@ -1,45 +1,142 @@
 #import "StdPatch/StdPatch.h"
+#import <os/lock.h>
 #import <stdatomic.h>
 
-typedef struct { Class cls; SEL sel; IMP replacement, original; } DPHookRecord;
-// Hooks are added on the main thread after launch while any thread may be inside DPOriginalIMP: the table never moves, and a record counts only once it is whole.
+typedef struct { Class cls; SEL sel; IMP replacement; _Atomic(IMP) original; } DPHookRecord;
+// Writers serialize on DPHookLock while any thread reads lock-free; the table never moves and a record counts only once whole.
 static DPHookRecord DPHooks[1024];
 static _Atomic size_t DPHookCount;
+static os_unfair_lock DPHookLock = OS_UNFAIR_LOCK_INIT;
+static _Thread_local DPHookFrame *DPActiveFrame;
 
 void DPHookClass(Class cls, SEL sel, IMP replacement) {
-    Method method = cls ? class_getInstanceMethod(cls, sel) : NULL;
-    if (!method) return;
+    if (!cls || !sel || !replacement) return;
+    os_unfair_lock_lock(&DPHookLock);
+    Method method = class_getInstanceMethod(cls, sel);
+    if (!method) return os_unfair_lock_unlock(&DPHookLock);
+    IMP original = method_getImplementation(method);
+    if (original == replacement) return os_unfair_lock_unlock(&DPHookLock);
     size_t count = atomic_load_explicit(&DPHookCount, memory_order_relaxed);
-    // Already hooked here or in a superclass: a second copy would find itself as the original and recurse.
+    // Already hooked here or in a superclass: a second copy would double-run or recurse.
     for (size_t i = 0; i < count; i++) {
         if (DPHooks[i].sel != sel || DPHooks[i].replacement != replacement) continue;
-        for (Class c = cls; c; c = class_getSuperclass(c)) if (c == DPHooks[i].cls) return;
+        for (Class c = cls; c; c = class_getSuperclass(c))
+            if (c == DPHooks[i].cls) return os_unfair_lock_unlock(&DPHookLock);
     }
-    if (count == sizeof DPHooks / sizeof *DPHooks) return NSLog(@"DiaPatches: hook table is full; not hooking -[%s %@]", class_getName(cls), NSStringFromSelector(sel));
-    IMP original = method_getImplementation(method);
+    if (count == sizeof DPHooks / sizeof *DPHooks) {
+        os_unfair_lock_unlock(&DPHookLock);
+        return NSLog(@"DiaPatches: hook table is full; not hooking -[%s %@]", class_getName(cls), NSStringFromSelector(sel));
+    }
     // The record goes in first: once the replacement is live, any thread that reaches it must find it.
-    DPHooks[count] = (DPHookRecord){cls, sel, replacement, original};
+    DPHooks[count].cls = cls;
+    DPHooks[count].sel = sel;
+    DPHooks[count].replacement = replacement;
+    atomic_store_explicit(&DPHooks[count].original, original, memory_order_relaxed);
     atomic_store_explicit(&DPHookCount, count + 1, memory_order_release);
     if (!class_addMethod(cls, sel, replacement, method_getTypeEncoding(method))) method_setImplementation(method, replacement);
+    // Re-chain any subclass that copied cls's inherited IMP earlier so it still calls through this hook.
+    for (size_t i = 0; i < count; i++) {
+        if (DPHooks[i].sel != sel || DPHooks[i].replacement == replacement) continue;
+        if (atomic_load_explicit(&DPHooks[i].original, memory_order_relaxed) != original) continue;
+        for (Class c = class_getSuperclass(DPHooks[i].cls); c; c = class_getSuperclass(c))
+            if (c == cls) {
+                atomic_store_explicit(&DPHooks[i].original, replacement, memory_order_release);
+                break;
+            }
+    }
+    os_unfair_lock_unlock(&DPHookLock);
 }
 
 void DPHook(const char *className, SEL sel, IMP replacement) {
-    Class cls = objc_getClass(className);
-    if (!class_getInstanceMethod(cls, sel)) NSLog(@"DiaPatches: can't hook -[%s %@]; Dia may have renamed it", className, NSStringFromSelector(sel));
+    Class cls = className ? objc_getClass(className) : Nil;
+    if (!class_getInstanceMethod(cls, sel)) NSLog(@"DiaPatches: can't hook -[%s %@]; Dia may have renamed it", className ?: "(null)", NSStringFromSelector(sel));
     else DPHookClass(cls, sel, replacement);
 }
 
-IMP DPOriginalIMP(id object, SEL sel, IMP replacement) {
+static IMP DPFindOriginal(Class start, SEL sel, IMP replacement, Class *matched) {
     size_t count = atomic_load_explicit(&DPHookCount, memory_order_acquire);
-    for (Class c = object_getClass(object); c; c = class_getSuperclass(c))
-        for (size_t i = 0; i < count; i++)
-            if (DPHooks[i].cls == c && DPHooks[i].sel == sel && DPHooks[i].replacement == replacement) return DPHooks[i].original;
+    IMP best = NULL;
+    Class bestClass = Nil;
+    size_t bestDepth = SIZE_MAX;
+    for (size_t i = 0; i < count; i++) {
+        if (DPHooks[i].replacement != replacement || DPHooks[i].sel != sel) continue;
+        Class hooked = DPHooks[i].cls;
+        if (hooked == start) {
+            if (matched) *matched = hooked;
+            return atomic_load_explicit(&DPHooks[i].original, memory_order_acquire);
+        }
+        size_t depth = 1;
+        for (Class c = class_getSuperclass(start); c && depth < bestDepth; c = class_getSuperclass(c), depth++)
+            if (c == hooked) {
+                best = atomic_load_explicit(&DPHooks[i].original, memory_order_acquire);
+                bestClass = hooked;
+                bestDepth = depth;
+                break;
+            }
+    }
+    if (matched) *matched = bestClass;
+    return best;
+}
+
+IMP DPOriginalIMP(id object, SEL sel, IMP replacement) {
+    IMP imp = DPFindOriginal(object_getClass(object), sel, replacement, NULL);
+    if (imp) return imp;
     abort();
 }
 
+IMP DPPushOriginalIMP(id object, SEL sel, IMP replacement, DPHookFrame *frame) {
+    const void *target = (__bridge const void *)object;
+    Class start = object_getClass(object), matched = Nil;
+    IMP imp = NULL;
+    // When a subclass hooked before its superclass calls [super sel], step above the active class instead of recursing.
+    for (DPHookFrame *active = DPActiveFrame; active; active = active->previous) {
+        if (active->object == target && active->sel == sel && active->replacement == replacement) {
+            Class super = class_getSuperclass(active->cls);
+            if (super) imp = DPFindOriginal(super, sel, replacement, &matched);
+            break;
+        }
+    }
+    if (!imp) imp = DPFindOriginal(start, sel, replacement, &matched);
+    if (!imp) abort();
+    *frame = (DPHookFrame){target, sel, replacement, matched, DPActiveFrame};
+    DPActiveFrame = frame;
+    return imp;
+}
+
+void DPPopOriginalIMP(DPHookFrame *frame) {
+    DPActiveFrame = frame->previous;
+}
+
 IMP DPDiaIMP(Class cls, SEL sel) {
+    if (!cls || !sel) return NULL;
     size_t count = atomic_load_explicit(&DPHookCount, memory_order_acquire);
-    for (size_t i = 0; i < count; i++)
-        if (DPHooks[i].cls == cls && DPHooks[i].sel == sel) return DPHooks[i].original;
-    return class_getMethodImplementation(cls, sel);
+    IMP imp = NULL;
+    for (Class c = cls; c && !imp; c = class_getSuperclass(c)) {
+        for (size_t i = 0; i < count; i++)
+            if (DPHooks[i].cls == c && DPHooks[i].sel == sel) {
+                imp = atomic_load_explicit(&DPHooks[i].original, memory_order_acquire);
+                break;
+            }
+        if (imp) break;
+        Method own = class_getInstanceMethod(c, sel);
+        Class super = class_getSuperclass(c);
+        if (own && (!super || own != class_getInstanceMethod(super, sel)))
+            return method_getImplementation(own);
+    }
+    if (!imp) return class_getMethodImplementation(cls, sel);
+    for (size_t hops = 0; hops < count; hops++) {
+        IMP next = NULL;
+        for (size_t i = 0; i < count; i++) {
+            if (DPHooks[i].sel != sel || DPHooks[i].replacement != imp) continue;
+            for (Class c = cls; c; c = class_getSuperclass(c))
+                if (c == DPHooks[i].cls) {
+                    next = atomic_load_explicit(&DPHooks[i].original, memory_order_acquire);
+                    break;
+                }
+            if (next) break;
+        }
+        if (!next) break;
+        imp = next;
+    }
+    return imp;
 }

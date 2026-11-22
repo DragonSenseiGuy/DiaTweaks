@@ -53,7 +53,23 @@ static NSTimer *DPEase(CGFloat from, CGFloat to, void (^step)(CGFloat value, BOO
     self.progress = 0;
 }
 
+- (void)stopInPlace {
+    [self.inPlaceAnimation invalidate];
+    self.inPlaceAnimation = nil;
+    _inPlace = NO;
+    self.inPlaceProgress = 0;
+}
+
+- (void)detach {
+    [self stopReveal];
+    [self stopInPlace];
+    if (self.tracking) [self.pane removeTrackingArea:self.tracking];
+    self.tracking = nil;
+    if (self.pane) DPSet(self.pane, &DPHoverKey, nil);
+}
+
 - (void)reset {
+    if (!self.revealed && self.progress == 0 && !self.animation && !self.hideTimer) return;
     [self stopReveal];
     if (self.pane) DPApplyToolbar(self.pane);
 }
@@ -131,7 +147,8 @@ static NSTimer *DPEase(CGFloat from, CGFloat to, void (^step)(CGFloat value, BOO
 - (void)updateForBar:(NSView *)bar bookmarks:(NSView *)bookmarks {
     self.bar = bar;
     self.bookmarks = bookmarks;
-    self.inPlace = DPKeptInPlace(self.pane);
+    if (DPHideToolbar.on || DPHideToolbar.progress > 0) self.inPlace = DPKeptInPlace(self.pane);
+    else [self stopInPlace];
     NSRect rect = NSZeroRect;
     if (DPHideToolbar.on && DPRevealToolbarOnHover.on && !self.inPlace && !bar.hiddenOrHasHiddenAncestor) {
         rect = DPLaidOutFrame(bar);

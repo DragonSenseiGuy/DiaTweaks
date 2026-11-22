@@ -1,7 +1,9 @@
+use std::fmt::Write;
+
 use anyhow::Result;
 
 use crate::{
-    dia,
+    dia::{self, SafeMode},
     env::Env,
     lock,
     manifest::Manifest,
@@ -13,6 +15,9 @@ use crate::{
 pub fn list(env: &Env) -> Result<()> {
     let manifest = Manifest::load(&env.manifest())?;
     let state = manifest.state(&Prefs::new(&env.domain));
+    if dia::is_paused(&env.support) {
+        ui::say("Tweaks are paused: every one is off until `diatweaks resume`. The settings below are kept.");
+    }
     let width = manifest
         .patches
         .iter()
@@ -61,8 +66,87 @@ pub fn set(env: &Env, ui: &Ui, names: &[String], on: bool) -> Result<()> {
     for note in notes(&manifest, &current, &wanted) {
         ui.warn(note);
     }
-    ui.done(where_it_shows(env));
+    finish_changes(env, ui, &manifest, &changes, &wanted, false);
     Ok(())
+}
+
+fn is_live_dia(env: &Env) -> bool {
+    !dia::is_paused(&env.support)
+        && dia::is_running(&env.app)
+        && dia::is_patched(&env.app)
+        && dia::safe_mode(&env.support) == SafeMode::Off
+}
+
+fn needs_relaunch(manifest: &Manifest, index: usize, wanted_on: bool, icon_linked: bool) -> bool {
+    let patch = &manifest.patches[index];
+    patch.relaunch || (patch.key == "appIcon" && wanted_on != icon_linked)
+}
+
+fn finish_changes(
+    env: &Env,
+    ui: &Ui,
+    manifest: &Manifest,
+    changes: &[usize],
+    wanted: &[bool],
+    saved_prefix: bool,
+) {
+    let icon_linked = dia::has_linked_icon_catalog(&env.app);
+    let live = is_live_dia(env);
+    let relaunching: Vec<&str> = if live {
+        changes
+            .iter()
+            .filter(|&&index| needs_relaunch(manifest, index, wanted[index], icon_linked))
+            .map(|&index| manifest.title(index))
+            .collect()
+    } else {
+        Vec::new()
+    };
+    if !live
+        && !dia::is_paused(&env.support)
+        && dia::is_patched(&env.app)
+        && dia::safe_mode(&env.support) == SafeMode::Off
+    {
+        if let Some(&index) = changes
+            .iter()
+            .find(|&&index| manifest.patches[index].key == "appIcon")
+        {
+            if wanted[index] && !icon_linked {
+                ui.warn(
+                    "App Icon needs a rebuild to link Dia's asset catalog. Run `diatweaks update` to apply it.",
+                );
+            } else if !wanted[index] && icon_linked {
+                ui.warn(
+                    "Dia's default icon is restored; run `diatweaks update` to restore its sealed asset catalog.",
+                );
+            }
+        }
+    }
+    let tail = if !relaunching.is_empty() {
+        ui.warn(format_args!(
+            "Relaunch Dia to apply: {}.",
+            relaunching.join(", ")
+        ));
+        if relaunching.len() == changes.len() {
+            "Relaunch Dia to see the changes.".into()
+        } else {
+            "Dia shows the rest now.".into()
+        }
+    } else {
+        where_it_applies(env)
+    };
+    if saved_prefix {
+        ui.done(format_args!("Saved. {tail}"));
+    } else {
+        ui.done(tail);
+    }
+}
+
+fn where_it_applies(env: &Env) -> String {
+    if dia::is_paused(&env.support) {
+        "Tweaks are paused, so nothing changes until you run `diatweaks resume`.".into()
+    } else {
+        where_it_shows(env)
+    }
 }
 
 pub fn menu(env: &Env, ui: &Ui) -> Result<()> {
@@ -103,21 +187,22 @@ pub fn menu(env: &Env, ui: &Ui) -> Result<()> {
     if !ui.choose("Save these changes?", true)? {
         return Err(Cancelled::nothing_changed().into());
     }
-    save(env, &manifest, &current, &wanted)?;
-    ui.done(format_args!("Saved. {}", where_it_shows(env)));
+    let changes = save(env, &manifest, &current, &wanted)?;
+    finish_changes(env, ui, &manifest, &changes, &wanted, true);
     Ok(())
 }
 
 fn hint(manifest: &Manifest, current: &[bool], index: usize) -> String {
     let mut hint = manifest.patches[index].detail.clone();
     if let Some(required) = manifest.requirement(index) {
-        hint.push_str(&format!(" Needs {}.", manifest.title(required)));
+        let _ = write!(hint, " Needs {}.", manifest.title(required));
     }
     if let Some(disabler) = manifest.hidden_by(index, current) {
-        hint.push_str(&format!(
+        let _ = write!(
+            hint,
             " No difference while {} is on.",
             manifest.title(disabler)
-        ));
+        );
     }
     hint
 }
@@ -166,7 +251,7 @@ fn notes(manifest: &Manifest, current: &[bool], wanted: &[bool]) -> Vec<String> 
             }
         }
         if let Some(disabler) = manifest.hidden_by(index, wanted) {
-            if changed(index) {
+            if wanted[index] && changed(index) {
                 notes.push(format!(
                     "{} makes no difference while {} is on.",
                     manifest.title(index),
@@ -178,7 +263,7 @@ fn notes(manifest: &Manifest, current: &[bool], wanted: &[bool]) -> Vec<String> 
     notes
 }
 
-/// Writes only what this run changed: something else may have changed the rest meanwhile.
+// Write only changed keys so concurrent edits to other tweaks survive.
 fn save(env: &Env, manifest: &Manifest, current: &[bool], wanted: &[bool]) -> Result<Vec<usize>> {
     let changes: Vec<usize> = (0..wanted.len())
         .filter(|&index| current[index] != wanted[index])
@@ -192,15 +277,21 @@ fn save(env: &Env, manifest: &Manifest, current: &[bool], wanted: &[bool]) -> Re
         prefs.set(&manifest.patches[index].key, wanted[index]);
     }
     prefs.save()?;
+    if changes
+        .iter()
+        .any(|&index| manifest.patches[index].key == "appIcon")
+    {
+        dia::sync_icon(env);
+    }
     Ok(changes)
 }
 
-fn where_it_shows(env: &Env) -> String {
+pub fn where_it_shows(env: &Env) -> String {
     match dia::safe_mode(&env.support) {
-        0 => {}
-        1 => return "Tweaks are paused because Dia quit unexpectedly right after opening. Turn them back on in Dia → Settings → Patches.".into(),
-        _ if dia::safe_mode_parked(&env.support) => return "DiaTweaks is off because Dia kept quitting right after opening, even after it was tried again. It stays off until the next DiaTweaks update.".into(),
-        _ => return "DiaTweaks is off because Dia kept quitting right after opening. After one launch where Dia stays open for three minutes or quits normally, the next launch brings Settings back with tweaks still paused. Turn them back on in Dia → Settings → Patches.".into(),
+        SafeMode::Off => {}
+        SafeMode::TweaksOff => return "Tweaks are off because Dia quit unexpectedly right after opening. Turn them back on in Dia → Settings → Patches.".into(),
+        SafeMode::Parked => return "DiaTweaks is off because Dia kept quitting right after opening, even after it was tried again. It stays off until the next DiaTweaks update.".into(),
+        SafeMode::Disabled => return "DiaTweaks is off because Dia kept quitting right after opening. After one launch where Dia stays open for three minutes or quits normally, the next launch brings Settings back with tweaks still off. Turn them back on in Dia → Settings → Patches.".into(),
     }
     if !dia::is_patched(&env.app) {
         return "Dia isn't patched right now, so they won't show. Run `diatweaks update` to patch it again.".into();
@@ -216,5 +307,63 @@ fn on_off(on: bool) -> &'static str {
         "on"
     } else {
         "off"
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+
+    #[test]
+    fn notes_does_not_warn_when_disabling_hidden_tweak() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("patches.json");
+        fs::write(
+            &path,
+            r#"{
+                "version": 1,
+                "patches": [
+                    {"key": "turnOffAI", "title": "Turn Off AI", "detail": "A", "defaultOn": false, "requires": null, "disabledBy": null, "relaunch": true},
+                    {"key": "briefLanguage", "title": "Morning Brief Language", "detail": "B", "defaultOn": false, "requires": null, "disabledBy": "turnOffAI"}
+                ]
+            }"#,
+        )
+        .unwrap();
+        let manifest = Manifest::load(&path).unwrap();
+
+        // Turning briefLanguage OFF while turnOffAI is ON should NOT warn.
+        assert!(notes(&manifest, &[true, true], &[true, false]).is_empty());
+        // Turning briefLanguage ON while turnOffAI is ON SHOULD warn.
+        let warnings = notes(&manifest, &[true, false], &[true, true]);
+        assert_eq!(warnings.len(), 1);
+        assert!(warnings[0].contains("Morning Brief Language"));
+    }
+
+    #[test]
+    fn needs_relaunch_tracks_relaunch_and_app_icon_link_state() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("patches.json");
+        fs::write(
+            &path,
+            r#"{
+                "version": 1,
+                "patches": [
+                    {"key": "turnOffAI", "title": "Turn Off AI", "detail": "A", "defaultOn": false, "requires": null, "disabledBy": null, "relaunch": true},
+                    {"key": "appIcon", "title": "App Icon", "detail": "I", "defaultOn": false, "requires": null, "disabledBy": null},
+                    {"key": "hideToolbar", "title": "Hide Toolbar", "detail": "H", "defaultOn": false, "requires": null, "disabledBy": null}
+                ]
+            }"#,
+        )
+        .unwrap();
+        let manifest = Manifest::load(&path).unwrap();
+
+        assert!(needs_relaunch(&manifest, 0, true, false));
+        assert!(needs_relaunch(&manifest, 0, false, true));
+        assert!(needs_relaunch(&manifest, 1, true, false));
+        assert!(!needs_relaunch(&manifest, 1, true, true));
+        assert!(needs_relaunch(&manifest, 1, false, true));
+        assert!(!needs_relaunch(&manifest, 1, false, false));
+        assert!(!needs_relaunch(&manifest, 2, true, false));
     }
 }

@@ -85,10 +85,12 @@ static const CGFloat DPInset = 6, DPGap = 2, DPButton = 28, DPAddressHeight = 30
 }
 
 - (void)dealloc {
+    [_watch invalidate];
     if (_clicks) [NSEvent removeMonitor:_clicks];
 }
 
 - (void)refresh {
+    if (self.isHiddenOrHasHiddenAncestor) return;
     NSObject *page = self.page;
     if (!page) return;
     self.buttons[0].enabled = [[page valueForKey:@"canGoBack"] boolValue];

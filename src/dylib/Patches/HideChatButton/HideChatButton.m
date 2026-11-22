@@ -1,7 +1,5 @@
 #import "StdPatch/StdPatch.h"
 
-static BOOL DPIsChatButton(NSView *view) { return DPHasLabel(view, @"Chat with this tab"); }
-
 DP_PATCH(DPHideChatButton) {
     .key = @"hideChatButton",
     .order = 95,

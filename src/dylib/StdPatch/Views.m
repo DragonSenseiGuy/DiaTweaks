@@ -16,27 +16,47 @@ static void DPCollectViews(NSView *view, Class cls, NSMutableArray<NSView *> *vi
 }
 
 NSArray<NSView *> *DPFindViews(const char *className) {
-    Class cls = objc_getClass(className);
+    Class cls = className ? objc_getClass(className) : Nil;
+    if (!cls) return @[];
     NSMutableArray<NSView *> *views = [NSMutableArray new];
     for (NSWindow *window in NSApp.windows)
-        if (cls && window.isVisible) DPCollectViews(window.contentView, cls, views);
+        if (window.isVisible) DPCollectViews(window.contentView, cls, views);
     return views;
 }
 
-NSString *DPTabLayout(void) { return DPFindViews(DPDiaSidebarFooter).count ? @"vertical" : @"horizontal"; }
+NSString *DPTabLayout(void) {
+    Class cls = objc_getClass(DPDiaSidebarFooter);
+    if (cls)
+        for (NSWindow *window in NSApp.windows)
+            if (window.isVisible && DPFindView(window.contentView, ^BOOL(NSView *v) { return [v isKindOfClass:cls]; })) return @"vertical";
+    return @"horizontal";
+}
 
 NSView *DPSubview(NSView *parent, const char *className) {
-    for (NSView *sub in parent.subviews) if (DPIsKind(sub, className)) return sub;
+    Class cls = parent && className ? objc_getClass(className) : Nil;
+    if (!cls) return nil;
+    for (NSView *sub in parent.subviews) if ([sub isKindOfClass:cls]) return sub;
     return nil;
 }
 
 BOOL DPIsKind(id object, const char *className) {
+    if (!object || !className) return NO;
     Class cls = objc_getClass(className);
     return cls && [object isKindOfClass:cls];
 }
 
 BOOL DPIsFloatingChat(NSView *popover) {
-    return DPFindView(popover, ^BOOL(NSView *view) { return DPIsKind(view, DPDiaChatHeader); }) != nil;
+    Class cls = popover ? objc_getClass(DPDiaChatHeader) : Nil;
+    return cls && DPFindView(popover, ^BOOL(NSView *view) { return [view isKindOfClass:cls]; }) != nil;
+}
+
+// Dia 1.58.1+ replaces the Ask button's tooltip with an intro popover, dropping its accessibility label.
+BOOL DPIsChatButton(NSView *view) {
+    if (DPHasLabel(view, @"Chat with this tab")) return YES;
+    if (!DPIsKind(view, DPDiaCapsuleButton)) return NO;
+    return ([view isKindOfClass:NSControl.class] && ((NSControl *)view).action == @selector(didClickAskButton:))
+        || [view.toolTip isEqualToString:@"Chat with this tab"]
+        || DPFindView(view, ^BOOL(NSView *sub) { return DPHasLabel(sub, @"chat fill"); }) != nil;
 }
 
 BOOL DPHasLabel(NSView *view, NSString *accessibilityLabel) {
@@ -76,7 +96,7 @@ BOOL DPMayAdjust(NSView *view) {
 }
 
 void *DPIvar(id object, const char *name) {
-    Ivar ivar = object ? class_getInstanceVariable(object_getClass(object), name) : NULL;
+    Ivar ivar = object && name ? class_getInstanceVariable(object_getClass(object), name) : NULL;
     return ivar ? (uint8_t *)(__bridge void *)object + ivar_getOffset(ivar) : NULL;
 }
 
@@ -96,17 +116,21 @@ NSMenu *DPTabContextMenu(NSView *tab) {
 }
 
 NSArray<NSString *> *DPUUIDsIn(NSString *text) {
+    if (!text.length) return @[];
     static NSRegularExpression *uuid;
-    if (!uuid) uuid = [NSRegularExpression regularExpressionWithPattern:@"[0-9A-F]{8}(-[0-9A-F]{4}){3}-[0-9A-F]{12}" options:0 error:nil];
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{ uuid = [NSRegularExpression regularExpressionWithPattern:@"[0-9A-F]{8}(-[0-9A-F]{4}){3}-[0-9A-F]{12}" options:0 error:nil]; });
     NSMutableArray *found = [NSMutableArray new];
-    for (NSTextCheckingResult *match in [uuid matchesInString:text ?: @"" options:0 range:NSMakeRange(0, text.length)])
+    for (NSTextCheckingResult *match in [uuid matchesInString:text options:0 range:NSMakeRange(0, text.length)])
         [found addObject:[text substringWithRange:match.range]];
     return found;
 }
 
 NSWindowController *DPOpenTabSwitcher(void) {
+    Class cls = objc_getClass(DPDiaTabSwitcher);
+    if (!cls) return nil;
     for (NSWindow *window in NSApp.windows)
-        if (window.visible && DPIsKind(window.windowController, DPDiaTabSwitcher)) return window.windowController;
+        if (window.visible && [window.windowController isKindOfClass:cls]) return window.windowController;
     return nil;
 }
 
@@ -119,6 +143,9 @@ void DPSet(id object, const void *key, id value) {
 }
 
 void DPOverride(id object, const void *key, id dia, id ours) {
+    if (!object || !dia || !ours) return;
+    NSArray *current = DPGet(object, key);
+    if (current && [current[0] isEqual:dia] && [current[1] isEqual:ours]) return;
     DPSet(object, key, @[dia, ours]);
 }
 

@@ -19,58 +19,52 @@ static void DPRemember(id contents, id session, id browser, id delegate) {
     if (sid > 0) DPSet(contents, &DPSessionKey, @(sid));
 }
 
-static id DPDelegateFor(id self, id browser) {
-    if ([self respondsToSelector:@selector(browser:getAllTabGroupsWithCompletion:)]) return self;
-    return [DPDelegateByBrowser objectForKey:browser];
-}
-
 static void DPBrowser_setDelegate(id self, SEL _cmd, id delegate) {
     DPCallOriginal(DPBrowser_setDelegate, self, delegate);
     [DPBrowsers addObject:self];
     if (delegate) [DPDelegateByBrowser setObject:delegate forKey:self];
+    else [DPDelegateByBrowser removeObjectForKey:self];
 }
 
 static void DPBrowser_setWindow(id self, SEL _cmd, NSWindow *window) {
     DPCallOriginal(DPBrowser_setWindow, self, window);
     [DPBrowsers addObject:self];
     if (window) [DPWindowByBrowser setObject:window forKey:self];
+    else [DPWindowByBrowser removeObjectForKey:self];
 }
 
 static void DPBrowser_didRestore(id self, SEL _cmd, id browser, id contents, id session) {
     DPCallOriginal(DPBrowser_didRestore, self, browser, contents, session);
-    if (browser) DPRemember(contents, session, browser, DPDelegateFor(self, browser));
+    if (browser) DPRemember(contents, session, browser, [self respondsToSelector:@selector(browser:getAllTabGroupsWithCompletion:)] ? self : nil);
 }
 
 static void DPBrowser_didCreate(id self, SEL _cmd, id browser, id contents, BOOL active) {
     DPCallOriginal(DPBrowser_didCreate, self, browser, contents, active);
-    if (browser && contents) DPRemember(contents, nil, browser, DPDelegateFor(self, browser));
+    if (browser && contents) DPRemember(contents, nil, browser, [self respondsToSelector:@selector(browser:getAllTabGroupsWithCompletion:)] ? self : nil);
 }
 
 // Tabs opened from Dia's UI arrive only here; the delegate callbacks miss them.
 static id DPBrowser_createWebContents(id self, SEL _cmd, id params) {
     id contents = DPCallOriginal(DPBrowser_createWebContents, self, params);
-    DPRemember(contents, nil, self, [DPDelegateByBrowser objectForKey:self]);
+    DPRemember(contents, nil, self, nil);
     return contents;
 }
 
-// A tab Chromium opens for a link or a script is handed to the page that asked, and Dia's browser is never told: it belongs to the opener's.
+// Link/script tabs bypass Dia's browser callbacks and inherit their opener's browser.
 static void DPWebContent_didCreate(id self, SEL _cmd, id webContents, id newContents, NSURL *url, NSInteger disposition) {
     DPCallOriginal(DPWebContent_didCreate, self, webContents, newContents, url, disposition);
-    id browser = DPBrowserOfContents(webContents);
-    DPRemember(newContents, nil, browser, [DPDelegateByBrowser objectForKey:browser]);
+    DPRemember(newContents, nil, DPBrowserOfContents(webContents), nil);
 }
 
-// So is a duplicate, which belongs to its original's.
 static id DPContents_clone(id self, SEL _cmd) {
     id clone = DPCallOriginal(DPContents_clone, self);
-    id browser = DPBrowserOfContents(self);
-    DPRemember(clone, nil, browser, [DPDelegateByBrowser objectForKey:browser]);
+    DPRemember(clone, nil, DPBrowserOfContents(self), nil);
     return clone;
 }
 
 static void DPBrowser_takeOwnership(id self, SEL _cmd, id contents) {
     DPCallOriginal(DPBrowser_takeOwnership, self, contents);
-    DPRemember(contents, nil, self, [DPDelegateByBrowser objectForKey:self]);
+    DPRemember(contents, nil, self, nil);
 }
 
 NSWindow *DPBrowserWindow(id browser) { return [DPWindowByBrowser objectForKey:browser]; }

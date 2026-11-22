@@ -1,6 +1,5 @@
 #import "StdPatch/StdPatch.h"
 
-// Capture the installed AppKit monitor; send it events without posting input to the user's desktop.
 static NSEvent *(^monitor)(NSEvent *);
 static NSPoint pointer;
 static NSInteger windowAtPointer;

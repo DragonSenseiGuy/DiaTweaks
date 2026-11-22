@@ -12,7 +12,7 @@ static void DPBrowser_setWindow(id self, SEL _cmd, NSWindow *window) {
     if (window) [DPBrowsers setObject:self forKey:window];
 }
 
-// Chromium's icon can be blank, as Dark Reader's is, so a pinned extension's toolbar icon comes first.
+// Chromium's icon can be blank, so prefer the pinned toolbar icon.
 static NSImage *DPIconFor(id info, NSWindow *window) {
     NSView *pinned = DPFindView(window.contentView, ^BOOL(NSView *view) {
         return DPIsKind(view, DPDiaPinnedExtension) && [view.accessibilityLabel isEqualToString:[info valueForKey:@"name"]];
@@ -27,12 +27,12 @@ static NSMenu *DPExtensionsMenu(id browser, NSWindow *window) {
     NSMenu *menu = [[NSMenu alloc] initWithTitle:@"Extensions"];
     id extensions = [[browser performSelector:@selector(context)] performSelector:@selector(extensions)];
     NSArray *all = [[extensions performSelector:@selector(listExtensions)] sortedArrayUsingComparator:^NSComparisonResult(id a, id b) {
-        return [[a valueForKey:@"name"] localizedCaseInsensitiveCompare:[b valueForKey:@"name"]];
+        return [([a valueForKey:@"name"] ?: @"") localizedCaseInsensitiveCompare:([b valueForKey:@"name"] ?: @"")];
     }];
     for (id info in all) {
         if (![[info valueForKey:@"enabled"] boolValue] || ![[info valueForKey:@"hasAction"] boolValue]) continue;
         NSString *extensionID = [info valueForKey:@"id"];
-        NSMenuItem *item = DPMenuItem([info valueForKey:@"name"], ^{ [browser performSelector:@selector(executeExtensionAction:) withObject:extensionID]; });
+        NSMenuItem *item = DPMenuItem([info valueForKey:@"name"] ?: @"", ^{ [browser performSelector:@selector(executeExtensionAction:) withObject:extensionID]; });
         item.image = DPIconFor(info, window);
         [menu addItem:item];
     }
@@ -42,6 +42,7 @@ static NSMenu *DPExtensionsMenu(id browser, NSWindow *window) {
 
 static void DPShowExtensions(NSWindow *window, id browser) {
     NSView *content = window.contentView;
+    if (!window.isVisible || !content) return;
     NSRect page = content.bounds;
     NSPoint corner = NSMakePoint(NSMaxX(page) - 240, content.isFlipped ? 48 : NSMaxY(page) - 48);
     [DPExtensionsMenu(browser, window) popUpMenuPositioningItem:nil atLocation:corner inView:content];
@@ -51,10 +52,11 @@ static void DPInstallExtensionsShortcut(void) {
     DPBrowsers = [NSMapTable weakToWeakObjectsMapTable];
     DPHook(DPDiaBrowser, @selector(setWindow:), (IMP)DPBrowser_setWindow);
     [NSEvent addLocalMonitorForEventsMatchingMask:NSEventMaskKeyDown handler:^NSEvent *(NSEvent *event) {
+        if (!DPExtensionsShortcut.on || !DPShortcutMatches(event, &DPExtensionsShortcut)) return event;
         NSWindow *window = event.window;
         id browser = window ? [DPBrowsers objectForKey:window] : nil;
-        if (!DPExtensionsShortcut.on || !browser || !DPShortcutMatches(event, &DPExtensionsShortcut)) return event;
-        if (!event.isARepeat) dispatch_async(dispatch_get_main_queue(), ^{ DPShowExtensions(window, browser); });  // The menu's loop would block this key.
+        if (!browser) return event;
+        if (!event.isARepeat) dispatch_async(dispatch_get_main_queue(), ^{ DPShowExtensions(window, browser); });
         return nil;
     }];
 }

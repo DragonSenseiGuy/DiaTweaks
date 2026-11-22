@@ -46,6 +46,8 @@ Run `diatweaks` on its own for a menu, or:
 | `diatweaks list` | Shows every tweak and whether it's on |
 | `diatweaks enable hideToolbar` | Turns tweaks on; Dia changes straight away |
 | `diatweaks disable hideToolbar` | Turns tweaks off |
+| `diatweaks pause` | Turns every tweak off, keeping their settings, until `diatweaks resume` |
+| `diatweaks resume` | Turns the tweaks back on as they were |
 | `diatweaks status` | Shows Dia's version, safe mode and which tweaks are on |
 | `diatweaks update` | Installs the latest DiaTweaks release and patches Dia again |
 | `diatweaks update-dia` | Downloads a newer Dia and patches it |
@@ -140,7 +142,7 @@ Dia shows a QR code or asks for a USB security key because it can't reach the pa
 <details>
 <summary><strong>Why don't website notifications show a banner?</strong></summary>
 
-Once DiaTweaks has patched Dia, you sign it instead of The Browser Company, and on some Macs macOS then takes Dia's website notifications and shows nothing, even with **Dia** switched on under **System Settings → Notifications**. The page reports the notification as failed, and sound from the site still plays. We don't know why macOS does this, and we haven't found a way to stop it. Run `diatweaks restore` to go back to the original Dia: banners come back, and the tweaks turn off. [What we found →](https://github.com/JaceThings/DiaTweaks/wiki/Discoveries-Notifications)
+After DiaTweaks signs Dia locally, website notification banners have been reported missing on macOS 27.2.1 even with **Dia** switched on under **System Settings → Notifications** (with the page reporting an error while site sound still plays). We haven't reproduced it on macOS 27.0.1 yet, and we're still tracking down which check macOS 27.2.1 fails on. Until we have a fix, run `diatweaks restore` to go back to the original Dia: banners come back, and the tweaks turn off. [What we found →](https://github.com/JaceThings/DiaTweaks/wiki/Discoveries-Notifications)
 
 </details>
 

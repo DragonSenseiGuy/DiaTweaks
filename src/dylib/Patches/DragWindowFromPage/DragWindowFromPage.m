@@ -5,12 +5,15 @@ static const CGFloat DPDragBand = 56, DPDragSlop = 3, DPDragScroller = 16;
 static const NSEventModifierFlags DPDragKeys = NSEventModifierFlagCommand | NSEventModifierFlagOption | NSEventModifierFlagControl | NSEventModifierFlagShift;
 static NSEvent *DPPressed;
 
-// The arrow cursor stands in for an empty spot: links show a hand, text an I-beam.
 static NSView *DPPageTopUnder(NSEvent *event) {
     NSWindow *window = event.window;
-    if (!window || (window.styleMask & NSWindowStyleMaskFullScreen) || NSCursor.currentCursor != NSCursor.arrowCursor) return nil;
-    Class card = NSClassFromString(@"DPPeekCard");
-    NSView *content = window.contentView, *hit = [content hitTest:[content.superview convertPoint:event.locationInWindow fromView:nil]];
+    if (!window || !(window.styleMask & NSWindowStyleMaskTitled) || (window.styleMask & NSWindowStyleMaskFullScreen)
+        || window.parentWindow || window.sheetParent || window.attachedSheet || NSCursor.currentCursor != NSCursor.arrowCursor) return nil;
+    static Class card;
+    if (!card) card = NSClassFromString(@"DPPeekCard");
+    NSView *content = window.contentView;
+    NSPoint hitPoint = content.superview ? [content.superview convertPoint:event.locationInWindow fromView:nil] : event.locationInWindow;
+    NSView *hit = [content hitTest:hitPoint];
     return DPFindView(content, ^BOOL(NSView *view) {
         if (!DPIsKind(view, "WebContentsHostView") || view.isHiddenOrHasHiddenAncestor) return NO;
         for (NSView *up = view; up; up = up.superview) if ([up isKindOfClass:card]) return NO;
@@ -22,6 +25,7 @@ static NSView *DPPageTopUnder(NSEvent *event) {
 
 static NSEvent *DPDragMouse(NSEvent *event) {
     NSEvent *pressed = DPPressed;
+    if (!DPDragWindowFromPage.on && !pressed) return event;
     switch (event.type) {
     case NSEventTypeLeftMouseDown:
         DPPressed = nil;
@@ -30,6 +34,10 @@ static NSEvent *DPDragMouse(NSEvent *event) {
         return nil;
     case NSEventTypeLeftMouseDragged:
         if (!pressed) return event;
+        if (event.window != pressed.window) {
+            DPPressed = nil;
+            return event;
+        }
         if (hypot(event.locationInWindow.x - pressed.locationInWindow.x, event.locationInWindow.y - pressed.locationInWindow.y) < DPDragSlop) return nil;
         DPPressed = nil;
         [pressed.window performWindowDragWithEvent:pressed];
@@ -39,6 +47,10 @@ static NSEvent *DPDragMouse(NSEvent *event) {
         if (pressed) [pressed.window sendEvent:pressed];
         return event;
     }
+}
+
+static void DPApplyDragWindowFromPage(DPPatch *patch) {
+    if (!patch->on) DPPressed = nil;
 }
 
 static void DPInstallDragWindowFromPage(void) {
@@ -55,4 +67,5 @@ DP_PATCH(DPDragWindowFromPage) {
     .tint = @"systemBrownColor",
     .section = @"Window",
     .install = DPInstallDragWindowFromPage,
+    .apply = DPApplyDragWindowFromPage,
 };

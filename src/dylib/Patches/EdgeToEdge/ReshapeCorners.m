@@ -1,6 +1,6 @@
 #import "EdgeToEdge.h"
 
-// Keeps the same elements, so Dia's path animations still interpolate.
+// Keeps the same path elements so Dia's animations still interpolate.
 CGPathRef DPReshapeCorners(CGPathRef path, CGFloat extent, CGFloat rightScale, CGFloat leftScale) {
     if (!path) return NULL;
     __block CGRect box = CGRectNull;
@@ -25,18 +25,28 @@ CGPathRef DPReshapeCorners(CGPathRef path, CGFloat extent, CGFloat rightScale, C
     CGPathApplyWithBlock(path, ^(const CGPathElement *element) {
         const CGPoint *p = element->points;
         switch (element->type) {
-            case kCGPathElementMoveToPoint:
+            case kCGPathElementMoveToPoint: {
                 if (started) subpath++;
                 started = YES;
-                CGPathMoveToPoint(reshaped, NULL, move(p[0]).x, move(p[0]).y);
+                CGPoint a = move(p[0]);
+                CGPathMoveToPoint(reshaped, NULL, a.x, a.y);
                 break;
-            case kCGPathElementAddLineToPoint: CGPathAddLineToPoint(reshaped, NULL, move(p[0]).x, move(p[0]).y); break;
-            case kCGPathElementAddQuadCurveToPoint:
-                CGPathAddQuadCurveToPoint(reshaped, NULL, move(p[0]).x, move(p[0]).y, move(p[1]).x, move(p[1]).y);
+            }
+            case kCGPathElementAddLineToPoint: {
+                CGPoint a = move(p[0]);
+                CGPathAddLineToPoint(reshaped, NULL, a.x, a.y);
                 break;
-            case kCGPathElementAddCurveToPoint:
-                CGPathAddCurveToPoint(reshaped, NULL, move(p[0]).x, move(p[0]).y, move(p[1]).x, move(p[1]).y, move(p[2]).x, move(p[2]).y);
+            }
+            case kCGPathElementAddQuadCurveToPoint: {
+                CGPoint a = move(p[0]), b = move(p[1]);
+                CGPathAddQuadCurveToPoint(reshaped, NULL, a.x, a.y, b.x, b.y);
                 break;
+            }
+            case kCGPathElementAddCurveToPoint: {
+                CGPoint a = move(p[0]), b = move(p[1]), c = move(p[2]);
+                CGPathAddCurveToPoint(reshaped, NULL, a.x, a.y, b.x, b.y, c.x, c.y);
+                break;
+            }
             case kCGPathElementCloseSubpath: CGPathCloseSubpath(reshaped); break;
         }
     });

@@ -29,7 +29,7 @@ static BOOL DPWindow_hasKeyAppearance(NSWindow *self, SEL _cmd) {
 }
 
 static void DPRefreshKeyState(NSView *view) {
-    [view _windowChangedKeyState];
+    if ([view respondsToSelector:@selector(_windowChangedKeyState)]) [view _windowChangedKeyState];
     view.needsDisplay = YES;
     for (NSView *subview in view.subviews) DPRefreshKeyState(subview);
 }
@@ -37,7 +37,7 @@ static void DPRefreshKeyState(NSView *view) {
 static void DPApplyKeepWindowsActive(DPPatch *patch) {
     for (NSWindow *window in NSApp.windows) {
         if (!DPIsBrowserWindow(window)) continue;
-        [window _setShadowParameters];
+        if ([window respondsToSelector:@selector(_setShadowParameters)]) [window _setShadowParameters];
         DPRefreshKeyState(window.contentView.superview);
     }
 }
@@ -46,7 +46,7 @@ static BOOL DPAppKitAnswer(NSWindow *window, SEL sel) {
     return ((BOOL (*)(id, SEL))DPDiaIMP(NSWindow.class, sel))(window, sel);
 }
 
-// A never-shown titled window is inactive to AppKit alone; the pool frees it before any check can list it.
+// Autoreleased so the unshown probe window is freed before other checks enumerate NSApp.windows.
 static NSString *DPProbeProblem(BOOL on) {
     @autoreleasepool {
         NSWindow *probe = [[NSWindow alloc] initWithContentRect:NSMakeRect(0, 0, 100, 100) styleMask:NSWindowStyleMaskTitled

@@ -9,13 +9,22 @@ static char DPStatusKey, DPLineKey, DPAdjustedKey, DPEditsKey;
 @implementation DPPRStatusLine
 @end
 
+static void DPCollectLists(NSView *view, Class cls, NSMutableArray<NSView *> *out) {
+    if ([view isKindOfClass:cls]) [out addObject:view];
+    for (NSView *sub in view.subviews) DPCollectLists(sub, cls, out);
+}
+
 static void DPInvalidateRows(void) {
     static BOOL scheduled;
     if (scheduled) return;
     scheduled = YES;
     dispatch_async(dispatch_get_main_queue(), ^{
         scheduled = NO;
-        for (NSView *view in DPFindViews(DPDiaTabListCollection)) [((NSCollectionView *)view).collectionViewLayout invalidateLayout];
+        Class cls = objc_getClass(DPDiaTabListCollection);
+        if (!cls) return;
+        NSMutableArray<NSView *> *lists = [NSMutableArray new];
+        for (NSWindow *window in NSApp.windows) DPCollectLists(window.contentView, cls, lists);
+        for (NSView *view in lists) [((NSCollectionView *)view).collectionViewLayout invalidateLayout];
     });
 }
 
@@ -47,18 +56,21 @@ static id DPObjectIvar(id object, const char *name) {
 
 static void DPLayout_prepareLayout(NSCollectionViewLayout *self, SEL _cmd) {
     DPCallOriginal(DPLayout_prepareLayout, self);
-    if (!DPPullRequestRepo.on || !DPTallTabs.count) return DPSet(self, &DPEditsKey, nil);
+    if (!DPPullRequestRepo.on || !DPTallTabs.count) {
+        if (DPGet(self, &DPEditsKey)) DPSet(self, &DPEditsKey, nil);
+        if (DPGet(self, &DPAdjustedKey)) DPSet(self, &DPAdjustedKey, nil);
+        return;
+    }
     id diffable = self.collectionView.dataSource;
     id source = DPObjectIvar(diffable, "_impl");
     void *height = DPIvar(self, "contentHeight");
     if (![source respondsToSelector:@selector(itemIdentifierForIndexPath:)] || !height) return;
-    // Dia's own IMP: Collapse Pinned Tabs hands out copies, and changing a copy changes nothing.
+    // Use Dia's IMP so we mutate real attributes, not Collapse Pinned Tabs' copies.
     NSArray *(*elements)(id, SEL, NSRect) = (void *)DPDiaIMP(objc_getClass(DPDiaTabListLayout), @selector(layoutAttributesForElementsInRect:));
     NSArray<NSCollectionViewLayoutAttributes *> *all = elements(self, @selector(layoutAttributesForElementsInRect:), NSMakeRect(-1e5, -1e5, 2e5, 1e7));
     NSMutableArray<NSCollectionViewLayoutAttributes *> *tall = [NSMutableArray new];
     for (NSCollectionViewLayoutAttributes *a in all)
         if (a.representedElementCategory == NSCollectionElementCategoryItem && [DPTallTabs containsObject:DPTabAt(source, a.indexPath)]) [tall addObject:a];
-    // A prepare that kept the last geometry still has our heights in it.
     if (!tall.count) return DPSet(self, &DPEditsKey, nil);
     NSArray *last = DPGet(self, &DPAdjustedKey);
     if (last[0] == tall[0] && NSEqualRects([last[1] rectValue], tall[0].frame)) return;
@@ -81,12 +93,11 @@ static void DPLayout_prepareLayout(NSCollectionViewLayout *self, SEL _cmd) {
     DPSet(self, &DPAdjustedKey, @[tall[0], [NSValue valueWithRect:tall[0].frame]]);
 }
 
-// Collapse Pinned Tabs' hooks install before these and so run after: rows are read as the list shows them.
 static NSArray<NSArray<NSValue *> *> *DPMoves(NSCollectionViewLayout *layout) {
     NSMutableArray *moves = [NSMutableArray new];
     for (NSArray *edit in DPGet(layout, &DPEditsKey)) {
         NSCollectionViewLayoutAttributes *shown = [layout layoutAttributesForItemAtIndexPath:[edit[0] indexPath]];
-        if (!shown || shown.hidden || shown.alpha < 1) continue;  // A folded pinned row sits under the rows that follow.
+        if (!shown || shown.hidden || shown.alpha < 1) continue;
         NSRect now = shown.frame, then = now;
         then.origin.y -= [edit[1] doubleValue];
         then.size.height -= [edit[2] doubleValue];
@@ -96,8 +107,9 @@ static NSArray<NSArray<NSValue *> *> *DPMoves(NSCollectionViewLayout *layout) {
 }
 
 static id<NSDraggingInfo> DPDiaDrag(NSView *tabList, id<NSDraggingInfo> info) {
+    if (!DPPullRequestRepo.on || !DPTallTabs.count) return info;
     NSCollectionView *list = (NSCollectionView *)DPFindView(tabList, ^BOOL(NSView *view) { return DPIsKind(view, DPDiaTabListCollection); });
-    NSArray *moves = DPPullRequestRepo.on ? DPMoves(list.collectionViewLayout) : nil;
+    NSArray *moves = DPMoves(list.collectionViewLayout);
     if (!moves.count) return info;
     NSPoint point = [list convertPoint:info.draggingLocation fromView:nil];
     point.y = DPTabListDiaY(moves, point.y);
@@ -106,12 +118,12 @@ static id<NSDraggingInfo> DPDiaDrag(NSView *tabList, id<NSDraggingInfo> info) {
 
 static NSDragOperation DPTabList_entered(NSView *self, SEL _cmd, id<NSDraggingInfo> info) {
     NSDragOperation operation = DPCallOriginal(DPTabList_entered, self, DPDiaDrag(self, info));
-    DPPlaceDraggedTab();
+    if (DPPullRequestRepo.on) DPPlaceDraggedTab();
     return operation;
 }
 static NSDragOperation DPTabList_updated(NSView *self, SEL _cmd, id<NSDraggingInfo> info) {
     NSDragOperation operation = DPCallOriginal(DPTabList_updated, self, DPDiaDrag(self, info));
-    DPPlaceDraggedTab();
+    if (DPPullRequestRepo.on) DPPlaceDraggedTab();
     return operation;
 }
 static BOOL DPTabList_prepare(NSView *self, SEL _cmd, id<NSDraggingInfo> info) { return DPCallOriginal(DPTabList_prepare, self, DPDiaDrag(self, info)); }
@@ -125,8 +137,16 @@ static NSView *DPPart(NSView *content, const char *name) {
 static void DPContent_layout(NSView *self, SEL _cmd) {
     DPCallOriginal(DPContent_layout, self);
     NSString *status = DPPullRequestRepo.on ? DPGet(self, &DPStatusKey) : nil;
+    NSTextField *line = DPGet(self, &DPLineKey);
+    if (!status && !line) return;
+    if (!DPPullRequestRepo.on) {
+        [line removeFromSuperview];
+        DPSet(self, &DPLineKey, nil);
+        DPSet(self, &DPStatusKey, nil);
+        return;
+    }
     NSView *title = DPPart(self, "$__lazy_storage_$_titleView"), *subtitle = DPPart(self, "subtitleView"), *icon = DPPart(self, "subtitleIconView");
-    NSTextField *line = DPGet(self, &DPLineKey), *source = (NSTextField *)DPSubview(subtitle, DPDiaFeatheredLabel);
+    NSTextField *source = (NSTextField *)DPSubview(subtitle, DPDiaFeatheredLabel);
     BOOL tall = status && title && source && NSHeight(self.bounds) >= DPCompactRowHeight() + DPExtra - 1;
     line.hidden = !tall;
     if (!tall) return;

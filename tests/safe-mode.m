@@ -3,7 +3,6 @@
 #import <unistd.h>
 #import "StdPatch/StdPatch.h"
 
-// The launch guard keeps its state beside the dylib: point it at a temporary folder.
 static const char *DPTestDylib;
 static int DPTestDladdr(const void *address, Dl_info *info) {
     int found = dladdr(address, info);
@@ -17,14 +16,13 @@ void DPOnQuit(void (^block)(void)) { DPQuit = [block copy]; }
 
 #import "SafeMode/SafeMode.m"
 
-// A launch is a child process, so each has its own pid like Dia's: it reports "level" once started, then obeys "quit" or "crash".
 static void child(const char *support, const char *home) {
     @autoreleasepool {
         NSURL *reports = [NSURL fileURLWithPath:@(home)];
         class_replaceMethod(NSFileManager.class, @selector(homeDirectoryForCurrentUser), imp_implementationWithBlock(^NSURL *(id self) { return reports; }), "@@:");
         DPTestDylib = [[@(support) stringByAppendingPathComponent:@"DiaPatches.dylib"] fileSystemRepresentation];
         DPBeginLaunch();
-        printf("level %ld\n", (long)DPSafeMode);
+        printf("level %ld paused %d\n", (long)DPSafeMode, DPPaused);
         fflush(stdout);
         char command[16] = "";
         if (fgets(command, sizeof command, stdin) && !strncmp(command, "quit", 4)) DPQuit();
@@ -38,6 +36,7 @@ static void child(const char *support, const char *home) {
 @property NSTask *task;
 @property NSFileHandle *input, *output;
 @property NSInteger level;
+@property BOOL paused;
 @end
 @implementation DPLaunch
 - (NSString *)line {
@@ -66,7 +65,9 @@ static DPLaunch *launch(void) {
     launch.input = in.fileHandleForWriting;
     launch.output = out.fileHandleForReading;
     [launch.task launchAndReturnError:nil];
-    launch.level = [[[launch line] substringFromIndex:6] integerValue];
+    NSString *line = [launch line];
+    launch.level = [[line substringFromIndex:6] integerValue];
+    launch.paused = [line containsString:@"paused 1"];
     return launch;
 }
 
@@ -78,7 +79,6 @@ static void expect(BOOL ok, NSString *what) {
     printf("FAIL %s\n", what.UTF8String);
 }
 
-// Dia crashed while launching: macOS leaves a report that names its pid.
 static void leaveCrashed(DPLaunch *launch) {
     [launch end:@"crash"];
     NSString *folder = [home stringByAppendingPathComponent:@"Library/Logs/DiagnosticReports"];
@@ -100,7 +100,6 @@ int main(int argc, const char *argv[]) {
         [first end:@"quit"];
         expect(![state()[@"launching"] boolValue], @"a launch that quits clears the marker");
 
-        // Chromium relaunches Dia: the new process starts before the old one exits, and then crashes while launching.
         DPLaunch *old = launch(), *relaunched = launch();
         [old end:@"quit"];
         expect([state()[@"launching"] boolValue] && [state()[@"pid"] intValue] == relaunched.task.processIdentifier, @"the old process leaves the new process's marker alone");
@@ -112,6 +111,53 @@ int main(int argc, const char *argv[]) {
         DPLaunch *last = launch();
         expect(last.level == 1, @"two crashes of relaunched Dias turn safe mode on");
         [last end:@"quit"];
+
+        NSString *pause = [support stringByAppendingPathComponent:@"paused"];
+        [NSData.data writeToFile:pause atomically:YES];
+        DPLaunch *paused = launch();
+        expect(paused.paused, @"a launch with the pause file reports paused");
+        leaveCrashed(paused);
+        DPLaunch *stillPaused = launch();
+        expect(stillPaused.paused, @"a crash while paused leaves the pause alone");
+        expect([state()[@"crashes"] integerValue] == 0, @"a crash while paused isn't counted");
+        [stillPaused end:@"quit"];
+        [NSFileManager.defaultManager removeItemAtPath:pause error:nil];
+        DPLaunch *resumed = launch();
+        expect(!resumed.paused, @"removing the pause file resumes");
+        [resumed end:@"quit"];
+
+        // A crash while paused must not be counted when the next launch resumes unpaused.
+        [NSData.data writeToFile:pause atomically:YES];
+        DPLaunch *pausedCrash = launch();
+        leaveCrashed(pausedCrash);
+        [NSFileManager.defaultManager removeItemAtPath:pause error:nil];
+        DPLaunch *afterPausedCrash = launch();
+        expect(!afterPausedCrash.paused && [state()[@"crashes"] integerValue] == 0 && afterPausedCrash.level == 1,
+               @"a crash while paused is not counted on the next unpaused launch");
+        [afterPausedCrash end:@"quit"];
+
+        // A clean paused launch must neither erase a prior unpaused crash nor step down level 2.
+        DPLaunch *unpausedCrash = launch();
+        leaveCrashed(unpausedCrash);
+        [NSData.data writeToFile:pause atomically:YES];
+        DPLaunch *cleanPaused = launch();
+        [cleanPaused end:@"quit"];
+        [NSFileManager.defaultManager removeItemAtPath:pause error:nil];
+        DPLaunch *afterCleanPaused = launch();
+        expect([state()[@"crashes"] integerValue] == 1, @"a clean paused launch preserves a prior unpaused crash");
+        [afterCleanPaused end:@"quit"];
+
+        NSMutableDictionary *levelTwo = [state() mutableCopy];
+        levelTwo[@"level"] = @2;
+        levelTwo[@"steppedDown"] = @NO;
+        levelTwo[@"launching"] = @NO;
+        [levelTwo writeToFile:[support stringByAppendingPathComponent:@"safe-mode.plist"] atomically:YES];
+        [NSData.data writeToFile:pause atomically:YES];
+        DPLaunch *pausedL2 = launch();
+        expect(pausedL2.level == 2, @"paused launch preserves level 2");
+        [pausedL2 end:@"quit"];
+        expect([state()[@"level"] integerValue] == 2, @"a clean paused launch does not step down level 2");
+        [NSFileManager.defaultManager removeItemAtPath:pause error:nil];
 
         [NSFileManager.defaultManager removeItemAtPath:temporary error:nil];
     }

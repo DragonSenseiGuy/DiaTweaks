@@ -1,4 +1,4 @@
-use anyhow::{bail, Result};
+use anyhow::{anyhow, bail, Result};
 
 use crate::{
     child::OnInterrupt,
@@ -34,9 +34,10 @@ pub fn run(env: &Env, ui: &Ui, mut purge: bool) -> Result<()> {
                 .interact(),
             )?;
         }
-        let what = match purge {
-            true => "Dia quits, reopens as the original app, and DiaTweaks' files are deleted.",
-            false => "Dia quits and reopens as the original app.",
+        let what = if purge {
+            "Dia quits, reopens as the original app, and DiaTweaks' files are deleted."
+        } else {
+            "Dia quits and reopens as the original app."
         };
         let sure = ui::prompt(
             cliclack::confirm(format!("Are you sure? {what}"))
@@ -67,16 +68,21 @@ pub fn run(env: &Env, ui: &Ui, mut purge: bool) -> Result<()> {
         &spinner,
     ))?;
     if !done.status.success() {
-        return Err(spinner.fail(anyhow::anyhow!("Couldn't restore Dia:\n{}", done.tail(5))));
+        return Err(spinner.fail(anyhow!("Couldn't restore Dia:\n{}", done.tail(5))));
     }
-    let version = dia::version_of(&env.app).unwrap_or_default();
-    spinner.stop(match was_running {
-        true => format!("Restored the original Dia {version} and reopened it"),
-        false => format!("Restored the original Dia {version}"),
+    let label = match dia::version_of(&env.app) {
+        Some(version) => format!("the original Dia {version}"),
+        None => "the original Dia".into(),
+    };
+    spinner.stop(if was_running {
+        format!("Restored {label} and reopened it")
+    } else {
+        format!("Restored {label}")
     });
-    ui.done(match purge {
-        true => "DiaTweaks is removed. Your tweak settings stay in case you install it again.",
-        false => "Dia is the original app again. Run `diatweaks update` to patch it again.",
+    ui.done(if purge {
+        "DiaTweaks is removed. Your tweak settings stay in case you install it again."
+    } else {
+        "Dia is the original app again. Run `diatweaks update` to patch it again."
     });
     Ok(())
 }

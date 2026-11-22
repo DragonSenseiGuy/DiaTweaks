@@ -2,6 +2,7 @@
 #import <poll.h>
 #import <spawn.h>
 #import <sys/clonefile.h>
+#import <sys/file.h>
 #import <sys/stat.h>
 #import <sys/xattr.h>
 #import <sys/socket.h>
@@ -67,18 +68,22 @@ static pid_t launchOriginal(NSString *app, NSString *folder, NSString *socket) {
     NSString *subprocess = [@"--browser-subprocess-path=" stringByAppendingString:NSBundle.mainBundle.executablePath];
     const char *argv[] = { dia.fileSystemRepresentation, profile.UTF8String, subprocess.UTF8String, "--headless=new", "--no-first-run",
                            "--no-default-browser-check", "--use-mock-keychain", "--mute-audio", NULL };
-    NSMutableArray<NSString *> *environment = [NSMutableArray arrayWithObjects:[@"CFFIXED_USER_HOME=" stringByAppendingString:folder],
-                                                                               [NSString stringWithFormat:@"%s=%@", DPHandoffVariable, socket], nil];
-    [environment addObjectsFromArray:strings((const char *const *)environ, -1)];
-    const char **envp = calloc(environment.count + 1, sizeof *envp);
-    for (NSUInteger i = 0; i < environment.count; i++) envp[i] = environment[i].UTF8String;
+    NSString *fixedHome = [@"CFFIXED_USER_HOME=" stringByAppendingString:folder];
+    NSString *handoff = [NSString stringWithFormat:@"%s=%@", DPHandoffVariable, socket];
+    size_t envCount = 0;
+    while (environ[envCount]) envCount++;
+    const char **envp = calloc(envCount + 3, sizeof *envp);
+    if (!envp) return 0;
+    envp[0] = fixedHome.UTF8String;
+    envp[1] = handoff.UTF8String;
+    memcpy(envp + 2, environ, envCount * sizeof *envp);
 
     posix_spawn_file_actions_t files;
     posix_spawn_file_actions_init(&files);
     for (int fd = 0; fd < 3; fd++) posix_spawn_file_actions_addopen(&files, fd, "/dev/null", fd ? O_WRONLY : O_RDONLY, 0);
     posix_spawnattr_t attrs;
     posix_spawnattr_init(&attrs);
-    posix_spawnattr_setflags(&attrs, POSIX_SPAWN_CLOEXEC_DEFAULT);  // keeps the host's stdio and socket out of Dia
+    posix_spawnattr_setflags(&attrs, POSIX_SPAWN_CLOEXEC_DEFAULT);
     responsibility_spawnattrs_setdisclaim(&attrs, 1);
     pid_t pid = 0;
     int status = posix_spawn(&pid, argv[0], &files, &attrs, (char *const *)argv, (char *const *)envp);
@@ -126,7 +131,6 @@ static BOOL handOver(int client, NSString *helper, int argc, const char *argv[])
     return YES;
 }
 
-// The subprocess's end closes as it execs or gives up.
 static BOOL becameHelper(int client, pid_t peer, NSString *helperPath) {
     char byte, path[PROC_PIDPATHINFO_MAXSIZE], helper[PATH_MAX];
     setsockopt(client, SOL_SOCKET, SO_RCVTIMEO, &(struct timeval){ .tv_sec = 5 }, sizeof(struct timeval));
@@ -140,22 +144,59 @@ static BOOL becameHelper(int client, pid_t peer, NSString *helperPath) {
 // 1Password's helper checks its browser a few ms after starting, so the browser must outlive it.
 static const useconds_t kBrowserCheck = 300000;
 
-// Its sandbox reads only apps under /Applications, hence the clone.
-static NSString *applicationsCopy(NSString *pristine) {
-    NSString *clone = [DPCopyFolder stringByAppendingPathComponent:@"Dia.app"], *fresh = [clone stringByAppendingFormat:@".%d", getpid()];
-    struct stat original, copy;
+static BOOL copyMatches(NSString *pristine, NSString *clone, struct stat *original) {
     NSString *executable = @"Contents/MacOS/Dia";
-    if (stat([pristine stringByAppendingPathComponent:executable].fileSystemRepresentation, &original) != 0
-        || stat([clone stringByAppendingPathComponent:executable].fileSystemRepresentation, &copy) != 0
-        || original.st_size != copy.st_size || original.st_mtime != copy.st_mtime) {
-        [NSFileManager.defaultManager createDirectoryAtPath:DPCopyFolder withIntermediateDirectories:YES attributes:nil error:nil];
-        [NSFileManager.defaultManager removeItemAtPath:clone error:nil];
-        if (clonefile(pristine.fileSystemRepresentation, fresh.fileSystemRepresentation, 0) != 0 || rename(fresh.fileSystemRepresentation, clone.fileSystemRepresentation) != 0) return nil;
-    }
-    // Only strip it when present: macOS warns when a process changes an app it didn't make.
-    if (getxattr(clone.fileSystemRepresentation, "com.apple.quarantine", NULL, 0, 0, 0) >= 0) removexattr(clone.fileSystemRepresentation, "com.apple.quarantine", 0);
-    return clone;
+    struct stat copy;
+    return stat([pristine stringByAppendingPathComponent:executable].fileSystemRepresentation, original) == 0
+        && stat([clone stringByAppendingPathComponent:executable].fileSystemRepresentation, &copy) == 0
+        && original->st_size == copy.st_size && original->st_mtime == copy.st_mtime;
 }
+
+static void stripQuarantine(NSString *path) {
+    // Only strip it when present: macOS warns when a process changes an app it didn't make.
+    if (getxattr(path.fileSystemRepresentation, "com.apple.quarantine", NULL, 0, 0, 0) >= 0)
+        removexattr(path.fileSystemRepresentation, "com.apple.quarantine", 0);
+}
+
+// Its sandbox reads only apps under /Applications, hence the clone.
+static NSString *applicationsCopyIn(NSString *copyFolder, NSString *pristine) {
+    NSFileManager *files = NSFileManager.defaultManager;
+    NSString *clone = [copyFolder stringByAppendingPathComponent:@"Dia.app"];
+    struct stat original;
+    if (stat([pristine stringByAppendingPathComponent:@"Contents/MacOS/Dia"].fileSystemRepresentation, &original) != 0) return nil;
+    if (![files createDirectoryAtPath:copyFolder withIntermediateDirectories:YES attributes:nil error:nil]) return nil;
+
+    int lock = open([copyFolder stringByAppendingPathComponent:@".lock"].fileSystemRepresentation, O_CREAT | O_RDWR | O_CLOEXEC, 0600);
+    if (lock < 0) return nil;
+    while (flock(lock, LOCK_EX) != 0) {
+        if (errno != EINTR) return close(lock), nil;
+    }
+
+    NSString *result = clone;
+    if (!copyMatches(pristine, clone, &original)) {
+        NSString *fresh = [clone stringByAppendingFormat:@".%d", getpid()];
+        [files removeItemAtPath:fresh error:nil];
+        BOOL cloned = clonefile(pristine.fileSystemRepresentation, fresh.fileSystemRepresentation, 0) == 0;
+        if (cloned) stripQuarantine(fresh);
+        const char *src = fresh.fileSystemRepresentation, *dst = clone.fileSystemRepresentation;
+        BOOL placed = NO;
+        if (cloned) {
+            if ([files fileExistsAtPath:clone]) {
+                placed = renamex_np(src, dst, RENAME_SWAP) == 0
+                    || (errno == ENOTSUP && [files removeItemAtPath:clone error:nil] && rename(src, dst) == 0);
+            } else {
+                placed = rename(src, dst) == 0;
+            }
+        }
+        [files removeItemAtPath:fresh error:nil];
+        if (!placed) result = nil;
+    }
+    if (result) stripQuarantine(result);
+    close(lock);
+    return result;
+}
+
+static NSString *applicationsCopy(NSString *pristine) { return applicationsCopyIn(DPCopyFolder, pristine); }
 
 pid_t DPStartHelperThroughOriginal(NSString *home, NSString *helperPath, BOOL checksBrowser, int argc, const char *argv[]) {
     NSString *launches = [home stringByAppendingPathComponent:@"passwords-launch"];

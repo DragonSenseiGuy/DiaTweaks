@@ -20,7 +20,7 @@ window.addEventListener('message', (event) => {
   port.onDisconnect.addListener(() => {
     const noWorker = chrome.runtime.lastError;
     if (!ports.delete(id)) return;
-    // A worker from before ports existed answers messages only, and can't be cancelled.
+    // Fallback for older workers that handle one-shot messages instead of ports.
     if (noWorker) chrome.runtime.sendMessage({ kind, options }, (response) => reply(id, response));
     else reply(id);
   });

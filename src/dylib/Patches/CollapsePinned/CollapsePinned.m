@@ -104,10 +104,16 @@ static void DPFold(NSString *space, BOOL collapsed);
 
 static void DPMeasure(NSCollectionViewLayout *layout) {
     NSCollectionView *list = layout.collectionView;
-    if (!DPIsKind(list, DPDiaTabListCollection)) return;
     DPPinnedHeader *header = DPGet(list, &DPHeaderKey);
+    if (!DPCollapsePinned.on) {
+        header.shown = NO;
+        header.hidden = YES;
+        header.springSince = nil;
+        return;
+    }
+    if (!DPIsKind(list, DPDiaTabListCollection)) return;
     NSInteger rows = list.numberOfSections ? [list numberOfItemsInSection:0] - 1 : 0;
-    BOOL shown = DPCollapsePinned.on && rows > 0;
+    BOOL shown = rows > 0;
     NSRect first = NSZeroRect, line = NSZeroRect;
     CGFloat row = DPRowHeight;
     if (shown) {
@@ -133,7 +139,8 @@ static void DPMeasure(NSCollectionViewLayout *layout) {
         DPSet(list, &DPHeaderKey, header);
     }
     if (header.superview != list) [list addSubview:header];
-    header.space = header.space ?: DPSpaceOf(list);
+    NSString *space = DPSpaceOf(list);
+    if (space) header.space = space;
     header.collapsed = DPIsCollapsed(header.space);
     header.shown = YES;
     header.hidden = NO;
@@ -147,7 +154,8 @@ static void DPMeasure(NSCollectionViewLayout *layout) {
 }
 
 static DPPinnedHeader *DPShownHeader(NSCollectionViewLayout *layout) {
-    DPPinnedHeader *header = DPRaw ? nil : DPGet(layout.collectionView, &DPHeaderKey);
+    if (!DPCollapsePinned.on || DPRaw) return nil;
+    DPPinnedHeader *header = DPGet(layout.collectionView, &DPHeaderKey);
     return header.shown ? header : nil;
 }
 
@@ -201,6 +209,7 @@ static NSSize DPLayout_size(NSCollectionViewLayout *self, SEL _cmd) {
 }
 
 static NSView *DPList_hitTest(NSView *self, SEL _cmd, NSPoint point) {
+    if (!DPCollapsePinned.on) return DPCallOriginal(DPList_hitTest, self, point);
     DPPinnedHeader *header = DPGet(self, &DPHeaderKey);
     if (header.shown && !header.hidden && NSPointInRect([self convertPoint:point fromView:self.superview], header.frame)) return header;
     return DPCallOriginal(DPList_hitTest, self, point);
@@ -247,6 +256,10 @@ static void DPSpringOpen(NSView *tabList, id<NSDraggingInfo> info) {
 static char DPRefusedKey;
 
 static NSDragOperation DPTabList_entered(NSView *self, SEL _cmd, id<NSDraggingInfo> info) {
+    if (!DPCollapsePinned.on) {
+        if (DPGet(self, &DPRefusedKey)) DPSet(self, &DPRefusedKey, nil);
+        return DPCallOriginal(DPTabList_entered, self, info);
+    }
     id<NSDraggingInfo> dia = DPDiaDragOf(self, info);
     DPSet(self, &DPRefusedKey, dia ? nil : @YES);
     if (!dia) return NSDragOperationNone;
@@ -256,6 +269,11 @@ static NSDragOperation DPTabList_entered(NSView *self, SEL _cmd, id<NSDraggingIn
 }
 
 static NSDragOperation DPTabList_updated(NSView *self, SEL _cmd, id<NSDraggingInfo> info) {
+    if (!DPCollapsePinned.on) {
+        if (!DPGet(self, &DPRefusedKey)) return DPCallOriginal(DPTabList_updated, self, info);
+        DPSet(self, &DPRefusedKey, nil);
+        return [(id<NSDraggingDestination>)self draggingEntered:info];
+    }
     DPSpringOpen(self, info);
     id<NSDraggingInfo> dia = DPDiaDragOf(self, info);
     BOOL refused = [DPGet(self, &DPRefusedKey) boolValue];
@@ -270,25 +288,39 @@ static NSDragOperation DPTabList_updated(NSView *self, SEL _cmd, id<NSDraggingIn
     return operation;
 }
 
+static void DPTabList_exited(NSView *self, SEL _cmd, id<NSDraggingInfo> info) {
+    BOOL refused = [DPGet(self, &DPRefusedKey) boolValue];
+    if (refused) DPSet(self, &DPRefusedKey, nil);
+    DPPinnedHeader *header = DPGet(DPListIn(self), &DPHeaderKey);
+    if (header) header.springSince = nil;
+    if (!refused) DPCallOriginal(DPTabList_exited, self, info);
+}
+
 static BOOL DPTabList_prepare(NSView *self, SEL _cmd, id<NSDraggingInfo> info) {
+    if (DPGet(self, &DPRefusedKey)) DPSet(self, &DPRefusedKey, nil);
+    if (!DPCollapsePinned.on) return DPCallOriginal(DPTabList_prepare, self, info);
     id<NSDraggingInfo> dia = DPDiaDragOf(self, info);
     return dia && DPCallOriginal(DPTabList_prepare, self, dia);
 }
 
 static BOOL DPTabList_perform(NSView *self, SEL _cmd, id<NSDraggingInfo> info) {
+    if (DPGet(self, &DPRefusedKey)) DPSet(self, &DPRefusedKey, nil);
+    if (!DPCollapsePinned.on) return DPCallOriginal(DPTabList_perform, self, info);
     id<NSDraggingInfo> dia = DPDiaDragOf(self, info);
     return dia && DPCallOriginal(DPTabList_perform, self, dia);
 }
 
 static void DPTabList_backgroundDoubleClick(NSView *self, SEL _cmd, NSGestureRecognizer *click) {
-    DPPinnedHeader *header = DPGet(DPListIn(self), &DPHeaderKey);
-    if (header.shown && !header.hidden && NSPointInRect([click locationInView:header.superview], header.frame)) return;
+    if (DPCollapsePinned.on) {
+        DPPinnedHeader *header = DPGet(DPListIn(self), &DPHeaderKey);
+        if (header.shown && !header.hidden && NSPointInRect([click locationInView:header.superview], header.frame)) return;
+    }
     DPCallOriginal(DPTabList_backgroundDoubleClick, self, click);
 }
 
 static NSArray<NSCollectionView *> *DPListsOf(NSString *space) {
     return (NSArray<NSCollectionView *> *)[DPFindViews(DPDiaTabListCollection) filteredArrayUsingPredicate:[NSPredicate predicateWithBlock:^BOOL(NSView *list, id _) {
-        return !space || [[DPGet(list, &DPHeaderKey) space] isEqual:space];
+        return [[DPGet(list, &DPHeaderKey) space] isEqual:space];
     }]];
 }
 
@@ -316,10 +348,29 @@ static void DPFold(NSString *space, BOOL collapsed) {
         }];
 }
 
+static void DPCollectAllLists(NSView *view, Class cls, NSMutableArray<NSCollectionView *> *out) {
+    if ([view isKindOfClass:cls]) [out addObject:(NSCollectionView *)view];
+    for (NSView *sub in view.subviews) DPCollectAllLists(sub, cls, out);
+}
+
+static NSArray<NSCollectionView *> *DPAllTabLists(void) {
+    Class cls = objc_getClass(DPDiaTabListCollection);
+    if (!cls) return @[];
+    NSMutableArray<NSCollectionView *> *out = [NSMutableArray new];
+    for (NSWindow *window in NSApp.windows) DPCollectAllLists(window.contentView, cls, out);
+    return out;
+}
+
 static void DPApplyCollapsePinned(DPPatch *patch) {
-    for (NSCollectionView *list in DPListsOf(nil)) [list.collectionViewLayout invalidateLayout];
-    if (!patch->on)
-        for (NSView *list in DPFindViews(DPDiaTabListCollection)) [(NSView *)DPGet(list, &DPHeaderKey) setHidden:YES];
+    for (NSCollectionView *list in DPAllTabLists()) {
+        [list.collectionViewLayout invalidateLayout];
+        if (!patch->on) {
+            DPPinnedHeader *header = DPGet(list, &DPHeaderKey);
+            header.shown = NO;
+            header.hidden = YES;
+            header.springSince = nil;
+        }
+    }
 }
 
 static NSString *DPVerifyCollapsePinned(DPPatch *patch) {
@@ -345,12 +396,12 @@ static void DPInstallCollapsePinned(void) {
     DPHook(DPDiaTabListCollection, @selector(hitTest:), (IMP)DPList_hitTest);
     DPHook(DPDiaTabList, @selector(draggingEntered:), (IMP)DPTabList_entered);
     DPHook(DPDiaTabList, @selector(draggingUpdated:), (IMP)DPTabList_updated);
+    DPHook(DPDiaTabList, @selector(draggingExited:), (IMP)DPTabList_exited);
     DPHook(DPDiaTabList, @selector(prepareForDragOperation:), (IMP)DPTabList_prepare);
     DPHook(DPDiaTabList, @selector(performDragOperation:), (IMP)DPTabList_perform);
     DPHook(DPDiaTabList, @selector(handleBackgroundDoubleClick:), (IMP)DPTabList_backgroundDoubleClick);
-    // A minimized window misses a fold made in another window of its profile, so lay it out again on return.
     [NSNotificationCenter.defaultCenter addObserverForName:NSWindowDidDeminiaturizeNotification object:nil queue:nil usingBlock:^(NSNotification *note) {
-        if (DPCollapsePinned.on) for (NSCollectionView *list in DPListsOf(nil)) [list.collectionViewLayout invalidateLayout];
+        if (DPCollapsePinned.on) for (NSCollectionView *list in DPFindViews(DPDiaTabListCollection)) [list.collectionViewLayout invalidateLayout];
     }];
 }
 

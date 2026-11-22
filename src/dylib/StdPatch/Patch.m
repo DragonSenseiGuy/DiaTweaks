@@ -11,11 +11,13 @@ static const CFTimeInterval DPAnimationDuration = 0.25;
 DPPatch *const *DPPatches;
 NSUInteger DPPatchCount;
 static NSUserDefaults *DPDefaults;
+static NSMutableDictionary<NSString *, NSString *> *DPAppliedChoices;
 
 NSNotificationName const DPPatchesDidChangeNotification = @"DPPatchesDidChange";
 
 DPPatch *DPPatchNamed(NSString *key) {
-    for (NSUInteger i = 0; key && i < DPPatchCount; i++) if ([DPPatches[i]->key isEqualToString:key]) return DPPatches[i];
+    if (!key) return NULL;
+    for (NSUInteger i = 0; i < DPPatchCount; i++) if ([DPPatches[i]->key isEqualToString:key]) return DPPatches[i];
     return NULL;
 }
 
@@ -47,9 +49,10 @@ static void DPAnimate(void) {
 }
 
 BOOL DPAnimating(void) {
-    BOOL animating = DPEaseTimer != nil;
-    for (NSUInteger i = 0; i < DPPatchCount; i++) animating |= DPPatches[i]->animating && DPPatches[i]->animating();
-    return animating;
+    if (DPEaseTimer) return YES;
+    for (NSUInteger i = 0; i < DPPatchCount; i++)
+        if (DPPatches[i]->animating && DPPatches[i]->animating()) return YES;
+    return NO;
 }
 
 BOOL DPTesting;
@@ -75,53 +78,23 @@ static void DPEnsureReady(DPPatch *patch) {
 }
 
 void DPSetPatch(DPPatch *patch, BOOL on, BOOL save) {
+    if (save) [DPDefaults setBool:on forKey:patch->key];
+    if (DPPaused) on = NO;
     if (patch->on == on) return;
     patch->on = on;
-    if (save) [DPDefaults setBool:on forKey:patch->key];
-    if (DPSafeMode) return;
+    if (DPSafeMode || DPPausedAtLaunch) return;
     if (patch->apply) patch->apply(patch);
     else DPAnimate();
     if (on && patch->ready) DPEnsureReady(patch);
 }
 
+BOOL DPEffectiveOn(DPPatch *patch) { return !DPPaused && DPSavedOn(patch); }
+
 NSString *DPAppSupport(NSString *path) {
-    return [NSSearchPathForDirectoriesInDomains(NSApplicationSupportDirectory, NSUserDomainMask, YES).firstObject stringByAppendingPathComponent:path];
-}
-
-NSString *DPRelayProblem(void) {
-    for (NSString *path in @[ @"DiaPatches/bin/diapatch", @"DiaPatches/pristine/Dia.app/Contents/MacOS/Dia" ])
-        if (![NSFileManager.defaultManager isExecutableFileAtPath:DPAppSupport(path)])
-            return [NSString stringWithFormat:@"%@ is missing. Install DiaTweaks again to put it back.", DPAppSupport(path)];
-    return nil;
-}
-
-// The folder to take back is the one just below the nearest folder above that the user can open and write, which can be several levels up.
-static NSString *DPFolderToRepair(NSString *folder) {
-    NSString *support = DPAppSupport(@""), *repair = nil;
-    for (NSString *dir = folder; [dir hasPrefix:support]; dir = dir.stringByDeletingLastPathComponent) {
-        if (access(dir.fileSystemRepresentation, W_OK | X_OK) == 0) return repair && [NSFileManager.defaultManager fileExistsAtPath:repair] ? repair : nil;
-        repair = dir;
-    }
-    return nil;
-}
-
-NSString *DPWriteProblem(NSString *path, NSError *error) {
-    path = error.userInfo[NSFilePathErrorKey] ?: path;
-    NSString *problem = [NSString stringWithFormat:@"Couldn’t write %@: %@", path, error.localizedDescription];
-    NSString *folder = error.code == NSFileWriteNoPermissionError ? DPFolderToRepair(path.stringByDeletingLastPathComponent) : nil;
-    if (!folder) return problem;
-    if ([folder hasPrefix:NSHomeDirectory()]) folder = [@"$HOME" stringByAppendingString:[folder substringFromIndex:NSHomeDirectory().length]];
-    return [problem stringByAppendingFormat:@" To fix it, run sudo chown -R \"$(whoami)\" \"%@\" && chmod -R u+rwX \"%@\" in Terminal, then turn this on again.", folder, folder];
-}
-
-NSString *DPHostProblem(NSString *manifest, NSString *name) {
-    NSData *data = [NSData dataWithContentsOfFile:manifest];
-    if (!data) return [NSString stringWithFormat:@"%@ couldn’t be written.", manifest];
-    NSDictionary *host = [NSJSONSerialization JSONObjectWithData:data options:0 error:nil];
-    if (![host isKindOfClass:NSDictionary.class] || ![host[@"name"] isEqual:name]) return [NSString stringWithFormat:@"%@ isn’t a valid host file.", manifest];
-    if (![host[@"path"] isEqual:DPAppSupport(@"DiaPatches/bin/diapatch")])
-        return [NSString stringWithFormat:@"Another app has replaced %@, so its extension goes to %@ instead.", manifest, host[@"path"]];
-    return nil;
+    static NSString *base;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{ base = NSSearchPathForDirectoriesInDomains(NSApplicationSupportDirectory, NSUserDomainMask, YES).firstObject; });
+    return [base stringByAppendingPathComponent:path];
 }
 
 BOOL DPSavedOn(DPPatch *patch) {
@@ -130,13 +103,26 @@ BOOL DPSavedOn(DPPatch *patch) {
 }
 
 NSString *DPChoice(DPPatch *patch) {
-    id value = [DPDefaults objectForKey:patch->choice];
-    return [value isKindOfClass:NSString.class] ? value : patch->defaultChoice;
+    id value = patch && patch->choice ? [DPDefaults objectForKey:patch->choice] : nil;
+    return [value isKindOfClass:NSString.class] ? value : patch ? patch->defaultChoice : nil;
+}
+
+static void DPRecordChoice(DPPatch *patch) {
+    if (!patch->choice) return;
+    if (!DPAppliedChoices) DPAppliedChoices = [NSMutableDictionary new];
+    NSString *choice = DPChoice(patch);
+    if (choice) DPAppliedChoices[patch->key] = choice;
+    else [DPAppliedChoices removeObjectForKey:patch->key];
 }
 
 void DPSetChoice(DPPatch *patch, NSString *value) {
+    if (!patch || !patch->choice) return;
     [DPDefaults setObject:value forKey:patch->choice];
-    if (!DPSafeMode && patch->on && patch->apply) patch->apply(patch);
+    if (!DPSafeMode && !DPPausedAtLaunch && patch->on && patch->apply) {
+        DPRecordChoice(patch);
+        patch->apply(patch);
+    }
+    [NSNotificationCenter.defaultCenter postNotificationName:DPPatchesDidChangeNotification object:nil];
 }
 
 static int DPCompareOrder(const void *a, const void *b) {
@@ -146,6 +132,7 @@ static int DPCompareOrder(const void *a, const void *b) {
 static void DPReadPatches(void) {
     unsigned long size = 0;
     DPPatch **entries = (DPPatch **)getsectiondata(&__dso_handle, "__DATA", "__dppatches", &size);
+    if (!entries || !size) return;
     DPPatch **sorted = malloc(size);
     memcpy(sorted, entries, size);
     DPPatchCount = size / sizeof *sorted;
@@ -154,9 +141,15 @@ static void DPReadPatches(void) {
     NSMutableArray<NSString *> *sections = [NSMutableArray new];
     for (NSUInteger i = 0; i < DPPatchCount; i++) {
         DPPatch *patch = sorted[i];
-        NSString *section = patch->section ?: DPRequired(patch)->section ?: @"Other";
-        if (![sections containsObject:section]) [sections addObject:section];
-        patch->order = (int)([sections indexOfObject:section] << 24 | [patch->title hasPrefix:@"Hide "] << 16 | patch->title.length << 8 | i);
+        NSString *section = patch->section;
+        for (DPPatch *req = DPRequired(patch); !section && req; req = DPRequired(req)) section = req->section;
+        section = section ?: @"Other";
+        NSUInteger sectionIndex = [sections indexOfObject:section];
+        if (sectionIndex == NSNotFound) {
+            sectionIndex = sections.count;
+            [sections addObject:section];
+        }
+        patch->order = (int)(sectionIndex << 24 | [patch->title hasPrefix:@"Hide "] << 16 | patch->title.length << 8 | i);
     }
     qsort(sorted, DPPatchCount, sizeof *sorted, DPCompareOrder);
 }
@@ -165,23 +158,54 @@ void DPLoadPatches(void) {
     DPDefaults = [[NSUserDefaults alloc] initWithSuiteName:@"com.diapatches"];
     DPReadPatches();
 
-    for (NSUInteger i = 0; i < DPPatchCount; i++)
-        for (const char *const *name = DPPatches[i]->classes; name && *name; name++) DPPatches[i]->unavailable |= !objc_getClass(*name);
+    for (NSUInteger i = 0; i < DPPatchCount; i++) {
+        for (const char *const *name = DPPatches[i]->classes; name && *name; name++) {
+            if (!objc_getClass(*name)) {
+                DPPatches[i]->unavailable = YES;
+                break;
+            }
+        }
+    }
     for (NSUInteger i = 0; i < DPPatchCount; i++) {
         DPPatch *patch = DPPatches[i];
-        for (DPPatch *required = DPRequired(patch); required; required = DPRequired(required)) patch->unavailable |= required->unavailable;
-        patch->on = DPSavedOn(patch);
+        for (DPPatch *required = DPRequired(patch); required; required = DPRequired(required)) {
+            if (required->unavailable) {
+                patch->unavailable = YES;
+                break;
+            }
+        }
+        patch->on = DPEffectiveOn(patch);
         patch->progress = patch->on;
+        DPRecordChoice(patch);
         if (!patch->hides) continue;
         patch->apply = patch->apply ?: DPApplyHides;
         patch->verify = patch->verify ?: DPVerifyHides;
     }
 }
 
-static void DPApplySavedSettings(void) {
+void DPApplySavedSettings(void) {
     CFPreferencesAppSynchronize(CFSTR("com.diapatches"));
-    for (NSUInteger i = 0; i < DPPatchCount; i++) DPSetPatch(DPPatches[i], DPSavedOn(DPPatches[i]), NO);
+    DPPaused = DPPauseSaved();
+    for (NSUInteger i = 0; i < DPPatchCount; i++) {
+        DPPatch *patch = DPPatches[i];
+        BOOL wasOn = patch->on;
+        DPSetPatch(patch, DPEffectiveOn(patch), NO);
+        if (patch->choice && patch->on && patch->apply && !DPSafeMode && !DPPausedAtLaunch) {
+            NSString *choice = DPChoice(patch), *applied = DPAppliedChoices[patch->key];
+            BOOL changed = (choice != applied) && ![choice isEqualToString:applied];
+            DPRecordChoice(patch);
+            if (wasOn && changed) patch->apply(patch);
+        }
+    }
     [NSNotificationCenter.defaultCenter postNotificationName:DPPatchesDidChangeNotification object:nil];
+}
+
+void DPWatchSavedSettings(void) {
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        int token;
+        notify_register_dispatch("com.diapatches.changed", &token, dispatch_get_main_queue(), ^(int _) { DPApplySavedSettings(); });
+    });
 }
 
 // Hooks install in Settings order (section, non-"Hide" first, then title length): a later hook runs first, and the sidebar drag tweaks rely on it.
@@ -191,13 +215,11 @@ void DPInstallPatches(void) {
         for (NSUInteger i = 0; i < DPPatchCount; i++) if (DPPatches[i]->on && DPPatches[i]->ready) DPEnsureReady(DPPatches[i]);
     });
     DPInstallHides();
-    int token;
-    notify_register_dispatch("com.diapatches.changed", &token, dispatch_get_main_queue(), ^(int _) { DPApplySavedSettings(); });
 }
 
 BOOL DPWriteManifest(NSString *path) {
     DPReadPatches();
-    NSMutableArray<NSDictionary *> *patches = [NSMutableArray new];
+    NSMutableArray<NSDictionary *> *patches = [NSMutableArray arrayWithCapacity:DPPatchCount];
     for (NSUInteger i = 0; i < DPPatchCount; i++) {
         DPPatch *patch = DPPatches[i], *required = DPRequired(patch), *disabler = DPPatchNamed(patch->disabledBy);
         [patches addObject:@{
@@ -207,6 +229,7 @@ BOOL DPWriteManifest(NSString *path) {
             @"defaultOn": @(patch->defaultOn),
             @"requires": required ? required->key : NSNull.null,
             @"disabledBy": disabler ? disabler->key : NSNull.null,
+            @"relaunch": @(patch->relaunch),
             @"section": patch->section ?: NSNull.null,
             @"tint": patch->tint ?: NSNull.null,
             @"symbol": patch->symbol ?: NSNull.null,

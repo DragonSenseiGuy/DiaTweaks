@@ -6,13 +6,12 @@ static NSDictionary *DPDefaultPinShortcut(void) { return @{ @"keyCode" : @2, @"m
 
 static id DPTabState(NSView *tab) { return DPSwiftValue(DPSwiftValue(DPSwiftValue(tab, @"viewModel"), @"stateSubject"), @"currentValue"); }
 
-// selectionStyle is nil on an unselected pinned tab, "none" on other unselected tabs, above/below beside the selection.
 static BOOL DPTabSelected(NSView *tab) {
     NSString *style = [[DPSwiftValue(DPTabState(tab), @"selectionStyle") description] lowercaseString];
     return style && ![style containsString:@"none"] && ![style containsString:@"above"] && ![style containsString:@"below"];
 }
 
-// The list keeps hidden cells it isn't showing, but a collapsed sidebar or an auto-hidden tab strip still counts.
+// Skip recycled hidden cells, but allow collapsed sidebars and auto-hidden strips.
 static BOOL DPTabShown(NSView *tab) {
     for (NSView *view = tab; view && ![view isKindOfClass:NSCollectionView.class] && !DPIsKind(view, DPDiaTabStrip); view = view.superview)
         if (view.hidden) return NO;
@@ -21,7 +20,6 @@ static BOOL DPTabShown(NSView *tab) {
 
 static NSMenuItem *DPShownItem(NSMenuItem *item) { return item && !item.hidden && item.enabled ? item : nil; }
 
-// Pin as Tab and Unpin are at the top of the menu, so an item of the same name in a submenu isn't taken for them.
 static NSMenuItem *DPPinItem(NSMenu *menu) {
     return DPShownItem([menu itemWithTitle:@"Pin as Tab"]) ?: DPShownItem([menu itemWithTitle:@"Unpin"]);
 }
@@ -35,34 +33,24 @@ static NSMenuItem *DPFindShownItem(NSMenu *menu, NSString *title) {
     return nil;
 }
 
-// An item only points to its menu weakly, so whoever finds it holds the menu with DPHeld until it has run.
 #define DPHeld __attribute__((objc_precise_lifetime))
 static void DPRunItem(NSMenuItem *item) { [item.menu performActionForItemAtIndex:[item.menu indexOfItem:item]]; }
 
-// The page a tab shows, or nil when it shows more than one.
 static NSURL *DPTabURL(NSView *tab) {
     NSDictionary *views = DPSwiftValue(tab, @"contentViews");
     if (views.count != 1) return nil;
     return DPSwiftValue(DPSwiftValue(DPSwiftValue(views.allValues.firstObject, @"viewModel"), @"delegate"), @"webContentURL");
 }
 
-static NSArray<NSView *> *DPShownTabs(NSWindow *window) {
-    NSMutableArray<NSView *> *tabs = [NSMutableArray array];
-    for (NSView *tab in DPFindViews(DPDiaTabView))
-        if ((!window || tab.window == window) && DPTabShown(tab)) [tabs addObject:tab];
-    return tabs;
-}
-
 static NSView *DPSelectedTab(NSWindow *window) {
-    for (NSView *tab in DPShownTabs(window))
-        if (DPTabSelected(tab)) return tab;
+    for (NSView *tab in DPFindViews(DPDiaTabView))
+        if (tab.window == window && DPTabShown(tab) && DPTabSelected(tab)) return tab;
     return nil;
 }
 
-// Dia keeps the URL a tab was first pinned at through Unpin, and Pin as Tab doesn't replace it, so a tab pinned again
-// went back to that page when closed. Once the tab is among the pinned ones, the page it's on becomes its pinned URL.
-// Only while it's still on the page it was pinned at, so a tab selected meanwhile keeps its own.
+// Pin as Tab reuses a tab's first-ever pinned URL; replace it with the current page once pinned.
 static void DPPinCurrentURL(NSWindow *window, NSURL *url, int tries) {
+    if (!DPPinTabShortcut.on) return;
     NSView *tab = DPSelectedTab(window);
     DPHeld NSMenu *menu = tab && [DPTabURL(tab) isEqual:url] ? DPTabContextMenu(tab) : nil;
     if (DPShownItem([menu itemWithTitle:@"Unpin"])) {
@@ -93,11 +81,14 @@ static void DPInstallPinTabShortcut(void) {
 }
 
 static NSString *DPVerifyPinTabShortcut(DPPatch *patch) {
-    NSArray<NSView *> *tabs = DPShownTabs(nil);
-    if (!patch->on || !tabs.count) return nil;
-    for (NSView *tab in tabs)
+    if (!patch->on) return nil;
+    BOOL any = NO;
+    for (NSView *tab in DPFindViews(DPDiaTabView)) {
+        if (!DPTabShown(tab)) continue;
+        any = YES;
         if (DPPinItem(DPTabContextMenu(tab))) return nil;
-    return @"no tab's menu has Pin as Tab or Unpin";
+    }
+    return any ? @"no tab's menu has Pin as Tab or Unpin" : nil;
 }
 
 DP_PATCH(DPPinTabShortcut) {

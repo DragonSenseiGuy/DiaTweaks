@@ -13,7 +13,7 @@ static const char *DPDiapatch(void) {
 static int DPSpawn(pid_t *pid, const char *path, const posix_spawn_file_actions_t *files, const posix_spawnattr_t *attrs, char *const argv[], char *const envp[]) {
     const char *name = path ? strrchr(path, '/') : NULL;
     if (!name || strcmp(name, "/1Password-BrowserSupport")) return posix_spawn(pid, path, files, attrs, argv, envp);
-    // Refuse when off: a helper started for the patched Dia waits forever, even after Dia quits.
+    // Refuse when off so the helper doesn't hang after Dia quits.
     if (!DPOnePassword.on) return ENOENT;
     int argc = 0;
     while (argv[argc]) argc++;
@@ -28,8 +28,11 @@ __attribute__((used, section("__DATA,__interpose"))) static const struct { const
 };
 
 static NSString *DPOnePasswordProblem(DPPatch *patch) {
-    NSString *host = DPAppSupport(@"Google/Chrome/NativeMessagingHosts/com.1password.1password.json");
-    if (!DPTesting && ![NSFileManager.defaultManager fileExistsAtPath:host]) return @"The 1Password app isn’t installed, or hasn’t set up its browser support yet. Open 1Password, then try again.";
+    NSFileManager *files = NSFileManager.defaultManager;
+    NSString *host = [DPHostFolder(NO, nil) stringByAppendingPathComponent:@"com.1password.1password.json"];
+    NSString *systemHost = [DPSystemHostFolder() stringByAppendingPathComponent:@"com.1password.1password.json"];
+    if (!DPTesting && ![files fileExistsAtPath:host] && ![files fileExistsAtPath:systemHost])
+        return @"The 1Password app isn’t installed, or hasn’t set up its browser support yet. Open 1Password, then try again.";
     return DPRelayProblem();
 }
 

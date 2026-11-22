@@ -21,9 +21,13 @@ void DPInstallPreviews(void) {
 }
 
 static NSURL *DPCachedPreview(NSString *name) {
-    NSURL *caches = [NSFileManager.defaultManager URLsForDirectory:NSCachesDirectory inDomains:NSUserDomainMask].firstObject;
-    NSURL *dir = [caches URLByAppendingPathComponent:@"DiaPatches/previews" isDirectory:YES];
-    [NSFileManager.defaultManager createDirectoryAtURL:dir withIntermediateDirectories:YES attributes:nil error:nil];
+    static NSURL *dir;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        NSURL *caches = [NSFileManager.defaultManager URLsForDirectory:NSCachesDirectory inDomains:NSUserDomainMask].firstObject;
+        dir = [caches URLByAppendingPathComponent:@"DiaPatches/previews" isDirectory:YES];
+        [NSFileManager.defaultManager createDirectoryAtURL:dir withIntermediateDirectories:YES attributes:nil error:nil];
+    });
     return [dir URLByAppendingPathComponent:name];
 }
 
@@ -51,7 +55,7 @@ static void DPFetchPreview(NSArray<NSString *> *names, void (^done)(NSURL *file,
     NSURL *cached = DPCachedPreview(names[0]);
     NSURL *url = [NSURL URLWithString:[@DP_PREVIEWS stringByAppendingString:names[0]]];
     [[NSURLSession.sharedSession dataTaskWithURL:url completionHandler:^(NSData *data, NSURLResponse *response, NSError *error) {
-        NSInteger status = [(NSHTTPURLResponse *)response statusCode];
+        NSInteger status = [response isKindOfClass:NSHTTPURLResponse.class] ? [(NSHTTPURLResponse *)response statusCode] : 0;
         BOOL preview = status == 200 && DPIsPreview(data, names[0]);
         dispatch_async(dispatch_get_main_queue(), ^{
             if (error || (status != 200 && status != 404)) return done(nil, NO);
@@ -84,6 +88,7 @@ static void DPFetchPreview(NSArray<NSString *> *names, void (^done)(NSURL *file,
     if (!started) started = [NSMutableSet new];
     NSString *layout = DPTabLayout();
     for (NSUInteger i = 0; i < DPPatchCount; i++) {
+        if (DPRequired(DPPatches[i])) continue;
         NSArray<NSString *> *names = DPPreviewNames(DPPatches[i]->key, layout);
         if ([started containsObject:names[0]]) continue;
         [started addObject:names[0]];
@@ -105,11 +110,13 @@ static void DPFetchPreview(NSArray<NSString *> *names, void (^done)(NSURL *file,
     if ([layout isEqual:_layout]) return;
     _layout = layout;
     NSArray<NSString *> *names = _names = DPPreviewNames(_key, layout);
-    for (NSString *name in names)
-        if ([DPCachedPreview(name) checkResourceIsReachableAndReturnError:nil]) {
-            [self show:DPCachedPreview(name)];
+    for (NSString *name in names) {
+        NSURL *cached = DPCachedPreview(name);
+        if ([cached checkResourceIsReachableAndReturnError:nil]) {
+            [self show:cached];
             break;
         }
+    }
     __weak DPPreviewView *weakSelf = self;
     DPFetchPreview(names, ^(NSURL *file, BOOL changed) {
         DPPreviewView *view = weakSelf;
@@ -123,6 +130,7 @@ static void DPFetchPreview(NSArray<NSString *> *names, void (^done)(NSURL *file,
 }
 
 - (void)show:(NSURL *)file {
+    [NSNotificationCenter.defaultCenter removeObserver:self name:AVPlayerItemDidPlayToEndTimeNotification object:nil];
     [_media removeFromSuperlayer];
     [_player pause];
     _player = nil;
@@ -178,7 +186,7 @@ static void DPFetchPreview(NSArray<NSString *> *names, void (^done)(NSURL *file,
 - (void)showState {
     [CATransaction begin];
     [CATransaction setDisableActions:YES];
-    _media.contents = _states[(long)NSDate.date.timeIntervalSince1970 % 2];
+    _media.contents = _states[((unsigned long long)floor(NSDate.date.timeIntervalSince1970)) & 1];
     [CATransaction commit];
 }
 
@@ -226,5 +234,11 @@ static void DPFetchPreview(NSArray<NSString *> *names, void (^done)(NSURL *file,
     [CATransaction setDisableActions:YES];
     _media.frame = self.bounds;
     [CATransaction commit];
+}
+- (void)dealloc {
+    [NSNotificationCenter.defaultCenter removeObserver:self];
+    [_link invalidate];
+    [_flip invalidate];
+    [_player pause];
 }
 @end
