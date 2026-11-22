@@ -113,7 +113,7 @@ BOOL DPPeekHideFind(DPPeekCard *peek) {
     NSResponder *focus = peek.window.firstResponder;
     BOOL inBar = [focus isKindOfClass:NSView.class] && [(NSView *)focus isDescendantOf:bar];
     [bar removeFromSuperview];
-    if (inBar && !peek.closing) [peek.window makeFirstResponder:peek.host];
+    if (inBar && !peek.closing && !peek.isHiddenOrHasHiddenAncestor) [peek.window makeFirstResponder:peek.host];
     return YES;
 }
 

@@ -144,7 +144,7 @@ static void DPPeekRevealControls(NSView *controls) {
 @end
 
 @implementation DPPeekGrowth
-static char DPGrowthKey;
+static char DPGrowthKey, DPInTimerKey;
 
 + (void)grow:(DPPeekCard *)peek done:(void (^)(void))done {
     DPPeekGrowth *growth = [DPPeekGrowth new];
@@ -191,17 +191,29 @@ static char DPGrowthKey;
     DPPeekGrowth *growth = DPGet(self, &DPGrowthKey);
     [growth stop];
     if (growth) DPSet(self, &DPGrowthKey, nil);
+    NSTimer *inTimer = DPGet(self, &DPInTimerKey);
+    [inTimer invalidate];
+    if (inTimer) DPSet(self, &DPInTimerKey, nil);
 }
 
 - (void)animateIn {
     self.controls.alphaValue = self.card.alphaValue = self.dim.alphaValue = 0;
     CFTimeInterval start = CACurrentMediaTime();
     __weak DPPeekCard *weak = self;
-    [NSTimer scheduledTimerWithTimeInterval:1 / 120.0 repeats:YES block:^(NSTimer *timer) {
+    NSTimer *inTimer = [NSTimer scheduledTimerWithTimeInterval:1 / 120.0 repeats:YES block:^(NSTimer *timer) {
         DPPeekCard *peek = weak;
-        if (!peek || peek.closing) return [timer invalidate];
+        if (!peek || peek.closing) {
+            [timer invalidate];
+            if (peek) DPSet(peek, &DPInTimerKey, nil);
+            return;
+        }
         if (![[(NSObject *)peek.page valueForKey:@"isReadyToDisplay"] boolValue] && CACurrentMediaTime() - start < 0.15) return;
         [timer invalidate];
+        DPSet(peek, &DPInTimerKey, nil);
+        if (peek.isHiddenOrHasHiddenAncestor) {
+            peek.card.alphaValue = peek.dim.alphaValue = peek.controls.alphaValue = 1;
+            return;
+        }
         [CATransaction begin];
         [CATransaction setCompletionBlock:^{
             if (!peek.closing) DPPeekRevealControls(peek.controls);
@@ -211,6 +223,7 @@ static char DPGrowthKey;
         [peek.dim.layer addAnimation:DPPeekDim(YES) forKey:@"peek"];
         [CATransaction commit];
     }];
+    DPSet(self, &DPInTimerKey, inTimer);
 }
 
 - (void)animateOut:(void (^)(void))completion {

@@ -1,14 +1,26 @@
 #import "Patches/Peek/Peek.h"
 
+static BOOL DPPeekHiddenAncestor(NSView *view) {
+    for (NSView *up = view.superview; up; up = up.superview)
+        if ([up isKindOfClass:DPPeekCard.class]) {
+            DPPeekCard *card = (DPPeekCard *)up;
+            return card.closing || card.isHiddenOrHasHiddenAncestor;
+        }
+    return NO;
+}
+
 static BOOL DPWeb_shouldChangeCurrentCursor(NSView *self, SEL _cmd) {
     if (!DPCallOriginal(DPWeb_shouldChangeCurrentCursor, self)) return NO;
-    if (!DPPeek.on || !DPPeekCardIn(self.window)) return YES;
+    if (!DPPeek.on) return YES;
+    if (DPPeekHiddenAncestor(self)) return NO;
+    if (!DPPeekCardIn(self.window)) return YES;
     NSView *root = self.window.contentView;
     NSView *hit = [root hitTest:[root.superview convertPoint:self.window.mouseLocationOutsideOfEventStream fromView:nil]];
     return hit == self || [hit isDescendantOf:self];
 }
 
 static void DPWeb_addCursorRect(NSView *self, SEL _cmd, NSRect rect, NSCursor *cursor) {
+    if (DPPeek.on && DPPeekHiddenAncestor(self)) return;
     DPPeekCard *peek = DPPeek.on ? DPPeekCardIn(self.window) : nil;
     if (!peek || [self isDescendantOf:peek]) return (void)DPCallOriginal(DPWeb_addCursorRect, self, rect, cursor);
     // Cursor rectangles, like Chromium's immediate cursor updates, ignore overlapping siblings.

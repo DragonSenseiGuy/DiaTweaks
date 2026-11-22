@@ -76,6 +76,7 @@ static const CGFloat DPGlowEase = 0.15;
 }
 
 - (void)step {
+    if (self.isHiddenOrHasHiddenAncestor) return;
     NSObject *page = self.page;
     BOOL loading = [[page valueForKey:@"isLoading"] boolValue];
     if (loading && !self.loading) {

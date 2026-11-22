@@ -1,21 +1,44 @@
 #import "Patches/Peek/Peek.h"
-#import <Carbon/Carbon.h>
 
 static const CGFloat DPPeekShadowRoom = 48, DPPeekEdgeAlpha = 0.12;
 static NSHashTable<DPPeekCard *> *DPPeekCards;
 
 static NSRect DPPeekCardRect(NSRect area) { return NSInsetRect(area, NSWidth(area) * 0.09, MAX(10, NSHeight(area) * 0.012)); }
 
+@interface DPPeekCard ()
+@property (nonatomic, weak) NSResponder *savedResponder;
+@property (nonatomic) NSRect parkedFrame;
+@property (nonatomic) BOOL reparenting;
+@end
+
 @implementation DPPeekCard
 
 - (BOOL)isFlipped { return YES; }
 - (BOOL)acceptsFirstMouse:(NSEvent *)event { return YES; }
 
+- (void)setSource:(id)source {
+    _source = source;
+    if (source) self.hadSource = YES;
+}
+
 - (void)viewDidMoveToWindow {
     [super viewDidMoveToWindow];
     if (!DPPeekCards) DPPeekCards = [NSHashTable weakObjectsHashTable];
-    if (self.window) [DPPeekCards addObject:self];
-    else [DPPeekCards removeObject:self];
+    if (self.window) {
+        if (!self.originWindow) self.originWindow = self.window;
+        [DPPeekCards addObject:self];
+    } else if (!self.reparenting) {
+        if (self.closing || !self.superview || !self.originWindow) {
+            [DPPeekCards removeObject:self];
+            DPPeekUpdateSyncTimer();
+        } else {
+            __weak DPPeekCard *weak = self;
+            dispatch_async(dispatch_get_main_queue(), ^{
+                DPPeekCard *peek = weak;
+                if (peek && !peek.closing && !peek.window && peek.originWindow) DPPeekSyncTabs(peek.originWindow);
+            });
+        }
+    }
 }
 
 - (NSRect)cardFrame {
@@ -51,7 +74,7 @@ static NSRect DPPeekCardRect(NSRect area) { return NSInsetRect(area, NSWidth(are
 
 - (void)followPane {
     NSView *pane = self.pane, *root = self.superview;
-    if (!pane.window || !root) return;
+    if (self.hidden || !pane.window || !root) return;
     NSRect frame = [root convertRect:pane.bounds fromView:pane];
     if (NSEqualRects(frame, self.frame)) return;
     NSAnimationContext *dia = NSAnimationContext.currentContext;
@@ -87,7 +110,8 @@ static NSRect DPPeekCardRect(NSRect area) { return NSInsetRect(area, NSWidth(are
 
 - (void)close:(DPPeekExit)exit {
     if (![self stopWatching]) return;
-    if (exit == DPPeekClose) [self animateOut:^{ [self finish:exit]; }];
+    if (self.isHiddenOrHasHiddenAncestor) [self finish:exit];
+    else if (exit == DPPeekClose) [self animateOut:^{ [self finish:exit]; }];
     else if (exit == DPPeekTab) [self animateExpand:^{ [self finish:exit]; }];
     else [self finish:exit];
 }
@@ -99,29 +123,46 @@ static NSRect DPPeekCardRect(NSRect area) { return NSInsetRect(area, NSWidth(are
 }
 
 - (void)handOver {
-    NSWindow *window = self.window;
+    NSWindow *window = self.window ?: self.originWindow;
     [self stopMotion];
     [self stopWatching];
+    [DPPeekCards removeObject:self];
     [self removeFromSuperview];
+    DPPeekUpdateSyncTimer();
     [window resetCursorRects];
     // The card must be off screen before the page detaches, or it flashes blank.
-    if (self.grown < 1) [CATransaction flush];
-    [self.page detachFromPaneHostView:self.host];
+    if (!self.hidden && self.grown < 1) [CATransaction flush];
+    id<DPPeekPage> page = self.page;
+    self.page = nil;
+    [page detachFromPaneHostView:self.host];
 }
 
 @end
 
+BOOL DPPeekHasCards(void) { return DPPeekCards.count > 0; }
+
 DPPeekCard *DPPeekCardIn(NSWindow *window) {
     if (!window) return nil;
     for (DPPeekCard *peek in DPPeekCards)
-        if (peek.window == window && !peek.closing) return peek;
+        if (peek.window == window && !peek.closing && !peek.isHiddenOrHasHiddenAncestor) return peek;
     return nil;
 }
 
+id DPPeekPageIn(NSWindow *window) { return DPPeekCardIn(window).page; }
+
 NSArray<DPPeekCard *> *DPPeekAllCards(NSWindow *window) {
     NSMutableArray<DPPeekCard *> *cards = [NSMutableArray array];
-    for (DPPeekCard *peek in DPPeekCards.allObjects)
-        if (!window || peek.window == window) [cards addObject:peek];
+    for (DPPeekCard *peek in DPPeekCards.allObjects) {
+        NSWindow *owner = peek.window ?: peek.originWindow;
+        if (!window || owner == window) [cards addObject:peek];
+    }
+    return cards;
+}
+
+NSArray<DPPeekCard *> *DPPeekHiddenCards(NSWindow *window) {
+    NSMutableArray<DPPeekCard *> *cards = [NSMutableArray array];
+    for (DPPeekCard *peek in DPPeekAllCards(window))
+        if (!peek.closing && peek.isHiddenOrHasHiddenAncestor) [cards addObject:peek];
     return cards;
 }
 
@@ -132,25 +173,14 @@ DPPeekCard *DPPeekCardForPage(id page) {
     return nil;
 }
 
-static NSView *DPPeekPane(NSWindow *window, NSRect area) {
-    NSView *pane = nil, *under = nil;
-    CGFloat overlap = 0;
-    for (NSView *candidate in DPFindViews(DPDiaContentPane)) {
-        if (candidate.window != window) continue;
-        NSRect hit = NSIntersectionRect([window convertRectToScreen:[candidate convertRect:candidate.bounds toView:nil]], area);
-        if (!candidate.isHiddenOrHasHiddenAncestor && NSWidth(hit) * NSHeight(hit) > overlap) {
-            under = candidate;
-            overlap = NSWidth(hit) * NSHeight(hit);
-        }
-        if (NSWidth(candidate.bounds) * NSHeight(candidate.bounds) > NSWidth(pane.bounds) * NSHeight(pane.bounds)) pane = candidate;
+DPPeekCard *DPPeekCardForOrigin(NSWindow *window, NSString *originTabID, id source) {
+    if (!window || (!originTabID && !source)) return nil;
+    for (DPPeekCard *peek in DPPeekAllCards(window)) {
+        if (peek.closing) continue;
+        if (originTabID && [peek.originTabID isEqual:originTabID]) return peek;
+        if (!originTabID && source && peek.source == source) return peek;
     }
-    return under ?: pane;
-}
-
-static NSView *DPPeekHolder(NSWindow *window, NSView *pane) {
-    for (NSView *view = pane; view && view != window.contentView; view = view.superview)
-        if (view.layer.cornerRadius > 0 && view.layer.masksToBounds) return view;
-    return window.contentView;
+    return nil;
 }
 
 @interface DPPeekBacking : NSView
@@ -172,72 +202,6 @@ static NSView *DPLayerView(Class kind) {
     return view;
 }
 
-static BOOL DPIsDigitKey(NSEvent *event) {
-    NSString *key = event.charactersIgnoringModifiers;
-    return key.length == 1 && [key characterAtIndex:0] >= '1' && [key characterAtIndex:0] <= '9';
-}
-
-static BOOL DPPerformAppShortcut(NSEvent *event, NSEventModifierFlags mods) {
-    if (!(mods & (NSEventModifierFlagCommand | NSEventModifierFlagControl))) return NO;
-    return [NSApp.mainMenu.itemArray.firstObject.submenu performKeyEquivalent:event] || [NSApp.windowsMenu performKeyEquivalent:event];
-}
-
-// Blink ignores key-equivalent paste/undo while swallowing ⌘/⌃ shortcuts, so dispatch edit actions directly to focus.
-static BOOL DPPeekPageShortcut(DPPeekCard *peek, NSEvent *event, NSEventModifierFlags mods, NSResponder *focus) {
-    BOOL command = mods == NSEventModifierFlagCommand, shifted = mods == (NSEventModifierFlagCommand | NSEventModifierFlagShift);
-    SEL edit = NULL;
-    if (command && DPEventIsKey(event, @"x")) edit = @selector(cut:);
-    else if (command && DPEventIsKey(event, @"c")) edit = @selector(copy:);
-    else if (command && DPEventIsKey(event, @"v")) edit = @selector(paste:);
-    else if (command && DPEventIsKey(event, @"a")) edit = @selector(selectAll:);
-    else if (command && DPEventIsKey(event, @"z")) edit = @selector(undo:);
-    else if (shifted && DPEventIsKey(event, @"z")) edit = @selector(redo:);
-    else if (mods == (NSEventModifierFlagCommand | NSEventModifierFlagOption | NSEventModifierFlagShift) && DPEventIsKey(event, @"v")) edit = @selector(pasteAsPlainText:);
-    return edit && [focus respondsToSelector:edit] && [NSApp sendAction:edit to:focus from:nil];
-}
-
-static NSMenuItem *DPPeekItemFor(NSMenu *menu, NSEvent *event) {
-    for (NSMenuItem *item in menu.itemArray) {
-        NSMenuItem *found = DPPeekIsShortcut(event, item) ? item : DPPeekItemFor(item.submenu, event);
-        if (found) return found;
-    }
-    return nil;
-}
-
-static BOOL DPPeekWindowCommand(NSEvent *event) {
-    if (!(event.modifierFlags & NSEventModifierFlagCommand)) return NO;
-    NSString *title = DPPeekItemFor(NSApp.mainMenu, event).title;
-    return [title isEqualToString:@"New Tab"] || [title isEqualToString:@"New Window"] || [title isEqualToString:@"New Incognito Window"];
-}
-
-static id DPWatchKeys(DPPeekCard *card) {
-    __weak DPPeekCard *weak = card;
-    return [NSEvent addLocalMonitorForEventsMatchingMask:NSEventMaskKeyDown handler:^NSEvent *(NSEvent *event) {
-        DPPeekCard *peek = weak;
-        if (!peek || event.window != peek.window) return event;
-        NSEventModifierFlags mods = event.modifierFlags & NSEventModifierFlagDeviceIndependentFlagsMask & ~(NSEventModifierFlagCapsLock | NSEventModifierFlagNumericPad);
-        // A page's field is not an NSText; Escape there must cancel an input method's composition, not close the card.
-        id responder = peek.window.firstResponder;
-        BOOL command = mods == NSEventModifierFlagCommand, control = mods == NSEventModifierFlagControl;
-        BOOL editing = [responder isKindOfClass:NSText.class] || ([responder conformsToProtocol:@protocol(NSTextInputClient)] && [responder hasMarkedText]);
-        BOOL onPage = [responder isKindOfClass:NSView.class] && [(NSView *)responder isDescendantOf:peek.host];
-        if (DPPeekCopyURL(peek, event) || DPPeekZoomShortcut(peek, event) || DPPeekFindShortcut(peek, event, mods)) return nil;
-        if (onPage && DPPeekPageShortcut(peek, event, mods, responder)) return nil;
-        if (command && DPEventIsKey(event, @"o")) [peek close:DPPeekTab];
-        else if (command && peek.toolbar && DPEventIsKey(event, @"[")) DPPeekNavigate(peek.page, DPPeekBack);
-        else if (command && peek.toolbar && DPEventIsKey(event, @"]")) DPPeekNavigate(peek.page, DPPeekForward);
-        else if (command && peek.toolbar && DPEventIsKey(event, @"r")) DPPeekNavigate(peek.page, DPPeekReload);
-        else if (command && peek.toolbar && DPEventIsKey(event, @"l")) DPPeekEditToolbarAddress(peek);
-        else if ((command && DPEventIsKey(event, @"w")) || (!mods && event.keyCode == kVK_Escape && !editing)) [peek close:DPPeekClose];
-        else if (!DPPerformAppShortcut(event, mods)) {
-            BOOL toMenu = (command && DPEventIsKey(event, @"s")) ||
-                          (onPage ? (mods & NSEventModifierFlagControl) || DPPeekWindowCommand(event) : control && DPIsDigitKey(event));
-            if (!(toMenu && [NSApp.mainMenu performKeyEquivalent:event])) return event;
-        }
-        return nil;
-    }];
-}
-
 NSView *DPPeekWarmHost(NSWindow *window, id<DPPeekPage> page) {
     NSView *host = [page createPaneHostView], *pane = DPPeekPane(window, (NSRect){NSEvent.mouseLocation, {1, 1}});
     if (!host || !pane) return nil;
@@ -255,7 +219,7 @@ DPPeekCard *DPPeekShowCard(NSWindow *window, id<DPPeekPage> page, NSView *warmHo
     NSView *holder = DPPeekHolder(window, pane);
     DPPeekCard *peek = [[DPPeekCard alloc] initWithFrame:pane ? [holder convertRect:pane.bounds fromView:pane] : holder.bounds];
     peek.autoresizingMask = pane ? NSViewNotSizable : NSViewWidthSizable | NSViewHeightSizable;
-    peek.pane = pane;
+    peek.originWindow = window;
     peek.page = page;
     peek.host = host;
     peek.dim = DPLayerView(NSView.class);
@@ -285,13 +249,9 @@ DPPeekCard *DPPeekShowCard(NSWindow *window, id<DPPeekPage> page, NSView *warmHo
     if (!warmHost) [page attachToPaneHostView:host];
     [window resetCursorRects];
     [window makeFirstResponder:host];
-    if (pane) {
-        pane.postsFrameChangedNotifications = YES;
-        __weak DPPeekCard *weak = peek;
-        peek.paneObserver = [NSNotificationCenter.defaultCenter addObserverForName:NSViewFrameDidChangeNotification object:pane queue:nil
-                                                                        usingBlock:^(NSNotification *note) { [weak followPane]; }];
-    }
-    peek.monitor = DPWatchKeys(peek);
+    DPPeekWatchPane(peek, pane);
+    DPPeekUpdateSyncTimer();
+    peek.monitor = DPPeekWatchKeys(peek);
     peek.link = [peek convertRect:[window convertRectFromScreen:screenLink] fromView:nil];
     [peek animateIn];
     return peek;

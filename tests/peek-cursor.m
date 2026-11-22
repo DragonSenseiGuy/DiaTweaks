@@ -2,13 +2,18 @@
 #import "StdPatch/Hook.m"
 
 DPPatch DPPeek = { .on = YES };
-static DPPeekCard *card;
+static NSArray<DPPeekCard *> *allCards;
 static NSPoint pointer;
-DPPeekCard *DPPeekCardIn(NSWindow *window) { return card.window == window ? card : nil; }
+DPPeekCard *DPPeekCardIn(NSWindow *window) {
+    for (DPPeekCard *c in allCards)
+        if (c.window == window && !c.closing && !c.isHiddenOrHasHiddenAncestor) return c;
+    return nil;
+}
 @implementation DPPeekCard
 - (NSRect)cardFrame { return self.bounds; }
 - (void)close:(DPPeekExit)exit { [self removeFromSuperview]; }
 - (void)handOver { [self removeFromSuperview]; }
+- (void)setOriginVisible:(BOOL)visible { self.hidden = !visible; }
 @end
 
 @interface CursorWindow : NSWindow
@@ -45,7 +50,8 @@ int main(void) {
         RenderWidgetHostViewCocoa *under = Page(window.contentView, window.contentView.bounds);
         pointer = NSMakePoint(300, 300);
         NSCAssert(under.shouldChangeCurrentCursor, @"no Peek preserves Chromium's answer");
-        card = [[DPPeekCard alloc] initWithFrame:NSMakeRect(100, 100, 600, 400)];
+        DPPeekCard *card = [[DPPeekCard alloc] initWithFrame:NSMakeRect(100, 100, 600, 400)];
+        allCards = @[ card ];
         [window.contentView addSubview:card];
         RenderWidgetHostViewCocoa *peek = Page(card, NSMakeRect(50, 50, 500, 300));
         NSCAssert(!under.shouldChangeCurrentCursor && peek.shouldChangeCurrentCursor, @"only the front page may set the cursor");
@@ -70,6 +76,38 @@ int main(void) {
         NSCAssert(area == 800 * 600 - 600 * 400, @"all uncovered cursor area is preserved");
         [peek addCursorRect:peek.bounds cursor:NSCursor.pointingHandCursor];
         NSCAssert(peek.rects.count == 1 && NSEqualRects(peek.rects[0].rectValue, peek.bounds), @"Peek keeps its renderer cursor rectangles");
+
+        // Hidden background Peek card (Tab A parked while Tab B is active) must NEVER steal cursor updates or register cursor rects!
+        card.hidden = YES;
+        [under.rects removeAllObjects];
+        [peek.rects removeAllObjects];
+        pointer = NSMakePoint(300, 300);
+        NSCAssert(under.shouldChangeCurrentCursor, @"tab B gets full cursor updates while tab A's Peek is hidden");
+        NSCAssert(!peek.shouldChangeCurrentCursor, @"hidden Peek never steals cursor updates");
+        [under addCursorRect:under.bounds cursor:NSCursor.IBeamCursor];
+        NSCAssert(under.rects.count == 1 && NSEqualRects(under.rects[0].rectValue, under.bounds), @"tab B keeps full cursor rectangles while tab A's Peek is hidden");
+        [peek addCursorRect:peek.bounds cursor:NSCursor.pointingHandCursor];
+        NSCAssert(peek.rects.count == 0, @"hidden Peek registers zero cursor rectangles");
+
+        // Tab B opens its own Peek P2 while Tab A's P1 remains hidden!
+        DPPeekCard *card2 = [[DPPeekCard alloc] initWithFrame:NSMakeRect(100, 100, 600, 400)];
+        [window.contentView addSubview:card2];
+        RenderWidgetHostViewCocoa *peek2 = Page(card2, NSMakeRect(50, 50, 500, 300));
+        allCards = @[ card, card2 ];
+        [under.rects removeAllObjects];
+        [peek.rects removeAllObjects];
+        [peek2.rects removeAllObjects];
+        pointer = NSMakePoint(300, 300);
+        NSCAssert(!under.shouldChangeCurrentCursor && !peek.shouldChangeCurrentCursor && peek2.shouldChangeCurrentCursor,
+                  @"only active Peek P2 may change cursor while P1 is hidden");
+        [peek addCursorRect:peek.bounds cursor:NSCursor.pointingHandCursor];
+        NSCAssert(peek.rects.count == 0, @"hidden P1 still registers zero cursor rects alongside active P2");
+        [peek2 addCursorRect:peek2.bounds cursor:NSCursor.pointingHandCursor];
+        NSCAssert(peek2.rects.count == 1 && NSEqualRects(peek2.rects[0].rectValue, peek2.bounds), @"active P2 keeps its cursor rects");
+        [card2 removeFromSuperview];
+        allCards = @[ card ];
+        card.hidden = NO;
+
         [under.rects removeAllObjects];
         DPPeek.on = NO;
         pointer = NSMakePoint(300, 300);
@@ -79,6 +117,7 @@ int main(void) {
         DPPeek.on = YES;
         [under.rects removeAllObjects];
         [card removeFromSuperview];
+        allCards = @[];
         NSCAssert(under.shouldChangeCurrentCursor, @"closing Peek restores immediate updates");
         [under addCursorRect:under.bounds cursor:NSCursor.IBeamCursor];
         NSCAssert(under.rects.count == 1 && NSEqualRects(under.rects[0].rectValue, under.bounds), @"closing Peek restores full cursor rectangles");

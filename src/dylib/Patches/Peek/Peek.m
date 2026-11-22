@@ -1,6 +1,7 @@
 #import "Patches/Peek/Peek.h"
 #import "Commands/GroupTabs/GroupTabs.h"
 #import "Patches/LittleDia/LittleDia.h"
+#import "Patches/CommandBar/Tabs.h"
 
 static NSURL *DPPeekHovered;
 static __weak id DPPeekHoveredPage, DPPeekHoveredDelegate;
@@ -37,8 +38,9 @@ BOOL DPPeekIsWeb(NSURL *url) {
 static void DPPeekOpenLater(id delegate, id source, NSURL *url) {
     DPPeekLookAheadTurn++;
     NSWindow *window = NSApp.keyWindow;
+    NSString *originTabID = DPActiveTabID(window);
     NSPoint origin = NSEvent.mouseLocation;
-    dispatch_async(dispatch_get_main_queue(), ^{ DPPeekOpen(window, url, origin, delegate, source); });
+    dispatch_async(dispatch_get_main_queue(), ^{ DPPeekOpen(window, originTabID, url, origin, delegate, source); });
 }
 
 static void DPWebContent_didCreate(id self, SEL _cmd, id webContents, id newWebContent, NSURL *url, NSInteger disposition) {
@@ -138,11 +140,13 @@ void DPPeekOpenDragged(NSURL *url, NSPoint origin) {
     if (!DPPeek.on) return;
     id page = DPPeekHoveredPage;
     if (DPPeekShows(page)) return DPPeekLoad(page, url);
-    if (DPPeekCanOpen(page)) DPPeekOpen(NSApp.keyWindow, url, origin, DPPeekHoveredDelegate, page);
+    NSWindow *window = NSApp.keyWindow;
+    if (DPPeekCanOpen(page)) DPPeekOpen(window, DPActiveTabID(window), url, origin, DPPeekHoveredDelegate, page);
 }
 
 static void DPInstallPeek(void) {
     DPPeekInstallPages();
+    DPPeekInstallSelection();
     DPPeekInstallZoom();
     DPPeekInstallCursor();
     DPOnLaunch(^{
@@ -175,6 +179,15 @@ static NSString *DPVerifyPeek(DPPatch *patch) {
         return @"link clicks don't reach Peek";
     if (class_getMethodImplementation(delegate, @selector(webContents:didCreateNewWebContent:targetURL:disposition:)) != (IMP)DPWebContent_didCreate)
         return @"new windows don't reach Peek";
+    if (!patch->on && DPPeekAllCards(nil).count) return @"Peek cards stayed open when turned off";
+    if (patch->on) {
+        NSCountedSet<NSWindow *> *visibleByWindow = [NSCountedSet set];
+        for (DPPeekCard *peek in DPPeekAllCards(nil)) {
+            if (peek.closing || peek.isHiddenOrHasHiddenAncestor || !peek.window) continue;
+            [visibleByWindow addObject:peek.window];
+            if ([visibleByWindow countForObject:peek.window] > 1) return @"multiple Peek cards are visible in one window";
+        }
+    }
     return DPPeekZoomProblem();
 }
 

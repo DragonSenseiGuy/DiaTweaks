@@ -39,8 +39,8 @@ BOOL DPPeekShowsToolbar(void) { return DPPeekTuned(DPPeekToolbarKey) != 0; }
     self.slider.doubleValue = shown;
     self.field.doubleValue = shown;
     [DPSettings() setDouble:shown / self.scale forKey:self.key];
-    for (NSWindow *window in NSApp.windows)
-        DPPeekCardIn(window).dim.layer.backgroundColor = [NSColor colorWithWhite:0 alpha:DPPeekDarkness()].CGColor;
+    CGColorRef dim = [NSColor colorWithWhite:0 alpha:DPPeekDarkness()].CGColor;
+    for (DPPeekCard *peek in DPPeekAllCards(nil)) peek.dim.layer.backgroundColor = dim;
 }
 
 - (BOOL)control:(NSControl *)control textView:(NSTextView *)textView doCommandBySelector:(SEL)command {

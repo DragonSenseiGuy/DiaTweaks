@@ -109,7 +109,10 @@
     self.field = nil;
     self.label.hidden = NO;
     for (NSView *view = self.superview; view; view = view.superview)
-        if ([view isKindOfClass:DPPeekCard.class]) [self.window makeFirstResponder:((DPPeekCard *)view).host];
+        if ([view isKindOfClass:DPPeekCard.class]) {
+            DPPeekCard *card = (DPPeekCard *)view;
+            if (!card.closing && !card.isHiddenOrHasHiddenAncestor) [self.window makeFirstResponder:card.host];
+        }
     self.ending = NO;
     [self refresh];
 }

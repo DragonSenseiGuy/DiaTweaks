@@ -36,7 +36,7 @@ CATransform3D DPPeekScaled(NSView *view, CGFloat scale) {
     [super updateTrackingAreas];
     for (NSTrackingArea *area in self.trackingAreas) [self removeTrackingArea:area];
     [self addTrackingArea:[[NSTrackingArea alloc] initWithRect:self.bounds
-                                                       options:NSTrackingMouseEnteredAndExited | NSTrackingActiveInKeyWindow
+                                                       options:NSTrackingMouseEnteredAndExited | NSTrackingActiveInKeyWindow | NSTrackingInVisibleRect
                                                          owner:self userInfo:nil]];
 }
 
@@ -49,10 +49,17 @@ CATransform3D DPPeekScaled(NSView *view, CGFloat scale) {
 }
 
 - (void)showHint {
+    if (self.isHiddenOrHasHiddenAncestor) return;
     [NSAnimationContext runAnimationGroup:^(NSAnimationContext *context) {
         context.duration = 0.12;
         self.pill.animator.alphaValue = 1;
     }];
+}
+
+- (void)resetHover {
+    [NSObject cancelPreviousPerformRequestsWithTarget:self selector:@selector(showHint) object:nil];
+    self.layer.transform = CATransform3DIdentity;
+    self.pill.alphaValue = 0;
 }
 
 - (void)mouseEntered:(NSEvent *)event {
@@ -191,6 +198,11 @@ void DPPeekLayoutHints(NSView *controls, CGFloat availableRight) {
         button.pill = pill;
         [controls addSubview:pill];
     }
+}
+
+void DPPeekResetControlHints(NSView *controls) {
+    for (NSView *sub in controls.subviews)
+        if ([sub isKindOfClass:DPPeekButton.class]) [(DPPeekButton *)sub resetHover];
 }
 
 NSView *DPPeekControls(id target, SEL action) {
