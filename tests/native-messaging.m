@@ -33,6 +33,27 @@ static NSString *DPProxyPath(void) { return gBitwardenProxy; }
 #undef gWritePath
 #undef DPRegisterHost
 
+static NSString *gProtonPassHost;
+#define DP_PROTON_PASS_HOST_PATH
+static NSString *DPHostPath(void) { return gProtonPassHost; }
+#define kHost kProtonPassHost
+#define kHostFile kProtonPassHostFile
+#define kDescription kProtonPassDescription
+#define DPHostAt DPProtonPassHostAt
+#define gWriteError gProtonPassWriteError
+#define gWritePath gProtonPassWritePath
+#define DPRemoveOwnHost DPProtonPassRemoveOwnHost
+#define DPRegisterHost DPProtonPassRegisterHost
+#import "Patches/ProtonPass/ProtonPass.m"
+#undef kHost
+#undef kHostFile
+#undef kDescription
+#undef DPHostAt
+#undef gWriteError
+#undef gWritePath
+#undef DPRemoveOwnHost
+#undef DPRegisterHost
+
 pid_t DPStartHelperThroughOriginal(NSString *home, NSString *helper, BOOL checksBrowser, int argc, const char *argv[]) { return 0; }
 BOOL DPRunsPatchedDia(pid_t pid, NSString *app) { return NO; }
 #import "../diapatch/PasswordsHost.m"
@@ -387,12 +408,151 @@ static void testBitwardenAndOnePasswordChromeless(void) {
     unlockAndRemove(gAppSupportRoot);
 }
 
+static void testProtonPass(void) {
+    gAppSupportRoot = makeTempDir();
+    DPTesting = NO;
+
+    NSString *fakeApp = [gAppSupportRoot stringByAppendingPathComponent:@"Proton Pass.app"];
+    NSString *hostBin = [fakeApp stringByAppendingPathComponent:@"Contents/Resources/assets/proton_pass_nm_host"];
+    NSCAssert(DPExecutableHostInApp(nil) == nil && DPExecutableHostInApp(@"") == nil, @"empty app path yields nil");
+    NSCAssert(DPExecutableHostInApp(fakeApp) == nil, @"missing host binary yields nil");
+    [NSFileManager.defaultManager createDirectoryAtPath:hostBin.stringByDeletingLastPathComponent withIntermediateDirectories:YES attributes:nil error:nil];
+    [@"#!/bin/sh\n" writeToFile:hostBin atomically:YES encoding:NSUTF8StringEncoding error:nil];
+    chmod(hostBin.fileSystemRepresentation, 0644);
+    NSCAssert(DPExecutableHostInApp(fakeApp) == nil, @"non-executable host binary yields nil");
+    chmod(hostBin.fileSystemRepresentation, 0755);
+    NSCAssert([DPExecutableHostInApp(fakeApp) isEqualToString:hostBin], @"executable host binary discovered inside app");
+
+    // Off-tweak invariant: install while off creates nothing.
+    gProtonPassHost = hostBin;
+    DPProtonPass.on = NO;
+    DPProtonPass.install();
+    NSCAssert(![NSFileManager.defaultManager fileExistsAtPath:DPAppSupport(@"Google")], @"off Proton Pass must not create Google dir");
+    NSCAssert(![NSFileManager.defaultManager fileExistsAtPath:DPAppSupport(@"Dia")], @"off Proton Pass must not create Dia dir");
+
+    // Missing app: ready() reports missing desktop app unless DPTesting is YES.
+    gProtonPassHost = nil;
+    DPProtonPass.on = YES;
+    DPProtonPass.apply(&DPProtonPass);
+    NSString *missingMsg = DPProtonPass.ready(&DPProtonPass);
+    NSCAssert(missingMsg && [missingMsg containsString:@"The Proton Pass desktop app isn’t installed"], @"missing app message expected, got: %@", missingMsg);
+    NSCAssert(![NSFileManager.defaultManager fileExistsAtPath:DPAppSupport(@"Google/Chrome/NativeMessagingHosts/me.proton.pass.nm.json")], @"missing app must not write manifest");
+    DPTesting = YES;
+    NSCAssert(DPProtonPass.ready(&DPProtonPass) == nil, @"DPTesting passes when Proton Pass app is absent");
+    DPTesting = NO;
+
+    // Standard install with full 3-origin JSON schema.
+    gProtonPassHost = hostBin;
+    NSArray<NSString *> *expectedOrigins = @[
+        @"chrome-extension://ghmbeldphafepmbegfdlkpapadhbakde/",
+        @"chrome-extension://hlaiofkbmjenhgeinjlmkafaipackfjh/",
+        @"chrome-extension://gcllgfdnfnllodcaambdaknbipemelie/",
+    ];
+    NSString *chromePp = DPAppSupport(@"Google/Chrome/NativeMessagingHosts/me.proton.pass.nm.json");
+    NSString *diaPp = DPAppSupport(@"Dia/User Data/NativeMessagingHosts/me.proton.pass.nm.json");
+    DPProtonPass.on = YES;
+    DPProtonPass.apply(&DPProtonPass);
+    NSCAssert(DPProtonPass.ready(&DPProtonPass) == nil, @"Proton Pass ready on creatable Chrome dir, got: %@", DPProtonPass.ready(&DPProtonPass));
+    NSDictionary *manifest = readJSON(chromePp);
+    NSCAssert([manifest[@"name"] isEqual:@"me.proton.pass.nm"], @"manifest name");
+    NSCAssert([manifest[@"description"] isEqual:@"DiaTweaks link to the Proton Pass app"], @"manifest description");
+    NSCAssert([manifest[@"path"] isEqual:hostBin], @"manifest path");
+    NSCAssert([manifest[@"type"] isEqual:@"stdio"], @"manifest type");
+    NSCAssert([manifest[@"allowed_origins"] isEqual:expectedOrigins], @"manifest allowed_origins: %@", manifest[@"allowed_origins"]);
+
+    // Off/pause removes our Chrome manifest.
+    DPProtonPass.on = NO;
+    DPProtonPass.apply(&DPProtonPass);
+    NSCAssert(![NSFileManager.defaultManager fileExistsAtPath:chromePp], @"off Proton Pass removes Chrome manifest");
+
+    // Chrome-less EPERM fallback writes to Dia/User Data/NativeMessagingHosts.
+    [NSFileManager.defaultManager removeItemAtPath:DPAppSupport(@"Google/Chrome") error:nil];
+    NSString *google = DPAppSupport(@"Google");
+    [NSFileManager.defaultManager createDirectoryAtPath:google withIntermediateDirectories:YES attributes:nil error:nil];
+    NSCAssert(chflags(google.fileSystemRepresentation, UF_IMMUTABLE) == 0, @"uchg google");
+
+    DPProtonPass.on = YES;
+    DPProtonPass.apply(&DPProtonPass);
+    NSCAssert(DPProtonPass.ready(&DPProtonPass) == nil, @"Proton Pass succeeds without Chrome, got: %@", DPProtonPass.ready(&DPProtonPass));
+    NSDictionary *diaManifest = readJSON(diaPp);
+    NSCAssert([diaManifest[@"path"] isEqual:hostBin] && [diaManifest[@"allowed_origins"] isEqual:expectedOrigins], @"Dia fallback manifest matches schema");
+
+    // Chrome later becomes available: re-apply migrates to Chrome and cleans stale Dia copy.
+    NSCAssert(chflags(google.fileSystemRepresentation, 0) == 0, @"nouchg google");
+    DPProtonPass.apply(&DPProtonPass);
+    NSCAssert(DPProtonPass.ready(&DPProtonPass) == nil, @"Proton Pass ready after Chrome appears");
+    NSCAssert([NSFileManager.defaultManager fileExistsAtPath:chromePp], @"manifest migrated to Chrome folder");
+    NSCAssert(![NSFileManager.defaultManager fileExistsAtPath:diaPp], @"stale Dia manifest removed");
+
+    // Off/pause cleans up Chrome-less Dia copy too.
+    DPProtonPass.on = NO;
+    DPProtonPass.apply(&DPProtonPass);
+    [NSFileManager.defaultManager removeItemAtPath:DPAppSupport(@"Google/Chrome") error:nil];
+    NSCAssert(chflags(google.fileSystemRepresentation, UF_IMMUTABLE) == 0, @"uchg google again");
+    DPProtonPass.on = YES;
+    DPProtonPass.apply(&DPProtonPass);
+    NSCAssert([NSFileManager.defaultManager fileExistsAtPath:diaPp], @"Dia fallback manifest written");
+    DPProtonPass.on = NO;
+    DPProtonPass.install();
+    NSCAssert(![NSFileManager.defaultManager fileExistsAtPath:diaPp], @"off/install removes Dia fallback manifest");
+
+    // Preserving user/app-owned manifest across on/off, plus broken/invalid manifest diagnostics.
+    writeJSON(diaPp, @{
+        @"name" : @"me.proton.pass.nm",
+        @"description" : @"Proton Pass host for native messaging with the desktop app",
+        @"path" : hostBin,
+        @"type" : @"stdio",
+        @"allowed_origins" : expectedOrigins,
+    });
+    DPProtonPass.on = YES;
+    DPProtonPass.apply(&DPProtonPass);
+    NSCAssert(DPProtonPass.ready(&DPProtonPass) == nil, @"valid third-party manifest passes ready");
+    NSCAssert([readJSON(diaPp)[@"description"] isEqual:@"Proton Pass host for native messaging with the desktop app"], @"third-party manifest preserved on enable");
+    DPProtonPass.on = NO;
+    DPProtonPass.apply(&DPProtonPass);
+    NSCAssert([NSFileManager.defaultManager fileExistsAtPath:diaPp], @"third-party manifest preserved on disable");
+
+    writeJSON(diaPp, @{ @"name" : @"me.proton.pass.nm", @"description" : @"Proton Pass host", @"path" : @"/nonexistent/proton_pass_nm_host" });
+    DPProtonPass.on = YES;
+    DPProtonPass.apply(&DPProtonPass);
+    NSString *brokenMsg = DPProtonPass.ready(&DPProtonPass);
+    NSCAssert(brokenMsg && [brokenMsg containsString:@"Quit and reopen Proton Pass"], @"broken third-party host message expected, got: %@", brokenMsg);
+
+    writeJSON(diaPp, @{ @"name" : @"wrong.host", @"description" : @"Proton Pass host", @"path" : hostBin });
+    DPProtonPass.apply(&DPProtonPass);
+    NSString *invalidMsg = DPProtonPass.ready(&DPProtonPass);
+    NSCAssert(invalidMsg && [invalidMsg containsString:@"isn’t a valid host file"], @"invalid host message expected, got: %@", invalidMsg);
+    [NSFileManager.defaultManager removeItemAtPath:diaPp error:nil];
+
+    // Stale DiaTweaks Dia copy is removed even when Chrome gains a third-party manifest.
+    DPProtonPass.on = YES;
+    DPProtonPass.apply(&DPProtonPass);
+    NSCAssert([NSFileManager.defaultManager fileExistsAtPath:diaPp], @"ours written in Dia");
+    NSCAssert(chflags(google.fileSystemRepresentation, 0) == 0, @"nouchg google");
+    writeJSON(chromePp, @{ @"name" : @"me.proton.pass.nm", @"description" : @"Proton Pass host for native messaging with the desktop app", @"path" : hostBin });
+    DPProtonPass.apply(&DPProtonPass);
+    NSCAssert([readJSON(chromePp)[@"description"] hasPrefix:@"Proton Pass host"], @"Chrome third-party manifest untouched");
+    NSCAssert(![NSFileManager.defaultManager fileExistsAtPath:diaPp], @"stale DiaTweaks copy cleaned when Chrome has third-party manifest");
+    [NSFileManager.defaultManager removeItemAtPath:chromePp error:nil];
+
+    // #384: existing read-only Chrome NativeMessagingHosts reports sudo chown repair.
+    NSString *chromeDir = chromePp.stringByDeletingLastPathComponent;
+    chmod(chromeDir.fileSystemRepresentation, 0555);
+    DPProtonPass.on = YES;
+    DPProtonPass.apply(&DPProtonPass);
+    NSString *permMsg = DPProtonPass.ready(&DPProtonPass);
+    NSCAssert(permMsg && [permMsg containsString:@"sudo chown -R \"$(whoami)\""], @"#384 Proton Pass repair expected, got: %@", permMsg);
+
+    unlockAndRemove(gAppSupportRoot);
+}
+
 int main(void) {
     @autoreleasepool {
         testHostFolderFallback();
         testPasskeysChromelessAndTransition();
         testICloudPasswordsTemplatesAndChromeless();
         testBitwardenAndOnePasswordChromeless();
+        testProtonPass();
         puts("all native messaging checks passed");
     }
     return 0;

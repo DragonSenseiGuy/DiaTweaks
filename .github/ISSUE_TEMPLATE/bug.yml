@@ -76,6 +76,7 @@ body:
         - Skip Account
         - Allow 1Password
         - Allow Bitwarden
+        - Allow Proton Pass
         - Allow iCloud Passkeys
         - Allow iCloud Passwords
         - Group Tabs by Domain
