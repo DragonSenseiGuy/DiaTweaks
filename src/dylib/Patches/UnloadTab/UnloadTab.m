@@ -1,149 +1,173 @@
+#import "Patches/UnloadTab/Pages.h"
 #import "Patches/UnloadTab/Recent.h"
 #import "Patches/PinnedTabCloseButton/PinnedTabs.h"
-#import "Commands/GroupTabs/GroupTabs.h"
-#import <objc/message.h>
 
-enum { DPPageVisible = 2 };
-
-static NSHashTable *DPPages;
-static NSHashTable *DPDiscarded;
-static NSHashTable *DPUnloadOnHide;
-
-static id DPTabContent(NSView *tab) {
-    NSDictionary *views = DPSwiftValue(tab, @"contentViews");
-    if (views.count != 1) return nil;
-    return DPSwiftValue(DPSwiftValue(views.allValues.firstObject, @"viewModel"), @"delegate");
+static id DPControllerOf(NSView *view) {
+    return DPViewModelDelegate(view) ?: DPSwiftValue(DPSwiftValue(view, @"viewModel"), @"delegate");
 }
 
-static id DPPageAt(NSURL *url) {
-    id found = nil;
-    for (id page in DPPages) {
-        if (![[page valueForKey:@"url"] isEqual:url]) continue;
-        if (found) return nil;
-        found = page;
-    }
-    return found;
+static BOOL DPIsClosedPinned(NSView *content) {
+    __attribute__((objc_precise_lifetime)) id attributes = DPAttributes(content);
+    BOOL *pinned = DPIvar(attributes, "isInFavoritesOrPinnedContainer");
+    void **activeURL = DPIvar(attributes, "activeURL");
+    return pinned && *pinned && activeURL && !*activeURL;
 }
 
-// A tab with no page of its own would be taken for another tab's page at the same address.
-static id DPPageOf(id content) {
-    NSURL *url = DPSwiftValue(content, @"webContentURL");
-    NSString *tabID = DPUUIDsIn([DPSwiftValue(content, @"tabID") description]).firstObject;
-    if (!url || !tabID) return nil;
-    NSMutableArray<NSString *> *sharing = [NSMutableArray array];
-    for (id window in [(id)NSApp.delegate valueForKey:@"appleScriptWindows"])
-        for (id tab in [window valueForKey:@"appleScriptTabs"]) {
-            NSString *text = [tab respondsToSelector:@selector(URL)] ? DPText(DPMsg(tab, @selector(URL))) : nil;
-            NSString *tid = text && [[NSURL URLWithString:text] isEqual:url] ? DPTabID(tab) : nil;
-            if (tid) [sharing addObject:tid];
+static BOOL DPTabViewInfo(NSView *tab, NSString **outTabID, NSString **outContentID, NSURL **outURL) {
+    id views = DPSwiftValue(tab, @"contentViews");
+    if ([views isKindOfClass:NSDictionary.class]) {
+        if ([views count] > 1) return NO;
+        if ([views count] == 1) {
+            id content = DPControllerOf([[views allValues] firstObject]);
+            if (!content) return NO;
+            *outTabID = DPUUIDsIn([DPSwiftValue(content, @"tabID") description]).firstObject;
+            *outContentID = DPUUIDsIn([[[views allKeys] firstObject] description]).firstObject;
+            if (!*outContentID && (DPIvar(content, "contentID") || [content respondsToSelector:NSSelectorFromString(@"contentID")]))
+                *outContentID = DPUUIDsIn([DPSwiftValue(content, @"contentID") description]).firstObject;
+            id rawURL = DPSwiftValue(content, @"webContentURL");
+            *outURL = [rawURL isKindOfClass:NSURL.class] ? rawURL : nil;
+            return *outTabID != nil || *outContentID != nil;
         }
-    return sharing.count == 1 && [sharing.firstObject isEqual:tabID] ? DPPageAt(url) : nil;
+    }
+    id viewModel = DPSwiftValue(tab, @"viewModel");
+    id state = DPSwiftValue(DPSwiftValue(viewModel, @"stateSubject"), @"currentValue");
+    NSArray<NSString *> *ids = DPUUIDsIn([DPSwiftValue(state, @"contentIDs") description]);
+    if (ids.count != 1) return NO;
+    *outContentID = ids.firstObject;
+    *outTabID = DPUUIDsIn([DPSwiftValue(viewModel, @"tabID") description]).firstObject;
+    *outURL = *outTabID ? DPScriptTabURL(tab.window, *outTabID) : nil;
+    return YES;
 }
 
-static BOOL DPTabOpen(NSView *tab) {
+static BOOL DPPinnedTabInfo(NSView *dock, NSString **outTabID, NSString **outContentID) {
+    id state = DPSwiftValue(DPSwiftValue(DPSwiftValue(dock, @"viewModel"), @"stateSubject"), @"currentValue");
+    if ([[[DPSwiftValue(state, @"icon") description] lowercaseString] containsString:@"split"]) return NO;
+    id controller = DPControllerOf(dock);
+    NSString *itemDesc = controller ? [DPSwiftValue(controller, @"itemID") description] : nil;
+    NSString *tabID = itemDesc && ![[itemDesc lowercaseString] containsString:@"group"] ? DPUUIDsIn(itemDesc).firstObject : nil;
+    if (!tabID) return NO;
+    NSString *contentID = nil;
+    id controllers = DPSwiftValue(controller, @"contentControllers");
+    if ([controllers isKindOfClass:NSDictionary.class]) {
+        if ([controllers count] > 1) return NO;
+        if ([controllers count] == 1)
+            contentID = DPUUIDsIn([[[controllers allKeys] firstObject] description]).firstObject
+                ?: DPUUIDsIn([DPSwiftValue([[controllers allValues] firstObject], @"contentPaneID") description]).firstObject;
+    } else if (controllers) {
+        NSOrderedSet<NSString *> *ids = [NSOrderedSet orderedSetWithArray:DPUUIDsIn([controllers description])];
+        if (ids.count > 1) return NO;
+        contentID = ids.firstObject;
+    }
+    *outTabID = tabID;
+    *outContentID = contentID;
+    return YES;
+}
+
+static BOOL DPTabOpen(NSView *tab, NSString *tabID) {
     id state = DPSwiftValue(DPSwiftValue(DPSwiftValue(tab, @"viewModel"), @"stateSubject"), @"currentValue");
     NSString *style = [[DPSwiftValue(state, @"selectionStyle") description] lowercaseString];
-    return style && ![style isEqualToString:@"nil"] && ![style containsString:@"none"] && ![style containsString:@"above"] && ![style containsString:@"below"];
+    if (style && ![style isEqualToString:@"nil"] && ![style containsString:@"none"] && ![style containsString:@"above"] && ![style containsString:@"below"])
+        return YES;
+    return tabID && tab.window && [tabID isEqualToString:DPActiveTabID(tab.window)];
 }
 
-static void DPPage_setVisibility(id self, SEL _cmd, NSInteger visibility) {
-    if ([self respondsToSelector:@selector(visibility)] && [self respondsToSelector:@selector(discard)]) [DPPages addObject:self];
-    DPCallOriginal(DPPage_setVisibility, self, visibility);
-    if (visibility == DPPageVisible) {
-        [DPDiscarded removeObject:self];
-    } else if ([DPUnloadOnHide containsObject:self]) {
-        [DPUnloadOnHide removeObject:self];
-        dispatch_async(dispatch_get_main_queue(), ^{ [self performSelector:@selector(discard)]; });
-    }
-}
-
-// Discard can be declined (e.g. playing audio), so only the finalize callback marks it unloaded.
-static void DPWebContent_finalizeDiscard(id self, SEL _cmd, id page, BOOL discarded) {
-    DPCallOriginal(DPWebContent_finalizeDiscard, self, page, discarded);
-    if (discarded && page) [DPDiscarded addObject:page];
-}
-
-static NSMenu *DPTab_menuForEvent(NSView *self, SEL _cmd, NSEvent *event) {
-    NSMenu *menu = DPCallOriginal(DPTab_menuForEvent, self, event);
-    if (!menu || !DPUnloadTab.on) return menu;
-    id content = DPTabContent(self);
-    if (!content) return menu;
-    NSView *pane = DPFindView(self, ^BOOL(NSView *view) { return DPIsKind(view, DPDiaTabContentView); });
-    BOOL pinned = pane && DPIsOpenPinned(pane) && [pane respondsToSelector:NSSelectorFromString(@"closeButtonClicked")];
-    id page = !pinned ? DPPageOf(content) : nil;
-    if (!pinned && (!page || [DPDiscarded containsObject:page])) return menu;
-    BOOL open = DPTabOpen(self);
-    BOOL visible = page ? ((NSInteger (*)(id, SEL))objc_msgSend)(page, @selector(visibility)) == DPPageVisible : open;
-    NSWindow *window = self.window;
+static void DPAddUnloadMenuItem(NSMenu *menu, NSView *tab, NSString *tabID, id page, NSView *closePane) {
+    BOOL open = DPTabOpen(tab, tabID);
+    BOOL visible = page ? DPPageIsVisible(page) : open;
+    NSWindow *window = tab.window;
     id before = visible && open ? DPTabBefore(window) : nil;
     NSMenuItem *item = DPMenuItem(@"Unload Tab", ^{
         if (before) DPForgetFrontTab(window);
-        if (pinned) {
-            if (before) DPFocusTab(before);
-            DPMarkOwnClose();
-            return (void)DPCloseKeepingTab(pane);
-        }
-        if (!before) return (void)[page performSelector:@selector(discard)];
-        [DPUnloadOnHide addObject:page];
-        DPFocusTab(before);
-        __weak id weakPage = page;
-        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 2 * NSEC_PER_SEC), dispatch_get_main_queue(), ^{
-            id shown = weakPage;
-            if (shown) [DPUnloadOnHide removeObject:shown];
-        });
+        if (page) return DPUnloadPage(page, before);
+        if (before) DPFocusTab(before);
+        DPMarkOwnClose();
+        DPCloseKeepingTab(closePane);
     });
     item.image = [NSImage imageWithSystemSymbolName:@"moon.zzz" accessibilityDescription:nil];
     // By name: CI's SDK predates macOS 27. 1 is NSMenuItemImageVisibilityVisible.
     if (@available(macOS 27, *)) [item setValue:@1 forKey:@"preferredImageVisibility"];
-    item.enabled = pinned || !visible || before;
-    NSInteger close = [menu indexOfItemWithTitle:@"Close"];
-    [menu insertItem:item atIndex:close < 0 ? menu.numberOfItems : close];
+    item.enabled = closePane != nil || !visible || before != nil;
+    NSInteger index = [menu indexOfItemWithTitle:@"Close"];
+    if (index < 0) index = [menu indexOfItemWithTitle:@"Close Tab"];
+    if (index < 0) index = [menu indexOfItemWithTitle:@"Delete"];
+    [menu insertItem:item atIndex:index < 0 ? menu.numberOfItems : index];
+}
+
+static NSMenu *DPTab_menuForEvent(NSView *self, SEL _cmd, NSEvent *event) {
+    NSMenu *menu = DPCallOriginal(DPTab_menuForEvent, self, event);
+    if (!menu || !DPUnloadTab.on || [menu itemWithTitle:@"Unload Tab"]) return menu;
+    DPRecordVisiblePanePages();
+    NSView *pane = DPFindView(self, ^BOOL(NSView *view) { return DPIsKind(view, DPDiaTabContentView); });
+    if (pane && DPIsClosedPinned(pane)) return menu;
+    NSString *tabID = nil, *contentID = nil;
+    NSURL *url = nil;
+    if (!DPTabViewInfo(self, &tabID, &contentID, &url)) return menu;
+    id page = DPPageForPane(self.window, contentID) ?: DPPageByURL(tabID, contentID, url);
+    if (page && DPPageIsDiscarded(page)) return menu;
+    NSView *closePane = !page && pane && DPIsOpenPinned(pane) && [pane respondsToSelector:NSSelectorFromString(@"closeButtonClicked")] ? pane : nil;
+    if (!page && !closePane) return menu;
+    DPAddUnloadMenuItem(menu, self, tabID, page, closePane);
     return menu;
 }
 
-static NSMenuItem *DPUnloadItem(NSView *tab) {
-    NSPoint point = [tab convertPoint:NSMakePoint(NSMidX(tab.bounds), NSMidY(tab.bounds)) toView:nil];
-    NSEvent *click = [NSEvent mouseEventWithType:NSEventTypeRightMouseDown location:point modifierFlags:0 timestamp:NSProcessInfo.processInfo.systemUptime
-                                    windowNumber:tab.window.windowNumber context:nil eventNumber:0 clickCount:1 pressure:1];
-    return [[tab menuForEvent:click] itemWithTitle:@"Unload Tab"];
+static NSMenu *DPPinnedTab_menuForEvent(NSView *self, SEL _cmd, NSEvent *event) {
+    NSMenu *menu = DPCallOriginal(DPPinnedTab_menuForEvent, self, event);
+    if (!menu || !DPUnloadTab.on || [menu itemWithTitle:@"Unload Tab"]) return menu;
+    DPRecordVisiblePanePages();
+    NSString *tabID = nil, *contentID = nil;
+    if (!DPPinnedTabInfo(self, &tabID, &contentID)) return menu;
+    id page = DPPageForPane(self.window, contentID) ?: DPPageByURL(tabID, contentID, DPScriptTabURL(self.window, tabID));
+    if (!page || DPPageIsDiscarded(page)) return menu;
+    DPAddUnloadMenuItem(menu, self, tabID, page, nil);
+    return menu;
+}
+
+static NSString *DPVerifyTab(NSView *tab, BOOL on, BOOL dock, NSCountedSet<NSURL *> *urls) {
+    NSMenu *menu = DPTabContextMenu(tab);
+    if (!menu) return nil;
+    NSMenuItem *item = [menu itemWithTitle:@"Unload Tab"];
+    if (!on) return item ? (dock ? @"pinned tab still offers Unload Tab" : @"tab still offers Unload Tab") : nil;
+    NSString *tabID = nil, *contentID = nil;
+    NSURL *url = nil;
+    if (dock) {
+        if (!DPPinnedTabInfo(tab, &tabID, &contentID)) return nil;
+        url = DPScriptTabURL(tab.window, tabID);
+    } else {
+        NSView *pane = DPFindView(tab, ^BOOL(NSView *v) { return DPIsKind(v, DPDiaTabContentView); });
+        if (pane && DPIsClosedPinned(pane)) return item ? @"closed pinned tab still offers Unload Tab" : nil;
+        if (!DPTabViewInfo(tab, &tabID, &contentID, &url)) return nil;
+    }
+    id page = DPPageForPane(tab.window, contentID) ?: DPPageByURL(tabID, contentID, url);
+    if (page && DPPageIsDiscarded(page)) return item ? @"unloaded tab still offers Unload Tab" : nil;
+    BOOL front = DPTabOpen(tab, tabID);
+    if (!page) {
+        if (dock) return item ? @"unloaded pinned tab still offers Unload Tab" : nil;
+        if (!front || ![url.scheme hasPrefix:@"http"] || [urls countForObject:url] > 1) return nil;
+    }
+    if (!item) return dock ? @"loaded pinned tab has no Unload Tab" : front ? @"tab in front has no Unload Tab" : @"loaded tab has no Unload Tab";
+    if (front && !item.enabled && [[DPScriptWindow(tab.window) valueForKey:@"appleScriptTabs"] count] > 1)
+        return dock ? @"Unload Tab can't leave the pinned tab in front" : @"Unload Tab can't leave the tab in front";
+    return nil;
 }
 
 static NSString *DPVerifyUnloadTab(DPPatch *patch) {
-    NSArray<NSView *> *tabs = DPFindViews(DPDiaTabView);
-    NSCountedSet<NSURL *> *urls = [NSCountedSet set];
-    for (NSView *tab in tabs) {
-        NSURL *url = DPSwiftValue(DPTabContent(tab), @"webContentURL");
-        if (url) [urls addObject:url];
-    }
-    for (NSView *tab in tabs) {
-        if (!tab.window || tab.isHiddenOrHasHiddenAncestor) continue;
-        NSMenuItem *item = DPUnloadItem(tab);
-        if (!patch->on) {
-            if (item) return @"tab still offers Unload Tab";
-            continue;
-        }
-        NSURL *url = DPSwiftValue(DPTabContent(tab), @"webContentURL");
-        if (![url.scheme hasPrefix:@"http"] || [urls countForObject:url] > 1) continue;
-        BOOL front = DPTabOpen(tab);
-        id page = DPPageAt(url);
-        if (!front && (!page || [DPDiscarded containsObject:page])) continue;
-        if (!item) return front ? @"tab in front has no Unload Tab" : @"loaded tab has no Unload Tab";
-        if (front && !item.enabled && [[DPScriptWindow(tab.window) valueForKey:@"appleScriptTabs"] count] > 1)
-            return @"Unload Tab can't leave the tab in front";
-    }
+    DPRecordVisiblePanePages();
+    NSCountedSet<NSURL *> *urls = DPScriptTabURLCounts();
+    const char *kinds[2] = {DPDiaTabView, DPDiaPinnedTab};
+    for (int i = 0; i < 2; i++)
+        for (NSView *tab in DPFindViews(kinds[i]))
+            if (tab.window && !tab.isHiddenOrHasHiddenAncestor) {
+                NSString *err = DPVerifyTab(tab, patch->on, i == 1, urls);
+                if (err) return err;
+            }
     return nil;
 }
 
 static void DPInstallUnloadTab(void) {
-    DPPages = [NSHashTable weakObjectsHashTable];
-    DPDiscarded = [NSHashTable weakObjectsHashTable];
-    DPUnloadOnHide = [NSHashTable weakObjectsHashTable];
-    DPHook(DPDiaWebContents, @selector(setVisibility:), (IMP)DPPage_setVisibility);
+    DPInstallUnloadPages();
     DPHook(DPDiaTabView, @selector(menuForEvent:), (IMP)DPTab_menuForEvent);
+    DPHook(DPDiaPinnedTab, @selector(menuForEvent:), (IMP)DPPinnedTab_menuForEvent);
     DPWatchFrontTabs();
-    DPOnLaunch(^{
-        DPHook(DPDiaWebContent, @selector(webContents:finalizeDiscardRequest:), (IMP)DPWebContent_finalizeDiscard);
-    });
 }
 
 DP_PATCH(DPUnloadTab) {
@@ -151,10 +175,10 @@ DP_PATCH(DPUnloadTab) {
     .order = 86,
     .section = @"Tabs",
     .title = @"Unload Tabs",
-    .detail = @"Right-click a tab and choose Unload Tab to free its memory. It stays in the sidebar and loads again when you open it. Unloading the tab you’re on takes you back to the one you were on before. A pinned tab goes back to its pinned page.",
+    .detail = @"Right-click a tab or pinned tab and choose Unload Tab to free its memory. It stays where it is and loads again when you open it. Unloading the tab you’re on takes you back to the one you were on before.",
     .symbol = @"moon.zzz.fill",
     .tint = @"systemPinkColor",
-    .classes = DPClasses(DPDiaWebContents, DPDiaTabView, DPDiaContentPane),
+    .classes = DPClasses(DPDiaWebContents, DPDiaTabView, DPDiaPinnedTab, DPDiaContentPane),
     .install = DPInstallUnloadTab,
     .verify = DPVerifyUnloadTab,
 };

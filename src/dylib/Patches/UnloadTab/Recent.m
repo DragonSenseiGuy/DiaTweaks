@@ -1,4 +1,5 @@
 #import "Patches/UnloadTab/Recent.h"
+#import "Patches/UnloadTab/Pages.h"
 
 static NSMapTable<NSWindow *, NSMutableArray<NSString *> *> *DPRecent;
 
@@ -24,7 +25,9 @@ static void DPContentPane_viewDidMoveToWindow(NSView *self, SEL _cmd) {
     DPCallOriginal(DPContentPane_viewDidMoveToWindow, self);
     if (!DPUnloadTab.on) return;
     NSWindow *window = self.window;
-    NSString *active = window ? DPActiveTabID(window) : nil;
+    if (!window) return;
+    DPRecordVisiblePanePages();
+    NSString *active = DPActiveTabID(window);
     if (!active) return;
     NSMutableArray *recent = [DPRecent objectForKey:window];
     if (!recent) [DPRecent setObject:(recent = [NSMutableArray array]) forKey:window];

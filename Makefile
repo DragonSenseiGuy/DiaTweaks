@@ -178,7 +178,7 @@ SIDEBAR_TAB_BUGS := src/dylib/Patches/HideSleepingTabs/HideSleepingTabs.m src/dy
 	src/dylib/Patches/CompactTabRows/CompactTabRows.m src/dylib/Patches/UndoCloseTab/UndoCloseTab.m \
 	src/dylib/Patches/SavePageAs/SavePageAs.m src/dylib/Patches/ProfileEmoji/ProfileEmoji.m \
 	src/dylib/Patches/PullRequestRepo/PullRequestRepo.m src/dylib/Patches/PullRequestRepo/Subtitle.m src/dylib/Patches/PullRequestRepo/Rows.m \
-	src/dylib/Patches/UnloadTab/UnloadTab.m src/dylib/Patches/UnloadTab/Recent.m \
+	src/dylib/Patches/UnloadTab/UnloadTab.m src/dylib/Patches/UnloadTab/Pages.m src/dylib/Patches/UnloadTab/Recent.m \
 	src/dylib/Patches/PinnedTabCloseButton/PinnedTabs.m src/dylib/Patches/CompactSidebarHeader/CompactSidebarHeader.m \
 	src/dylib/Patches/TidyTabs/TidyTabs.m src/dylib/Patches/TidyTabs/Layout.m src/dylib/Patches/TidyTabs/Hover.m \
 	src/dylib/Patches/TidyTabs/Row.m src/dylib/Patches/TidyTabs/Separator.m src/dylib/Patches/TidyTabs/Brush.m src/dylib/Patches/TidyTabs/Wave.m \
@@ -188,7 +188,14 @@ SIDEBAR_TAB_BUGS := src/dylib/Patches/HideSleepingTabs/HideSleepingTabs.m src/dy
 build/sidebar-tab-bugs: tests/sidebar-tab-bugs.m $(SIDEBAR_TAB_BUGS) $(wildcard src/dylib/StdPatch/*.h) | build
 	clang $(CFLAGS) -fsanitize=address,undefined -fno-sanitize-recover=all -Isrc/dylib -framework AppKit -framework QuartzCore -o $@ tests/sidebar-tab-bugs.m $(SIDEBAR_TAB_BUGS)
 
-check: build/diapatch build/diapatch-tests build/group-tabs build/mouse-back-forward build/vertical-tab-glow build/split-client-hello build/peek-cursor build/peek-link build/safe-mode build/pause build/hook-table build/updates-runtime build/runtime-guards build/tidy-tabs build/drag-offset build/small-tab-shape build/toolbar-permission build/launch-flags build/little-dia-stack build/little-dia-profile build/little-dia-over build/little-dia-focus build/tracking build/hide-toolbar-settle build/command-bar-swap build/command-bar-spare build/tab-titles build/show-address-field build/hide-chat-button build/open-sidebar-instantly build/native-messaging build/diapatch-passkeys build/passkeys-origin build/app-icon-signing build/little-dia-route build/chat-card build/peek-lifecycle build/hide-toolbar-off build/command-bar-lifecycle build/window-patches build/pinned-tab-close-button build/sidebar-tab-bugs build/patches.json
+UNLOAD_TAB := src/dylib/Patches/UnloadTab/UnloadTab.m src/dylib/Patches/UnloadTab/Pages.m src/dylib/Patches/UnloadTab/Recent.m \
+	src/dylib/Patches/PinnedTabCloseButton/PinnedTabs.m src/dylib/Patches/CommandBar/Tabs.m \
+	src/dylib/Commands/GroupTabs/Messages.m src/dylib/StdPatch/Hook.m src/dylib/StdPatch/Views.m
+
+build/unload-tab: tests/unload-tab.m $(UNLOAD_TAB) $(wildcard src/dylib/Patches/UnloadTab/*.h src/dylib/Patches/PinnedTabCloseButton/PinnedTabs.h src/dylib/Patches/CommandBar/Tabs.h src/dylib/Commands/GroupTabs/GroupTabs.h src/dylib/StdPatch/*.h) | build
+	clang $(CFLAGS) -fsanitize=address,undefined -fno-sanitize-recover=all -Isrc/dylib -framework AppKit -framework QuartzCore -o $@ tests/unload-tab.m $(UNLOAD_TAB)
+
+check: build/diapatch build/diapatch-tests build/group-tabs build/mouse-back-forward build/vertical-tab-glow build/split-client-hello build/peek-cursor build/peek-link build/safe-mode build/pause build/hook-table build/updates-runtime build/runtime-guards build/tidy-tabs build/drag-offset build/small-tab-shape build/toolbar-permission build/launch-flags build/little-dia-stack build/little-dia-profile build/little-dia-over build/little-dia-focus build/tracking build/hide-toolbar-settle build/command-bar-swap build/command-bar-spare build/tab-titles build/show-address-field build/hide-chat-button build/open-sidebar-instantly build/native-messaging build/diapatch-passkeys build/passkeys-origin build/app-icon-signing build/little-dia-route build/chat-card build/peek-lifecycle build/hide-toolbar-off build/command-bar-lifecycle build/window-patches build/pinned-tab-close-button build/sidebar-tab-bugs build/unload-tab build/patches.json
 	tests/tweaks-update
 	build/diapatch-tests
 	build/group-tabs
@@ -231,6 +238,7 @@ check: build/diapatch build/diapatch-tests build/group-tabs build/mouse-back-for
 	build/window-patches
 	build/pinned-tab-close-button
 	build/sidebar-tab-bugs
+	build/unload-tab
 	tests/sidebar-grain
 	scripts/check-patches
 
