@@ -8,6 +8,7 @@ void DPDropLaunchFlag(NSString *flag) {}
 void DPHandOffAndQuit(NSArray<NSString *> *args) {}
 void DPInstallAIRows(void) {}
 void DPApplyAIRows(void) {}
+void DPDismissConnectAppPrompts(void) {}
 BOOL DPShortcutRecording(void) { return NO; }
 BOOL DPSavedOn(DPPatch *patch) { return NO; }
 void DPOnLaunch(void (^block)(void)) {}

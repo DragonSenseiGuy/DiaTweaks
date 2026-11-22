@@ -1,4 +1,5 @@
 #import "TurnOffAI.h"
+#import "Patches/HideConnectAppPrompts/HideConnectAppPrompts.h"
 #import "Updates/Updates.h"
 
 #define DPDiaCapabilitiesToolbar "_TtC23AssistantCapabilitiesUI32AssistantCapabilitiesToolbarView"
@@ -163,6 +164,7 @@ static void DPApplyTurnOffAI(DPPatch *patch) {
     for (NSView *section in DPMorningBriefs.allObjects) section.hidden = patch->on;
     for (NSViewController *sidebar in DPChatSidebars.allObjects) DPCloseChat(sidebar);
     DPApplyAIRows();
+    if (patch->on) DPDismissConnectAppPrompts();
     DPOfferRelaunch(patch);
 }
 

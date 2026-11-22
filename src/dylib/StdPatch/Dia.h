@@ -90,3 +90,7 @@
 #define DPDiaFeatheredLabel     "_TtC5ARCUI24FeatheredTruncatingLabel"
 #define DPDiaTransitioningLabel "_TtC5ARCUI27FeatheredTransitioningLabel"
 #define DPDiaTabListLayout      "_TtC7TabList27TabListCollectionViewLayout"
+#define DPDiaDialogPanel        "_TtC6Dialog15DialogPanelView"
+#define DPDiaDialogButton       "_TtC6Dialog12DialogButton"
+#define DPDiaDialogPanelVC      "_TtC6Dialog25DialogPanelViewController"
+#define DPDiaDialogPanelWC      "_TtC6Dialog27DialogPanelWindowController"

@@ -66,6 +66,7 @@ body:
         - Hide Upgrade Banner
         - Hide Personalize Button
         - Hide Skills Suggestions
+        - Hide Connect App Prompt
         - Window Material
         - Keep Windows Active
         - Drag Window from Page
