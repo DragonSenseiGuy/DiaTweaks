@@ -75,6 +75,7 @@ body:
         - Hide Window Controls
         - Private Window Theme
         - Skip Account
+        - Launch Flags
         - Allow 1Password
         - Allow Bitwarden
         - Allow Proton Pass

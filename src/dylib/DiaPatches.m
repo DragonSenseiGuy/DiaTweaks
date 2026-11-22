@@ -14,6 +14,7 @@ __attribute__((constructor)) static void DPInit(void) {
     DPLoadPatches();
     DPWatchSavedSettings();
     if (!DPSafeMode && !DPPaused) DPInstallPatches();
+    else if (DPPaused && !DPSafeMode) DPDropStaleLaunchFlags();
     DPInstallSettings();
     DPInstallUpdates();
     DPInstallDevTools();

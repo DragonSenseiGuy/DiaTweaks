@@ -84,6 +84,7 @@
 #define DPDiaSkillsSuggestions  "_TtC17SkillsSuggestions21SkillsSuggestionsView"
 #define DPDiaNewTabButton       "_TtC7TabList14NewTabCellView"
 #define DPDiaBrowserContext     "ArcBrowserContext"
+#define DPDiaAppConfiguration   "ArcBrowserApplicationConfiguration"
 #define DPDiaRenderWidget       "RenderWidgetHostViewCocoa"
 #define DPDiaWebContentsConfiguration "ArcWebContentsConfiguration"
 #define DPDiaWebContent         "_TtC3ADK18WebContentChromium"  // A Swift class: look it up after launch.

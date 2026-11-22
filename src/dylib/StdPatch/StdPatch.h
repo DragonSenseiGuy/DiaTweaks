@@ -129,6 +129,7 @@ void DPLoadExtension(NSString *folder);
 void DPAddLaunchFlag(NSString *flag);
 void DPDropExtension(NSString *folder);
 void DPDropLaunchFlag(NSString *flag);
+void DPDropStaleLaunchFlags(void);
 
 void DPOnLaunch(void (^block)(void));
 void DPOnQuit(void (^block)(void));

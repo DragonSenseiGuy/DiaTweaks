@@ -125,8 +125,10 @@ build/hide-chat-button: tests/hide-chat-button.m src/dylib/Patches/HideChatButto
 build/hide-connect-app-prompt: tests/hide-connect-app-prompt.m src/dylib/Patches/HideConnectAppPrompts/HideConnectAppPrompts.m src/dylib/Patches/HideConnectAppPrompts/HideConnectAppPrompts.h src/dylib/Patches/TurnOffAI/TurnOffAI.m src/dylib/Patches/TurnOffAI/TurnOffAI.h src/dylib/StdPatch/Hide.m src/dylib/StdPatch/HideHosts.m src/dylib/StdPatch/Hook.m src/dylib/StdPatch/Views.m $(wildcard src/dylib/StdPatch/*.h) | build
 	clang $(CFLAGS) -fsanitize=address,undefined -fno-sanitize-recover=all -Isrc/dylib -framework AppKit -o $@ tests/hide-connect-app-prompt.m src/dylib/StdPatch/Hook.m src/dylib/StdPatch/Views.m
 
-build/launch-flags: tests/launch-flags.m src/dylib/StdPatch/Extensions.m src/dylib/StdPatch/Hook.m $(wildcard src/dylib/StdPatch/*.h) | build
-	clang $(CFLAGS) -Isrc/dylib -framework AppKit -o $@ tests/launch-flags.m src/dylib/StdPatch/Hook.m
+LAUNCH_FLAGS := src/dylib/Patches/LaunchFlags/Parse.m src/dylib/Patches/LaunchFlags/LaunchFlags.m src/dylib/Patches/LaunchFlags/Rows.m
+
+build/launch-flags: tests/launch-flags.m src/dylib/StdPatch/Extensions.m $(LAUNCH_FLAGS) src/dylib/Patches/LaunchFlags/LaunchFlags.h src/dylib/Settings/Controls.m src/dylib/Settings/Settings.h src/dylib/StdPatch/Hook.m src/dylib/StdPatch/Views.m $(wildcard src/dylib/StdPatch/*.h) | build
+	clang $(CFLAGS) -fsanitize=address,undefined -fno-sanitize-recover=all -Isrc/dylib -framework AppKit -framework QuartzCore -o $@ tests/launch-flags.m src/dylib/StdPatch/Hook.m src/dylib/StdPatch/Views.m
 
 build/command-bar-swap: tests/command-bar-swap.m src/dylib/Patches/CommandBar/CommandBarSwap.m src/dylib/Patches/CommandBar/HideTabButton.m src/dylib/Patches/CommandBar/CommandBarOverlay.h src/dylib/Patches/CommandBar/HideTab.h src/dylib/StdPatch/Hook.m src/dylib/StdPatch/Views.m $(wildcard src/dylib/StdPatch/*.h) | build
 	clang $(CFLAGS) -Isrc/dylib -framework AppKit -o $@ tests/command-bar-swap.m src/dylib/StdPatch/Hook.m src/dylib/StdPatch/Views.m
