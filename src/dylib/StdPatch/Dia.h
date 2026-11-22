@@ -52,6 +52,8 @@
 #define DPDiaPageIndicatorDot   "_TtC8TabStripP33_B0CB782161153EFE9133A89C9E1DF5E27DotView"
 #define DPDiaProfilePane        "_TtC11Preferences44DiaProfileDetailPreferencePaneViewController"
 #define DPDiaSettingsFormGroup  "_TtC11Preferences21SettingsFormGroupView"
+#define DPDiaThemePicker        "_TtC12ColorPalette15ThemePickerView"
+#define DPDiaAnchoredPanel      "_TtC16ThemeIntensityUI13AnchoredPanel"
 #define DPDiaSettingsSidebarCell "_TtC11PreferencesP33_4E27E2219272DF78406B73092738280415SidebarCellView"
 #define DPDiaPopover            "_TtCC14DynamicPopover28DynamicPopoverViewControllerP33_AB0357A1429F4D6D7F128058B713C93F8RootView"
 #define DPDiaAssistantPanel     "_TtC20AssistantPanelUIBase22AssistantPanelRootView"
