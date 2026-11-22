@@ -3,7 +3,10 @@
 static const CGFloat DPPeekShadowRoom = 48, DPPeekEdgeAlpha = 0.12;
 static NSHashTable<DPPeekCard *> *DPPeekCards;
 
-static NSRect DPPeekCardRect(NSRect area) { return NSInsetRect(area, NSWidth(area) * 0.09, MAX(10, NSHeight(area) * 0.012)); }
+static NSRect DPPeekCardRect(NSRect area) {
+    CGFloat insetX = MIN(MAX(NSWidth(area) * 0.09, 48), NSWidth(area) * 0.18);
+    return NSInsetRect(area, insetX, MAX(10, NSHeight(area) * 0.012));
+}
 
 @interface DPPeekCard ()
 @property (nonatomic, weak) NSResponder *savedResponder;
@@ -57,7 +60,7 @@ static NSRect DPPeekCardRect(NSRect area) { return NSInsetRect(area, NSWidth(are
     self.card.frame = NSInsetRect(card, -DPPeekShadowRoom, -DPPeekShadowRoom);
     self.clip.frame = self.shade.frame = NSInsetRect(self.card.bounds, DPPeekShadowRoom, DPPeekShadowRoom);
     self.clip.layer.borderColor = [NSColor colorWithWhite:1 alpha:DPPeekEdgeAlpha * (1 - self.grown)].CGColor;
-    self.controls.frame = (NSRect){{NSMaxX(card) + 12, NSMinY(card) + 4}, self.controls.frame.size};
+    self.controls.frame = DPPeekControlsFrame(self, (NSRect){{NSMaxX(card) + 12, NSMinY(card) + 4}, self.controls.frame.size});
     // Not animated with the sidebar slide: the page redraws at its new size at once, so it must cover both card sizes meanwhile.
     CGFloat bar = DPPeekToolbarInset(self);
     NSSize page = NSMakeSize(NSWidth(self.clip.bounds), MAX(0, NSHeight(self.clip.bounds) - bar));
@@ -73,9 +76,27 @@ static NSRect DPPeekCardRect(NSRect area) { return NSInsetRect(area, NSWidth(are
 }
 
 - (void)followPane {
-    NSView *pane = self.pane, *root = self.superview;
-    if (self.hidden || !pane.window || !root) return;
-    NSRect frame = [root convertRect:pane.bounds fromView:pane];
+    NSView *root = self.superview;
+    if (self.hidden || !root || !self.window) return;
+    NSView *pane = self.pane;
+    if (pane.window != self.window || pane.isHiddenOrHasHiddenAncestor) {
+        NSView *fresh = DPPeekPane(self.window, [self.window convertRectToScreen:[root convertRect:self.frame toView:nil]]);
+        if (fresh && fresh != pane) {
+            NSView *holder = DPPeekHolder(self.window, fresh);
+            if (holder && holder != root) {
+                self.reparenting = YES;
+                [holder addSubview:self positioned:NSWindowAbove relativeTo:nil];
+                self.reparenting = NO;
+                root = holder;
+            }
+            DPPeekWatchPane(self, fresh);
+            pane = fresh;
+        }
+    }
+    NSRect frame = pane && pane.window == self.window && !pane.isHiddenOrHasHiddenAncestor
+        ? NSIntersectionRect([root convertRect:pane.bounds fromView:pane], root.bounds)
+        : root.bounds;
+    if (NSIsEmptyRect(frame)) frame = root.bounds;
     if (NSEqualRects(frame, self.frame)) return;
     NSAnimationContext *dia = NSAnimationContext.currentContext;
     if (!dia.timingFunction) return (void)(self.frame = frame);
@@ -91,6 +112,18 @@ static NSRect DPPeekCardRect(NSRect area) { return NSInsetRect(area, NSWidth(are
     }];
 }
 
+- (NSView *)hitTest:(NSPoint)point {
+    NSView *hit = [super hitTest:point];
+    if (!hit || hit == self.clip || [hit isDescendantOf:self.clip] || hit == self.controls || [hit isDescendantOf:self.controls]) return hit;
+    return DPPeekAllowsPaneClick(self, point) ? nil : hit;
+}
+
+- (void)setHidden:(BOOL)hidden {
+    BOOL was = self.isHidden;
+    [super setHidden:hidden];
+    if (was != hidden) DPPeekChatVisibilityDidChange(self);
+}
+
 - (void)mouseDown:(NSEvent *)event { [self close:DPPeekClose]; }
 - (void)rightMouseDown:(NSEvent *)event {}
 - (void)scrollWheel:(NSEvent *)event {}
@@ -99,8 +132,9 @@ static NSRect DPPeekCardRect(NSRect area) { return NSInsetRect(area, NSWidth(are
 - (BOOL)stopWatching {
     if (self.closing) return NO;
     self.closing = YES;
+    DPPeekChatDetach(self);
     if (self.monitor) [NSEvent removeMonitor:self.monitor];
-    if (self.paneObserver) [NSNotificationCenter.defaultCenter removeObserver:self.paneObserver];
+    DPPeekUnwatchPane(self.paneObserver);
     self.monitor = self.paneObserver = nil;
     self.controls.alphaValue = 0;
     DPPeekHideTabBadge(self);
@@ -118,7 +152,7 @@ static NSRect DPPeekCardRect(NSRect area) { return NSInsetRect(area, NSWidth(are
 
 - (void)dealloc {
     if (_monitor) [NSEvent removeMonitor:_monitor];
-    if (_paneObserver) [NSNotificationCenter.defaultCenter removeObserver:_paneObserver];
+    DPPeekUnwatchPane(_paneObserver);
     [self stopMotion];
 }
 
@@ -220,6 +254,7 @@ DPPeekCard *DPPeekShowCard(NSWindow *window, id<DPPeekPage> page, NSView *warmHo
     DPPeekCard *peek = [[DPPeekCard alloc] initWithFrame:pane ? [holder convertRect:pane.bounds fromView:pane] : holder.bounds];
     peek.autoresizingMask = pane ? NSViewNotSizable : NSViewWidthSizable | NSViewHeightSizable;
     peek.originWindow = window;
+    peek.pane = pane;
     peek.page = page;
     peek.host = host;
     peek.dim = DPLayerView(NSView.class);

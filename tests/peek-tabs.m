@@ -197,6 +197,8 @@ NSButton *DPMakeBarButton(NSString *symbol, NSString *label, NSString *key, void
 #import "Patches/Peek/Motion.m"
 #import "Patches/Peek/Keys.m"
 #import "Patches/Peek/Visibility.m"
+#import "Patches/Peek/Chat.m"
+#import "Patches/Peek/ChatContext.m"
 #import "Patches/Peek/Card.m"
 #import "Patches/Peek/Pages.m"
 #import "Patches/Peek/Zoom.m"

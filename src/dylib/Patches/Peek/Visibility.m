@@ -23,20 +23,20 @@ NSView *DPPeekPane(NSWindow *window, NSRect area) {
 }
 
 NSView *DPPeekHolder(NSWindow *window, NSView *pane) {
+    NSView *chatHolder = DPPeekChatHolder(window, pane);
+    if (chatHolder) return chatHolder;
     for (NSView *view = pane; view && view != window.contentView; view = view.superview)
         if (view.layer.cornerRadius > 0 && view.layer.masksToBounds) return view;
     return window.contentView;
 }
 
 void DPPeekWatchPane(DPPeekCard *peek, NSView *pane) {
-    if (peek.paneObserver) [NSNotificationCenter.defaultCenter removeObserver:peek.paneObserver];
+    DPPeekUnwatchPane(peek.paneObserver);
     peek.paneObserver = nil;
     peek.pane = pane;
     if (!pane) return;
-    pane.postsFrameChangedNotifications = YES;
-    __weak DPPeekCard *weak = peek;
-    peek.paneObserver = [NSNotificationCenter.defaultCenter addObserverForName:NSViewFrameDidChangeNotification object:pane queue:nil
-                                                                    usingBlock:^(NSNotification *note) { [weak followPane]; }];
+    peek.paneObserver = DPPeekWatchPaneAncestors(peek, pane, peek.superview);
+    peek.needsLayout = YES;
 }
 
 @implementation DPPeekCard (Visibility)
@@ -91,7 +91,8 @@ void DPPeekWatchPane(DPPeekCard *peek, NSView *pane) {
         [holder addSubview:self positioned:NSWindowAbove relativeTo:nil];
         self.reparenting = NO;
     }
-    self.frame = pane ? [holder convertRect:pane.bounds fromView:pane] : holder.bounds;
+    NSRect frame = pane ? NSIntersectionRect([holder convertRect:pane.bounds fromView:pane], holder.bounds) : holder.bounds;
+    self.frame = NSIsEmptyRect(frame) ? holder.bounds : frame;
     self.autoresizingMask = pane ? NSViewNotSizable : NSViewWidthSizable | NSViewHeightSizable;
     DPPeekWatchPane(self, pane);
     [self stopMotion];
@@ -106,10 +107,13 @@ void DPPeekWatchPane(DPPeekCard *peek, NSView *pane) {
     dispatch_async(dispatch_get_main_queue(), ^{
         DPPeekCard *peek = weak;
         NSWindow *win = peek.window;
-        if (!win.isKeyWindow || peek.closing || peek.isHiddenOrHasHiddenAncestor || DPPeekCardIn(win) != peek) return;
+        if (!win || peek.closing || peek.isHiddenOrHasHiddenAncestor || DPPeekCardIn(win) != peek) return;
+        [peek followPane];
+        if (!win.isKeyWindow) return;
         NSResponder *current = win.firstResponder;
         if ([current isKindOfClass:NSView.class] && [(NSView *)current isDescendantOf:peek]) return;
         if ([current isKindOfClass:NSText.class]) return;
+        if (DPPeekResponderInChat(current)) return;
         BOOL defaultFocus = !current || current == win || DPIsKind(current, DPDiaRenderWidget)
             || ([current isKindOfClass:NSView.class] && peek.pane && [(NSView *)current isDescendantOf:peek.pane]);
         if (!defaultFocus) return;

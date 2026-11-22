@@ -149,6 +149,7 @@ static void DPInstallPeek(void) {
     DPPeekInstallSelection();
     DPPeekInstallZoom();
     DPPeekInstallCursor();
+    DPPeekInstallChat();
     DPOnLaunch(^{
         DPHook(DPDiaWebContent, @selector(webContents:didCreateNewWebContent:targetURL:disposition:), (IMP)DPWebContent_didCreate);
         DPHook(DPDiaWebContent, @selector(webContents:decidePolicyForNavigationAction:), (IMP)DPWebContent_decidePolicy);

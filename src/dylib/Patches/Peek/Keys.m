@@ -46,11 +46,13 @@ NSEvent *DPPeekHandleKeyEvent(DPPeekCard *peek, NSEvent *event) {
     NSEventModifierFlags mods = event.modifierFlags & NSEventModifierFlagDeviceIndependentFlagsMask & ~(NSEventModifierFlagCapsLock | NSEventModifierFlagNumericPad);
     // A page's field is not an NSText; Escape there must cancel an input method's composition, not close the card.
     id responder = peek.window.firstResponder;
+    if (DPPeekResponderInChat(responder)) return event;
     BOOL command = mods == NSEventModifierFlagCommand, control = mods == NSEventModifierFlagControl;
     BOOL editing = [responder isKindOfClass:NSText.class] || ([responder conformsToProtocol:@protocol(NSTextInputClient)] && [responder hasMarkedText]);
     BOOL onPage = [responder isKindOfClass:NSView.class] && [(NSView *)responder isDescendantOf:peek.host];
     if (DPPeekCopyURL(peek, event) || DPPeekZoomShortcut(peek, event) || DPPeekFindShortcut(peek, event, mods)) return nil;
     if (onPage && DPPeekPageShortcut(peek, event, mods, responder)) return nil;
+    if (DPPeekChatShortcut(peek, event, mods)) return nil;
     if (command && DPEventIsKey(event, @"o")) [peek close:DPPeekTab];
     else if (command && peek.toolbar && DPEventIsKey(event, @"[")) DPPeekNavigate(peek.page, DPPeekBack);
     else if (command && peek.toolbar && DPEventIsKey(event, @"]")) DPPeekNavigate(peek.page, DPPeekForward);

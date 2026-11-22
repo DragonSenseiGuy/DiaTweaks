@@ -70,6 +70,7 @@ NSURL *DPPeekSearchURL(id page, NSString *text) {
 }
 
 BOOL DPPeekGiving;
+BOOL DPPeekFindingLink;
 
 static BOOL DPPeekGive(id page, id delegate, id source, NSURL *url, DPPeekExit exit) {
     SEL adopt = @selector(webContents:didCreateNewWebContent:targetURL:disposition:);
@@ -132,7 +133,9 @@ static void DPPeekFindLink(NSWindow *window, id source, NSPoint origin, NSView *
         }
         dispatch_async(dispatch_get_main_queue(), ^{ finish(link); });
     };
+    DPPeekFindingLink = YES;
     ((void (*)(id, SEL, NSString *, id))objc_msgSend)(source, @selector(executeJavascript:completion:), script, answer);
+    DPPeekFindingLink = NO;
 }
 
 static id DPPeekMakePage(NSWindow *window, id source, void (^attach)(id page)) {
@@ -197,6 +200,7 @@ static void DPPeekOpenFrom(NSWindow *window, NSString *originTabID, NSURL *url, 
     peek.originTabID = originTabID;
     peek.sourceDelegate = delegate;
     peek.source = source;
+    DPPeekChatAttach(peek);
     DPPeekShowTabBadge(peek, source);
 }
 

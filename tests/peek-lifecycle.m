@@ -137,6 +137,8 @@ void DPDrawProgressShader(CAMetalLayer *layer, CGFloat progress, CGFloat cycle, 
 #import "Patches/Peek/Motion.m"
 #import "Patches/Peek/Keys.m"
 #import "Patches/Peek/Visibility.m"
+#import "Patches/Peek/Chat.m"
+#import "Patches/Peek/ChatContext.m"
 #import "Patches/Peek/Card.m"
 #import "Patches/Peek/Pages.m"
 #import "Patches/Peek/Zoom.m"

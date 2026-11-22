@@ -161,13 +161,17 @@ build/passkeys-origin: tests/passkeys-origin.m src/diapatch/Passkeys.m src/diapa
 build/app-icon-signing: tests/app-icon-signing.m src/diapatch/AppIcon.m src/diapatch/IconCatalog.m src/diapatch/AppIcon.h src/diapatch/IconCatalog.h | build
 	clang $(CFLAGS) -fsanitize=address,undefined -fno-sanitize-recover=all -Isrc -framework Foundation -framework CoreGraphics -framework Security -o $@ tests/app-icon-signing.m src/diapatch/AppIcon.m src/diapatch/IconCatalog.m
 
-PEEK_LIFE := $(addprefix src/dylib/Patches/Peek/,Peek.h Glow.m Tab.m Selection.m Motion.m Keys.m Visibility.m Card.m Pages.m Zoom.m DragLinks.m)
+PEEK_LIFE := $(addprefix src/dylib/Patches/Peek/,Peek.h Glow.m Tab.m Selection.m Motion.m Keys.m Visibility.m Chat.m ChatContext.m Card.m Pages.m Zoom.m DragLinks.m)
 build/peek-lifecycle: tests/peek-lifecycle.m $(PEEK_LIFE) src/dylib/StdPatch/Hook.m src/dylib/StdPatch/Views.m $(wildcard src/dylib/StdPatch/*.h) | build
 	clang $(CFLAGS) -fsanitize=address,undefined -fno-sanitize-recover=all -Isrc/dylib -framework AppKit -framework QuartzCore -o $@ tests/peek-lifecycle.m src/dylib/StdPatch/Hook.m src/dylib/StdPatch/Views.m
 
-PEEK_TABS := $(addprefix src/dylib/Patches/Peek/,Peek.h Controls.m Address.m Find.m Tab.m Selection.m Motion.m Keys.m Visibility.m Card.m Pages.m Zoom.m)
+PEEK_TABS := $(addprefix src/dylib/Patches/Peek/,Peek.h Controls.m Address.m Find.m Tab.m Selection.m Motion.m Keys.m Visibility.m Chat.m ChatContext.m Card.m Pages.m Zoom.m)
 build/peek-tabs: tests/peek-tabs.m $(PEEK_TABS) src/dylib/StdPatch/Hook.m src/dylib/StdPatch/Views.m $(wildcard src/dylib/StdPatch/*.h) | build
 	clang $(CFLAGS) -fsanitize=address,undefined -fno-sanitize-recover=all -Isrc/dylib -framework AppKit -framework QuartzCore -o $@ tests/peek-tabs.m src/dylib/StdPatch/Hook.m src/dylib/StdPatch/Views.m
+
+PEEK_CHAT := $(addprefix src/dylib/Patches/Peek/,Peek.h Chat.m ChatContext.m Keys.m Visibility.m Selection.m Card.m Pages.m Motion.m Tab.m)
+build/peek-chat: tests/peek-chat.m $(PEEK_CHAT) src/dylib/StdPatch/Hook.m src/dylib/StdPatch/Views.m $(wildcard src/dylib/StdPatch/*.h) | build
+	clang $(CFLAGS) -fsanitize=address,undefined -fno-sanitize-recover=all -Isrc/dylib -framework AppKit -framework QuartzCore -o $@ tests/peek-chat.m src/dylib/StdPatch/Hook.m src/dylib/StdPatch/Views.m
 
 HIDE_TOOLBAR_OFF := $(addprefix $(HIDE_TOOLBAR_DIR)/,HideToolbar.h HideToolbar.m Layout.m Hover.m Permission.m PlainTab.m ProgressLine.m ProgressColors.m LoadingProgress.m)
 build/hide-toolbar-off: tests/hide-toolbar-off.m $(HIDE_TOOLBAR_OFF) src/dylib/StdPatch/Hook.m src/dylib/StdPatch/Views.m $(wildcard src/dylib/StdPatch/*.h) | build
@@ -202,7 +206,7 @@ UNLOAD_TAB := src/dylib/Patches/UnloadTab/UnloadTab.m src/dylib/Patches/UnloadTa
 build/unload-tab: tests/unload-tab.m $(UNLOAD_TAB) $(wildcard src/dylib/Patches/UnloadTab/*.h src/dylib/Patches/PinnedTabCloseButton/PinnedTabs.h src/dylib/Patches/CommandBar/Tabs.h src/dylib/Commands/GroupTabs/GroupTabs.h src/dylib/StdPatch/*.h) | build
 	clang $(CFLAGS) -fsanitize=address,undefined -fno-sanitize-recover=all -Isrc/dylib -framework AppKit -framework QuartzCore -o $@ tests/unload-tab.m $(UNLOAD_TAB)
 
-check: build/diapatch build/diapatch-tests build/group-tabs build/mouse-back-forward build/vertical-tab-glow build/split-client-hello build/peek-cursor build/peek-link build/peek-tabs build/safe-mode build/pause build/hook-table build/updates-runtime build/runtime-guards build/tidy-tabs build/drag-offset build/small-tab-shape build/toolbar-permission build/launch-flags build/little-dia-stack build/little-dia-profile build/little-dia-over build/little-dia-focus build/tracking build/hide-toolbar-settle build/command-bar-swap build/command-bar-spare build/tab-titles build/show-address-field build/hide-chat-button build/hide-connect-app-prompt build/open-sidebar-instantly build/native-messaging build/diapatch-passkeys build/passkeys-origin build/app-icon-signing build/little-dia-route build/chat-card build/peek-lifecycle build/hide-toolbar-off build/command-bar-lifecycle build/window-patches build/pinned-tab-close-button build/sidebar-tab-bugs build/unload-tab build/patches.json
+check: build/diapatch build/diapatch-tests build/group-tabs build/mouse-back-forward build/vertical-tab-glow build/split-client-hello build/peek-cursor build/peek-link build/peek-tabs build/peek-chat build/safe-mode build/pause build/hook-table build/updates-runtime build/runtime-guards build/tidy-tabs build/drag-offset build/small-tab-shape build/toolbar-permission build/launch-flags build/little-dia-stack build/little-dia-profile build/little-dia-over build/little-dia-focus build/tracking build/hide-toolbar-settle build/command-bar-swap build/command-bar-spare build/tab-titles build/show-address-field build/hide-chat-button build/hide-connect-app-prompt build/open-sidebar-instantly build/native-messaging build/diapatch-passkeys build/passkeys-origin build/app-icon-signing build/little-dia-route build/chat-card build/peek-lifecycle build/hide-toolbar-off build/command-bar-lifecycle build/window-patches build/pinned-tab-close-button build/sidebar-tab-bugs build/unload-tab build/patches.json
 	tests/tweaks-update
 	build/diapatch-tests
 	build/group-tabs
@@ -214,6 +218,7 @@ check: build/diapatch build/diapatch-tests build/group-tabs build/mouse-back-for
 	build/peek-link
 	build/peek-lifecycle
 	build/peek-tabs
+	build/peek-chat
 	build/safe-mode
 	build/pause
 	build/hook-table

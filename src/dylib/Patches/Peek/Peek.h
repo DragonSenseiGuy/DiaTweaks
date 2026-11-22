@@ -21,7 +21,7 @@ enum { DPIgnoreAction = 0, DPCurrentTab = 1, DPForegroundTab = 2, DPBackgroundTa
 @property (nonatomic, copy) NSString *originTabID;
 @property (nonatomic, weak) NSWindow *originWindow;
 @property (nonatomic, weak) NSView *pane;
-@property (nonatomic, strong) id paneObserver, monitor;
+@property (nonatomic, strong) id paneObserver, monitor, chatBridge;
 @property (nonatomic) NSRect link;
 @property (nonatomic) CGFloat grown;
 @property (nonatomic) BOOL closing, hadSource;
@@ -113,6 +113,20 @@ BOOL DPPeekShowsToolbar(void);
 NSArray<NSView *> *DPPeekSettingsRows(void);
 
 extern BOOL DPPeekGiving;
+extern BOOL DPPeekFindingLink;
+
+void DPPeekInstallChat(void);
+void DPPeekInstallChatContext(void);
+void DPPeekChatAttach(DPPeekCard *peek);
+void DPPeekChatDetach(DPPeekCard *peek);
+void DPPeekChatVisibilityDidChange(DPPeekCard *peek);
+NSView *DPPeekChatHolder(NSWindow *window, NSView *pane);
+NSArray *DPPeekWatchPaneAncestors(DPPeekCard *peek, NSView *pane, NSView *holder);
+void DPPeekUnwatchPane(id observer);
+BOOL DPPeekAllowsPaneClick(DPPeekCard *peek, NSPoint pointInSuperview);
+NSRect DPPeekControlsFrame(DPPeekCard *peek, NSRect controlsFrame);
+BOOL DPPeekResponderInChat(id responder);
+BOOL DPPeekChatShortcut(DPPeekCard *peek, NSEvent *event, NSEventModifierFlags mods);
 
 void DPPeekInstallPages(void);
 BOOL DPPeekCanOpen(id source);
